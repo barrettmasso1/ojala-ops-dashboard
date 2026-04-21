@@ -37,3 +37,8 @@
 - [x] Replace opening stock yes-no checks for cups, lids, and spoons with count-based inputs while removing the toppings question entirely
 - [x] Update the end-of-day report to capture 4oz, 8oz, Pint, and Liter sales as Here and To Go counts in a compact side-by-side layout
 - [x] Ensure the revised stock-count and here-versus-to-go fields can support future inventory and sales reconciliation
+- [x] Remove the extra instructional copy from the employee forms so the interface stays concise
+- [x] Delete the redundant dropdown question from the opening checklist form
+- [x] Remove the extra instructional copy from the employee forms so the interface stays concise
+- [x] Delete the lower duplicate dropdown shown beneath the opening and closing final Yes/No confirmation controls
+- [x] Extend the Here-and-To Go cup-count section to full width in the end-of-day report and place Cash below it

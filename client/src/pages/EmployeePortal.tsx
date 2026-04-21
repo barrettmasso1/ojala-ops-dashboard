@@ -169,7 +169,7 @@ function SectionCard({
         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#ece4d7] text-[#5d544a]">{icon}</div>
         <div>
           <h2 className="text-2xl font-medium tracking-[-0.04em] text-[#2d2925]">{title}</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-7 text-[#6b6258]">{description}</p>
+          {description ? <p className="mt-2 max-w-2xl text-sm leading-7 text-[#6b6258]">{description}</p> : null}
         </div>
       </div>
       {children}
@@ -192,7 +192,7 @@ function inputClassName() {
 }
 
 function smallInputClassName() {
-  return "h-10 rounded-xl border border-[#dbd2c5] bg-[#fcfaf6] px-3 text-sm text-[#2f2a26] shadow-sm outline-none transition focus:border-[#5b5045] focus:ring-4 focus:ring-[#5b5045]/10";
+  return "h-10 w-full rounded-xl border border-[#dbd2c5] bg-[#fcfaf6] px-3 text-sm text-[#2f2a26] shadow-sm outline-none transition focus:border-[#5b5045] focus:ring-4 focus:ring-[#5b5045]/10";
 }
 
 function textareaClassName() {
@@ -373,12 +373,10 @@ export default function EmployeePortal() {
               <div className="rounded-[1.75rem] border border-[#e5ddd0] bg-[#f9f4ec] p-6">
                 <div className="flex items-center gap-3 text-[#5d544a]">
                   <Sparkles className="h-5 w-5" />
-                  <p className="text-sm font-medium uppercase tracking-[0.24em]">Submission guidance</p>
+                  <p className="text-sm font-medium uppercase tracking-[0.24em]">Daily workflow</p>
                 </div>
                 <div className="mt-4 space-y-4 text-sm leading-7 text-[#6b6258]">
-                  <p>Use <strong>Yes</strong> or <strong>No</strong> to confirm each required action. Because the forms default to <strong>No</strong>, every completed step requires an active decision.</p>
-                  <p>Opening now captures counted stock for cups, lids, and spoons so morning inventory can be reconciled later against what was sold.</p>
-                  <p>End-of-day cup counts are split into <strong>Here</strong> and <strong>To Go</strong> without making the form longer vertically.</p>
+                  <p>Move through inventory, opening, closing, and reporting from one place designed to feel consistent with the rest of Ojalá.</p>
                 </div>
               </div>
             </div>
@@ -463,7 +461,7 @@ export default function EmployeePortal() {
             id="opening"
             icon={<ClipboardCheck className="h-5 w-5" />}
             title="Ojalá Opening Checklist"
-            description="Confirm each opening action explicitly and record starting stock counts so the day begins with verified readiness and measurable inventory."
+            description=""
           >
             <form
               className="grid gap-6"
@@ -510,12 +508,9 @@ export default function EmployeePortal() {
               </div>
 
               <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#f7f0e7] p-5">
-                <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">Counted stock at opening</p>
-                    <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">Cups, lids, and spoons</h3>
-                  </div>
-                  <p className="max-w-2xl text-sm leading-7 text-[#6b6258]">These counts replace the old yes-or-no stock prompts for cups, lids, and spoons. Napkins remain in the checklist below.</p>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">Counted stock at opening</p>
+                  <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">Cups, lids, and spoons</h3>
                 </div>
                 <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {openingStockFields.map(field => (
@@ -562,15 +557,11 @@ export default function EmployeePortal() {
               ))}
 
               <div className="grid gap-5 md:grid-cols-2">
-                <Field label="Store ready to open">
-                  <select className={inputClassName()} value={openingForm.storeReadyToOpen} onChange={event => setOpeningForm(current => ({ ...current, storeReadyToOpen: event.target.value as YesNo }))}>
-                    <option value="No">No</option>
-                    <option value="Yes">Yes</option>
-                  </select>
-                </Field>
-                <Field label="Notes / issues">
-                  <textarea className={textareaClassName()} value={openingForm.notes} onChange={event => setOpeningForm(current => ({ ...current, notes: event.target.value }))} />
-                </Field>
+                <div className="md:col-span-2">
+                  <Field label="Notes / issues">
+                    <textarea className={textareaClassName()} value={openingForm.notes} onChange={event => setOpeningForm(current => ({ ...current, notes: event.target.value }))} />
+                  </Field>
+                </div>
               </div>
 
               <div className="flex justify-end">
@@ -585,7 +576,7 @@ export default function EmployeePortal() {
             id="closing"
             icon={<MoonStar className="h-5 w-5" />}
             title="Ojalá Closing Checklist"
-            description="Use clear yes-or-no confirmations to verify the close instead of leaving room for ambiguity."
+            description=""
           >
             <form
               className="grid gap-6"
@@ -655,7 +646,7 @@ export default function EmployeePortal() {
             id="end-of-day"
             icon={<ReceiptText className="h-5 w-5" />}
             title="End-of-Day Report"
-            description="Capture the structured sales picture for the day with fixed payment labels and compact Here-versus-To Go counts for each cup size."
+            description=""
           >
             <form
               className="grid gap-5 md:grid-cols-2 xl:grid-cols-4"
@@ -696,25 +687,19 @@ export default function EmployeePortal() {
               <Field label="Staff Name">
                 <input className={inputClassName()} value={endOfDayForm.staffName} onChange={event => setEndOfDayForm(current => ({ ...current, staffName: event.target.value }))} />
               </Field>
-              <div className="rounded-2xl border border-[#e5ddd0] bg-[#f8f2e8] px-4 py-3 text-sm leading-7 text-[#6a6158] xl:col-span-1">
-                Payment labels stay fixed as <strong>Cash</strong>, <strong>Card</strong>, <strong>Zelle</strong>, and <strong>Venmo</strong>.
-              </div>
 
-              <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] p-5 xl:col-span-4">
-                <div className="flex items-center justify-between gap-4">
+              <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] p-5 md:col-span-2 xl:col-span-4">
+                <div className="grid gap-4 md:grid-cols-[minmax(120px,180px)_minmax(0,1fr)_minmax(0,1fr)] md:items-end">
                   <div>
                     <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">Cup counts sold</p>
                     <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">Here and To Go</h3>
                   </div>
-                  <div className="grid grid-cols-[minmax(0,1fr)_88px_88px] items-center gap-3 text-xs uppercase tracking-[0.22em] text-[#8a8176]">
-                    <span />
-                    <span className="text-center">Here</span>
-                    <span className="text-center">To Go</span>
-                  </div>
+                  <span className="text-sm font-medium uppercase tracking-[0.22em] text-[#8a8176] md:text-center">Here</span>
+                  <span className="text-sm font-medium uppercase tracking-[0.22em] text-[#8a8176] md:text-center">To Go</span>
                 </div>
                 <div className="mt-5 space-y-3">
                   {endOfDayCupRows.map(row => (
-                    <div key={row.label} className="grid grid-cols-[minmax(0,1fr)_88px_88px] items-center gap-3 rounded-2xl border border-[#eadfce] bg-white/80 p-3">
+                    <div key={row.label} className="grid gap-3 rounded-2xl border border-[#eadfce] bg-white/80 p-3 md:grid-cols-[minmax(120px,180px)_minmax(0,1fr)_minmax(0,1fr)] md:items-center">
                       <span className="text-sm font-medium text-[#2f2a26]">{row.label}</span>
                       <input
                         className={smallInputClassName()}
@@ -737,7 +722,7 @@ export default function EmployeePortal() {
                 </div>
               </div>
 
-              <Field label="Cash"><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.cashTotal} onChange={event => setEndOfDayForm(current => ({ ...current, cashTotal: event.target.value }))} /></Field>
+              <div className="md:col-span-2 xl:col-span-4"><Field label="Cash"><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.cashTotal} onChange={event => setEndOfDayForm(current => ({ ...current, cashTotal: event.target.value }))} /></Field></div>
               <Field label="Card"><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.cardTotal} onChange={event => setEndOfDayForm(current => ({ ...current, cardTotal: event.target.value }))} /></Field>
               <Field label="Zelle"><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.zelleTotal} onChange={event => setEndOfDayForm(current => ({ ...current, zelleTotal: event.target.value }))} /></Field>
               <Field label="Venmo"><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.venmoTotal} onChange={event => setEndOfDayForm(current => ({ ...current, venmoTotal: event.target.value }))} /></Field>
