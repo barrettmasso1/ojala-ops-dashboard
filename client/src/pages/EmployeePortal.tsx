@@ -448,7 +448,7 @@ export default function EmployeePortal() {
                             }
                           />
                         </Field>
-                        <div className="flex justify-end">
+                        <div className="flex w-full">
                           <button
                             type="button"
                             onClick={() =>
@@ -458,7 +458,7 @@ export default function EmployeePortal() {
                                 notes: current.notes,
                               })
                             }
-                            className="rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]"
+                            className="w-full rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]"
                           >
                             Save inventory update
                           </button>
@@ -599,8 +599,8 @@ export default function EmployeePortal() {
                 </div>
               </div>
 
-              <div className="flex justify-end">
-                <button disabled={openingMutation.isPending} className="rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
+              <div className="flex w-full">
+                <button disabled={openingMutation.isPending} className="w-full rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
                   {openingMutation.isPending ? "Submitting..." : "Submit Opening Checklist"}
                 </button>
               </div>
@@ -669,8 +669,8 @@ export default function EmployeePortal() {
                 <textarea className={textareaClassName()} value={closingForm.notes} onChange={event => setClosingForm(current => ({ ...current, notes: event.target.value }))} />
               </Field>
 
-              <div className="flex justify-end">
-                <button disabled={closingMutation.isPending} className="rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
+              <div className="flex w-full">
+                <button disabled={closingMutation.isPending} className="w-full rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
                   {closingMutation.isPending ? "Submitting..." : "Submit Closing Checklist"}
                 </button>
               </div>
@@ -768,7 +768,7 @@ export default function EmployeePortal() {
               <Field label="Waste Notes"><textarea className={textareaClassName()} value={endOfDayForm.wasteNotes} onChange={event => setEndOfDayForm(current => ({ ...current, wasteNotes: event.target.value }))} /></Field>
               <div className="xl:col-span-2"><Field label="Low-Item Notes"><textarea className={textareaClassName()} value={endOfDayForm.lowItemNotes} onChange={event => setEndOfDayForm(current => ({ ...current, lowItemNotes: event.target.value }))} /></Field></div>
               <div className="xl:col-span-4"><Field label="General Notes"><textarea className={textareaClassName()} value={endOfDayForm.generalNotes} onChange={event => setEndOfDayForm(current => ({ ...current, generalNotes: event.target.value }))} /></Field></div>
-              <div className="xl:col-span-4 flex justify-center">
+              <div className="xl:col-span-4 flex w-full">
                 <button disabled={endOfDayMutation.isPending} className="w-full rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
                   {endOfDayMutation.isPending ? "Submitting..." : "Submit End-of-Day Report"}
                 </button>

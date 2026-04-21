@@ -48,3 +48,4 @@
 - [x] Add a Total Sales field to the left of Waste Notes in the end-of-day form
 - [x] Center the Submit End-of-Day Report button and make it full width
 - [x] Move Napkins stocked into the counted stock area beside Spoons stocked in the Opening Section Setup and render it as a Yes/No dropdown
+- [x] Make the submission buttons at the bottom of all employee forms full width so they match the form width consistently
