@@ -1,8 +1,10 @@
 import { desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
+  checklistQuestions,
   closingChecklists,
   endOfDayReports,
+  InsertChecklistQuestion,
   InsertClosingChecklist,
   InsertEndOfDayReport,
   InsertOpeningChecklist,
@@ -33,6 +35,34 @@ function getWeekStart(dateString: string) {
   date.setUTCDate(date.getUTCDate() + diff);
   return date.toISOString().slice(0, 10);
 }
+
+const defaultChecklistQuestions: Array<InsertChecklistQuestion> = [
+  { checklistType: "opening", sectionTitle: "Equipment", prompt: "Freezers ON and cold", detailPrompt: "If no, what is wrong?", detailTrigger: "No", displayOrder: 1, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Equipment", prompt: "Display freezer stocked", detailPrompt: "If no, what needs to be stocked?", detailTrigger: "No", displayOrder: 2, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Equipment", prompt: "Gelato texture checked", detailPrompt: "If no, what texture issue did you notice?", detailTrigger: "No", displayOrder: 3, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Equipment", prompt: "Machines running properly", detailPrompt: "If no, describe the issue.", detailTrigger: "No", displayOrder: 4, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Cleanliness", prompt: "Counters clean", detailPrompt: "If no, what still needs to be cleaned?", detailTrigger: "No", displayOrder: 5, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Cleanliness", prompt: "Floors clean", detailPrompt: "If no, what still needs attention?", detailTrigger: "No", displayOrder: 6, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Cleanliness", prompt: "Sink clean", detailPrompt: "If no, what still needs attention?", detailTrigger: "No", displayOrder: 7, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Cleanliness", prompt: "Trash emptied", detailPrompt: "If no, explain why.", detailTrigger: "No", displayOrder: 8, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Setup", prompt: "Cups stocked", detailPrompt: "If no, what is missing?", detailTrigger: "No", displayOrder: 9, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Setup", prompt: "Lids stocked", detailPrompt: "If no, what is missing?", detailTrigger: "No", displayOrder: 10, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Setup", prompt: "Spoons stocked", detailPrompt: "If no, what is missing?", detailTrigger: "No", displayOrder: 11, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Setup", prompt: "Napkins stocked", detailPrompt: "If no, what is missing?", detailTrigger: "No", displayOrder: 12, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Setup", prompt: "Toppings filled", detailPrompt: "If no, what needs refilling?", detailTrigger: "No", displayOrder: 13, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Employee Preparation", prompt: "Employee ready for work", detailPrompt: "If no, explain what is incomplete.", detailTrigger: "No", displayOrder: 14, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Employee Preparation", prompt: "Shirt clean and ironed", detailPrompt: "If no, explain the issue.", detailTrigger: "No", displayOrder: 15, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Employee Preparation", prompt: "Specified uniform worn correctly", detailPrompt: "If no, explain the issue.", detailTrigger: "No", displayOrder: 16, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Employee Preparation", prompt: "Presentation clean and professional", detailPrompt: "If no, explain the issue.", detailTrigger: "No", displayOrder: 17, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Final", prompt: "Store ready to open", detailPrompt: "If no, what is still pending?", detailTrigger: "No", displayOrder: 18, isActive: 1 },
+  { checklistType: "closing", sectionTitle: "Cleaning", prompt: "Counters cleaned", detailPrompt: "If no, what remains?", detailTrigger: "No", displayOrder: 1, isActive: 1 },
+  { checklistType: "closing", sectionTitle: "Cleaning", prompt: "Floors cleaned", detailPrompt: "If no, what remains?", detailTrigger: "No", displayOrder: 2, isActive: 1 },
+  { checklistType: "closing", sectionTitle: "Cleaning", prompt: "Utensils washed", detailPrompt: "If no, what remains?", detailTrigger: "No", displayOrder: 3, isActive: 1 },
+  { checklistType: "closing", sectionTitle: "Cleaning", prompt: "Trash taken out", detailPrompt: "If no, explain why.", detailTrigger: "No", displayOrder: 4, isActive: 1 },
+  { checklistType: "closing", sectionTitle: "Product", prompt: "Gelato stored properly", detailPrompt: "If no, explain the issue.", detailTrigger: "No", displayOrder: 5, isActive: 1 },
+  { checklistType: "closing", sectionTitle: "Product", prompt: "Freezers closed and working", detailPrompt: "If no, explain the issue.", detailTrigger: "No", displayOrder: 6, isActive: 1 },
+  { checklistType: "closing", sectionTitle: "Final", prompt: "Store closed properly", detailPrompt: "If no, explain the issue.", detailTrigger: "No", displayOrder: 7, isActive: 1 },
+];
 
 function calculateOpeningCompletion(entry: {
   staffName: string;
@@ -363,6 +393,84 @@ export async function createEndOfDayReport(input: InsertEndOfDayReport) {
   return values;
 }
 
+export async function listChecklistQuestions(checklistType: "opening" | "closing") {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const existing = await db
+    .select()
+    .from(checklistQuestions)
+    .where(eq(checklistQuestions.checklistType, checklistType))
+    .orderBy(checklistQuestions.displayOrder, checklistQuestions.id);
+
+  if (existing.length > 0) {
+    return existing.filter(item => item.isActive === 1);
+  }
+
+  const defaults = defaultChecklistQuestions.filter(item => item.checklistType === checklistType);
+  if (defaults.length > 0) {
+    await db.insert(checklistQuestions).values(defaults);
+  }
+
+  return db
+    .select()
+    .from(checklistQuestions)
+    .where(eq(checklistQuestions.checklistType, checklistType))
+    .orderBy(checklistQuestions.displayOrder, checklistQuestions.id);
+}
+
+export async function saveChecklistQuestion(input: {
+  id?: number;
+  checklistType: "opening" | "closing";
+  sectionTitle: string;
+  prompt: string;
+  detailPrompt?: string;
+  detailTrigger: "Yes" | "No" | "Never";
+  displayOrder: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  if (input.id) {
+    await db
+      .update(checklistQuestions)
+      .set({
+        checklistType: input.checklistType,
+        sectionTitle: input.sectionTitle,
+        prompt: input.prompt,
+        detailPrompt: input.detailPrompt ?? "",
+        detailTrigger: input.detailTrigger,
+        displayOrder: input.displayOrder,
+        isActive: 1,
+      })
+      .where(eq(checklistQuestions.id, input.id));
+
+    const updated = await db.select().from(checklistQuestions).where(eq(checklistQuestions.id, input.id)).limit(1);
+    return updated[0];
+  }
+
+  const result = await db.insert(checklistQuestions).values({
+    checklistType: input.checklistType,
+    sectionTitle: input.sectionTitle,
+    prompt: input.prompt,
+    detailPrompt: input.detailPrompt ?? "",
+    detailTrigger: input.detailTrigger,
+    displayOrder: input.displayOrder,
+    isActive: 1,
+  });
+
+  const inserted = await db.select().from(checklistQuestions).where(eq(checklistQuestions.id, Number(result[0]?.insertId ?? 0))).limit(1);
+  return inserted[0];
+}
+
+export async function removeChecklistQuestion(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db.update(checklistQuestions).set({ isActive: 0 }).where(eq(checklistQuestions.id, id));
+  return { success: true } as const;
+}
+
 export async function listInventoryItems() {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -410,6 +518,32 @@ export async function saveInventoryItem(input: {
 
   const inserted = await db.select().from(inventoryItems).where(eq(inventoryItems.id, Number(result[0]?.insertId ?? 0))).limit(1);
   return inserted[0];
+}
+
+export async function updateInventoryCount(input: {
+  id: number;
+  currentQuantity: string;
+  notes?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const existing = await db.select().from(inventoryItems).where(eq(inventoryItems.id, input.id)).limit(1);
+  const current = existing[0];
+  if (!current) {
+    throw new Error("Inventory item not found");
+  }
+
+  await db
+    .update(inventoryItems)
+    .set({
+      currentQuantity: input.currentQuantity,
+      notes: input.notes ?? current.notes ?? "",
+    })
+    .where(eq(inventoryItems.id, input.id));
+
+  const updated = await db.select().from(inventoryItems).where(eq(inventoryItems.id, input.id)).limit(1);
+  return updated[0];
 }
 
 export async function getDailyOperationsSnapshot(businessDate?: string) {

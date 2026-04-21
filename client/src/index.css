@@ -4,8 +4,8 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-serif: "Cormorant Garamond", ui-serif, Georgia, serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-serif: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -46,20 +46,20 @@
 
 :root {
   --radius: 1.1rem;
-  --background: oklch(0.985 0.008 85.3);
-  --foreground: oklch(0.25 0.022 167.5);
-  --card: oklch(0.995 0.004 85.2);
-  --card-foreground: oklch(0.25 0.022 167.5);
-  --popover: oklch(0.995 0.004 85.2);
-  --popover-foreground: oklch(0.25 0.022 167.5);
-  --primary: oklch(0.48 0.05 168.1);
-  --primary-foreground: oklch(0.985 0.005 85.2);
-  --secondary: oklch(0.962 0.01 76.4);
-  --secondary-foreground: oklch(0.38 0.026 164.7);
-  --muted: oklch(0.965 0.007 81.6);
-  --muted-foreground: oklch(0.56 0.02 163.8);
-  --accent: oklch(0.945 0.018 74.1);
-  --accent-foreground: oklch(0.3 0.027 166.8);
+  --background: oklch(0.982 0.006 84.7);
+  --foreground: oklch(0.23 0.01 84.8);
+  --card: oklch(0.992 0.003 82.2);
+  --card-foreground: oklch(0.23 0.01 84.8);
+  --popover: oklch(0.992 0.003 82.2);
+  --popover-foreground: oklch(0.23 0.01 84.8);
+  --primary: oklch(0.34 0.02 36.2);
+  --primary-foreground: oklch(0.985 0.002 85.2);
+  --secondary: oklch(0.96 0.008 81.1);
+  --secondary-foreground: oklch(0.32 0.015 72.8);
+  --muted: oklch(0.965 0.006 82.5);
+  --muted-foreground: oklch(0.52 0.01 75.8);
+  --accent: oklch(0.945 0.012 74.4);
+  --accent-foreground: oklch(0.3 0.014 72.9);
   --destructive: oklch(0.64 0.19 27.4);
   --destructive-foreground: oklch(0.985 0 0);
   --border: oklch(0.9 0.012 79.6);
@@ -126,7 +126,8 @@
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
-    background-image: radial-gradient(circle at top, rgba(82, 102, 95, 0.08), transparent 26%);
+    background-image: radial-gradient(circle at top, rgba(255, 255, 255, 0.72), transparent 18%), linear-gradient(180deg, #f7f2eb 0%, #f4ede3 46%, #f8f4ed 100%);
+    letter-spacing: -0.01em;
   }
 
   h1,
@@ -135,6 +136,7 @@
   h4,
   .font-serif {
     font-family: var(--font-serif);
+    letter-spacing: -0.03em;
   }
 
   button:not(:disabled),
@@ -169,9 +171,9 @@
   }
 
   .soft-panel {
-    border: 1px solid rgba(255, 255, 255, 0.7);
-    background: rgba(255, 255, 255, 0.78);
-    box-shadow: 0 24px 70px rgba(88, 83, 72, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.78);
+    background: rgba(255, 255, 255, 0.84);
+    box-shadow: 0 22px 60px rgba(120, 104, 82, 0.08);
     backdrop-filter: blur(18px);
   }
 

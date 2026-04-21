@@ -13,19 +13,29 @@ import {
   getRecentNotes,
   getSalesTrend,
   getWeekOverWeekSales,
+  listChecklistQuestions,
   listInventoryItems,
+  removeChecklistQuestion,
+  saveChecklistQuestion,
   saveInventoryItem,
+  updateInventoryCount,
 } from "./db";
+
+const checklistAnswerSchema = z.object({
+  questionId: z.number().int().positive(),
+  sectionTitle: z.string().min(1),
+  prompt: z.string().min(1),
+  answer: z.enum(["Yes", "No"]),
+  detail: z.string().optional().default(""),
+});
 
 const openingChecklistSchema = z.object({
   businessDate: z.string().optional(),
   staffName: z.string().min(1),
-  equipmentStatus: z.string().min(1),
-  cleanlinessStatus: z.string().min(1),
-  setupStatus: z.string().min(1),
   startingCash: z.number().min(0),
-  cashMatchesSystem: z.enum(["Yes", "No"]),
-  storeReadyStatus: z.enum(["Yes", "No"]),
+  cashCountedAndCorrect: z.enum(["Yes", "No"]),
+  storeReadyToOpen: z.enum(["Yes", "No"]),
+  checklistAnswers: z.array(checklistAnswerSchema).min(1),
   notes: z.string().optional().default(""),
 });
 
@@ -34,10 +44,9 @@ const closingChecklistSchema = z.object({
   staffName: z.string().min(1),
   cashCounted: z.number().min(0),
   cashMatchesSystem: z.enum(["Yes", "No"]),
-  cleaningStatus: z.string().min(1),
-  productStorageStatus: z.string().min(1),
-  storeClosedStatus: z.enum(["Yes", "No"]),
+  checklistAnswers: z.array(checklistAnswerSchema).min(1),
   notes: z.string().optional().default(""),
+  storeClosedProperly: z.enum(["Yes", "No"]),
 });
 
 const endOfDayReportSchema = z.object({
@@ -67,6 +76,24 @@ const inventoryItemSchema = z.object({
   notes: z.string().optional().default(""),
 });
 
+const inventoryUpdateSchema = z.object({
+  id: z.number().int().positive(),
+  currentQuantity: z.number().min(0),
+  notes: z.string().optional().default(""),
+});
+
+const checklistTypeSchema = z.enum(["opening", "closing"]);
+
+const checklistQuestionSchema = z.object({
+  id: z.number().int().positive().optional(),
+  checklistType: checklistTypeSchema,
+  sectionTitle: z.string().min(1),
+  prompt: z.string().min(1),
+  detailPrompt: z.string().optional().default(""),
+  detailTrigger: z.enum(["Yes", "No", "Never"]),
+  displayOrder: z.number().int().min(0),
+});
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -80,34 +107,78 @@ export const appRouter = router({
     }),
   }),
   forms: router({
+    checklistQuestions: protectedProcedure.input(z.object({ checklistType: checklistTypeSchema })).query(async ({ input }) => listChecklistQuestions(input.checklistType)),
+    inventoryItems: protectedProcedure.query(async () => listInventoryItems()),
+    submitInventoryUpdate: protectedProcedure.input(inventoryUpdateSchema).mutation(async ({ ctx, input }) => {
+      const item = await updateInventoryCount({
+        id: input.id,
+        currentQuantity: input.currentQuantity.toFixed(2),
+        notes: input.notes ?? "",
+      });
+
+      await notifyOwner({
+        title: `Inventory updated: ${item.itemName}`,
+        content: `${ctx.user.name || "A team member"} updated ${item.itemName} to ${item.currentQuantity} ${item.unitLabel}.`,
+      });
+
+      return { success: true, item } as const;
+    }),
     submitOpening: protectedProcedure.input(openingChecklistSchema).mutation(async ({ ctx, input }) => {
+      const answersBySection = input.checklistAnswers.reduce<Record<string, Array<string>>>((acc, answer) => {
+        const line = `${answer.prompt}: ${answer.answer}${answer.detail ? ` — ${answer.detail}` : ""}`;
+        acc[answer.sectionTitle] = [...(acc[answer.sectionTitle] ?? []), line];
+        return acc;
+      }, {});
+
       const record = await createOpeningChecklist({
-        ...input,
         businessDate: input.businessDate ?? new Date().toISOString().slice(0, 10),
+        staffName: input.staffName,
+        equipmentStatus: (answersBySection.Equipment ?? []).join("\n") || "No equipment responses provided",
+        cleanlinessStatus: (answersBySection.Cleanliness ?? []).join("\n") || "No cleanliness responses provided",
+        setupStatus: [
+          ...(answersBySection.Setup ?? []),
+          ...(answersBySection["Employee Preparation"] ?? []),
+        ].join("\n") || "No setup responses provided",
         startingCash: input.startingCash.toFixed(2),
+        cashMatchesSystem: input.cashCountedAndCorrect,
+        storeReadyStatus: input.storeReadyToOpen,
+        responseJson: JSON.stringify(input.checklistAnswers),
         notes: input.notes ?? "",
         submittedByUserId: ctx.user.id,
       });
 
+      const failedItems = input.checklistAnswers.filter(item => item.answer === "No").length;
       await notifyOwner({
         title: `Opening Checklist submitted for ${record.businessDate}`,
-        content: `${record.staffName} submitted the opening checklist. Cash match: ${record.cashMatchesSystem}. Store ready: ${record.storeReadyStatus}.`,
+        content: `${record.staffName} submitted the opening checklist. Cash counted and correct: ${record.cashMatchesSystem}. Store ready: ${record.storeReadyStatus}. Failed confirmations: ${failedItems}.`,
       });
 
       return { success: true } as const;
     }),
     submitClosing: protectedProcedure.input(closingChecklistSchema).mutation(async ({ ctx, input }) => {
+      const answersBySection = input.checklistAnswers.reduce<Record<string, Array<string>>>((acc, answer) => {
+        const line = `${answer.prompt}: ${answer.answer}${answer.detail ? ` — ${answer.detail}` : ""}`;
+        acc[answer.sectionTitle] = [...(acc[answer.sectionTitle] ?? []), line];
+        return acc;
+      }, {});
+
       const record = await createClosingChecklist({
-        ...input,
         businessDate: input.businessDate ?? new Date().toISOString().slice(0, 10),
+        staffName: input.staffName,
         cashCounted: input.cashCounted.toFixed(2),
+        cashMatchesSystem: input.cashMatchesSystem,
+        cleaningStatus: (answersBySection.Cleaning ?? []).join("\n") || "No cleaning responses provided",
+        productStorageStatus: (answersBySection.Product ?? []).join("\n") || "No product responses provided",
+        storeClosedStatus: input.storeClosedProperly,
+        responseJson: JSON.stringify(input.checklistAnswers),
         notes: input.notes ?? "",
         submittedByUserId: ctx.user.id,
       });
 
+      const failedItems = input.checklistAnswers.filter(item => item.answer === "No").length;
       await notifyOwner({
         title: `Closing Checklist submitted for ${record.businessDate}`,
-        content: `${record.staffName} submitted the closing checklist. Cash match: ${record.cashMatchesSystem}. Store closed: ${record.storeClosedStatus}.`,
+        content: `${record.staffName} submitted the closing checklist. Cash match: ${record.cashMatchesSystem}. Store closed: ${record.storeClosedStatus}. Failed confirmations: ${failedItems}.`,
       });
 
       return { success: true } as const;
@@ -152,6 +223,12 @@ export const appRouter = router({
     weekOverWeek: adminProcedure.query(async () => getWeekOverWeekSales()),
     inventoryAlerts: adminProcedure.query(async () => getInventoryAlerts()),
     inventoryItems: adminProcedure.query(async () => listInventoryItems()),
+    checklistQuestions: adminProcedure.input(z.object({ checklistType: checklistTypeSchema })).query(async ({ input }) => listChecklistQuestions(input.checklistType)),
+    saveChecklistQuestion: adminProcedure.input(checklistQuestionSchema).mutation(async ({ input }) => {
+      const question = await saveChecklistQuestion(input);
+      return { success: true, question } as const;
+    }),
+    removeChecklistQuestion: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => removeChecklistQuestion(input.id)),
     saveInventoryItem: adminProcedure.input(inventoryItemSchema).mutation(async ({ input }) => {
       const item = await saveInventoryItem({
         ...input,

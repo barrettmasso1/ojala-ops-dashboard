@@ -64,7 +64,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-[#e9dfcf] text-[#52665f]">
             <ShieldCheck className="h-7 w-7" />
           </div>
-          <h1 className="font-serif text-3xl tracking-tight text-[#1f2a27]">Sign in to continue</h1>
+          <h1 className="text-3xl font-medium tracking-[-0.04em] text-[#1f2a27]">Sign in to continue</h1>
           <p className="mt-4 text-sm leading-6 text-[#5c645e]">
             This workspace is reserved for authenticated Ojala team members. Continue to access the employee portal or the management dashboard.
           </p>
@@ -159,8 +159,8 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
               </button>
               {!isCollapsed ? (
                 <div className="min-w-0">
-                  <p className="font-serif text-xl tracking-tight text-[#21312d]">Ojala Ops</p>
-                  <p className="text-xs uppercase tracking-[0.28em] text-[#7a8077]">Manager workspace</p>
+                  <p className="text-xl font-medium tracking-[-0.04em] text-[#21312d]">Ojalá Gelato</p>
+                  <p className="text-xs uppercase tracking-[0.28em] text-[#7a8077]">Staff access and operations</p>
                 </div>
               ) : null}
             </div>
@@ -169,7 +169,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
           <SidebarContent className="gap-0 border-r border-[#d7d0c4]/70 bg-[#f8f3eb]/85 px-2 py-4 backdrop-blur">
             <div className="mb-5 rounded-[1.5rem] border border-white/70 bg-white/75 p-4 text-[#44524e] shadow-[0_16px_35px_rgba(88,83,72,0.08)] group-data-[collapsible=icon]:hidden">
               <p className="text-xs uppercase tracking-[0.24em] text-[#8b8f87]">Today’s focus</p>
-              <p className="mt-2 font-serif text-lg text-[#20312b]">Calm operations. Clear reporting.</p>
+              <p className="mt-2 text-lg font-medium tracking-[-0.03em] text-[#20312b]">Calm operations. Clear reporting.</p>
               <p className="mt-2 text-sm leading-6 text-[#66706a]">
                 Review daily performance, inspect notes, and catch inventory risk before it becomes a service issue.
               </p>
@@ -234,7 +234,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
             <div className="flex items-center gap-3">
               <SidebarTrigger className="h-9 w-9 rounded-full bg-white/80 text-[#52665f] shadow-sm" />
               <div>
-                <p className="font-serif text-lg text-[#20312b]">{activeMenuItem?.label ?? "Workspace"}</p>
+                <p className="text-lg font-medium tracking-[-0.03em] text-[#20312b]">{activeMenuItem?.label ?? "Workspace"}</p>
               </div>
             </div>
           </div>

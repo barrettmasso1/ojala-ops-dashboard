@@ -10,7 +10,12 @@ const dbMocks = vi.hoisted(() => ({
   getRecentNotes: vi.fn(),
   getSalesTrend: vi.fn(),
   getWeekOverWeekSales: vi.fn(),
+  listChecklistQuestions: vi.fn(),
   listInventoryItems: vi.fn(),
+  removeChecklistQuestion: vi.fn(),
+  saveChecklistQuestion: vi.fn(),
+  saveInventoryItem: vi.fn(),
+  updateInventoryCount: vi.fn(),
 }));
 
 const notificationMocks = vi.hoisted(() => ({
@@ -23,7 +28,6 @@ vi.mock("./_core/notification", () => notificationMocks);
 const { appRouter } = await import("./routers");
 
 type Role = "admin" | "user";
-
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
 function createContext(role: Role): TrpcContext {
@@ -57,7 +61,28 @@ describe("operations router", () => {
     notificationMocks.notifyOwner.mockResolvedValue(true);
   });
 
-  it("submits an opening checklist and notifies the owner", async () => {
+  it("loads editable opening checklist questions for employees", async () => {
+    dbMocks.listChecklistQuestions.mockResolvedValue([
+      {
+        id: 1,
+        checklistType: "opening",
+        sectionTitle: "Equipment",
+        prompt: "Freezers ON and cold",
+        detailPrompt: "If no, what is wrong?",
+        detailTrigger: "No",
+        displayOrder: 1,
+        isActive: 1,
+      },
+    ]);
+
+    const caller = appRouter.createCaller(createContext("user"));
+    const result = await caller.forms.checklistQuestions({ checklistType: "opening" });
+
+    expect(result).toHaveLength(1);
+    expect(dbMocks.listChecklistQuestions).toHaveBeenCalledWith("opening");
+  });
+
+  it("submits an opening checklist using structured yes-no answers and notifies the owner", async () => {
     dbMocks.createOpeningChecklist.mockResolvedValue({
       businessDate: "2026-04-21",
       staffName: "Ava",
@@ -69,13 +94,26 @@ describe("operations router", () => {
     const result = await caller.forms.submitOpening({
       businessDate: "2026-04-21",
       staffName: "Ava",
-      equipmentStatus: "Machines running",
-      cleanlinessStatus: "Counters clean",
-      setupStatus: "Cups stocked",
       startingCash: 120,
-      cashMatchesSystem: "Yes",
-      storeReadyStatus: "Yes",
-      notes: "All clear",
+      cashCountedAndCorrect: "Yes",
+      storeReadyToOpen: "Yes",
+      checklistAnswers: [
+        {
+          questionId: 1,
+          sectionTitle: "Equipment",
+          prompt: "Freezers ON and cold",
+          answer: "Yes",
+          detail: "",
+        },
+        {
+          questionId: 2,
+          sectionTitle: "Employee Preparation",
+          prompt: "Shirt clean and ironed",
+          answer: "No",
+          detail: "Need replacement shirt",
+        },
+      ],
+      notes: "Opening concern logged",
     });
 
     expect(result).toEqual({ success: true });
@@ -84,14 +122,103 @@ describe("operations router", () => {
         businessDate: "2026-04-21",
         staffName: "Ava",
         startingCash: "120.00",
+        cashMatchesSystem: "Yes",
+        storeReadyStatus: "Yes",
+        responseJson: expect.stringContaining("Shirt clean and ironed"),
         submittedByUserId: 1,
       })
     );
     expect(notificationMocks.notifyOwner).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Opening Checklist submitted for 2026-04-21",
+        content: expect.stringContaining("Failed confirmations: 1"),
       })
     );
+  });
+
+  it("submits a closing checklist using structured yes-no answers and notifies the owner", async () => {
+    dbMocks.createClosingChecklist.mockResolvedValue({
+      businessDate: "2026-04-21",
+      staffName: "Marco",
+      cashMatchesSystem: "No",
+      storeClosedStatus: "Yes",
+    });
+
+    const caller = appRouter.createCaller(createContext("user"));
+    const result = await caller.forms.submitClosing({
+      businessDate: "2026-04-21",
+      staffName: "Marco",
+      cashCounted: 210,
+      cashMatchesSystem: "No",
+      storeClosedProperly: "Yes",
+      checklistAnswers: [
+        {
+          questionId: 7,
+          sectionTitle: "Cleaning",
+          prompt: "Trash taken out",
+          answer: "No",
+          detail: "Waiting on pickup",
+        },
+      ],
+      notes: "Closing note",
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(dbMocks.createClosingChecklist).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cashCounted: "210.00",
+        cashMatchesSystem: "No",
+        storeClosedStatus: "Yes",
+        responseJson: expect.stringContaining("Trash taken out"),
+      })
+    );
+    expect(notificationMocks.notifyOwner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Closing Checklist submitted for 2026-04-21",
+        content: expect.stringContaining("Failed confirmations: 1"),
+      })
+    );
+  });
+
+  it("allows only admin users to save checklist questions", async () => {
+    dbMocks.saveChecklistQuestion.mockResolvedValue({
+      id: 22,
+      checklistType: "opening",
+      sectionTitle: "Setup",
+      prompt: "Menus visible and clean",
+      detailPrompt: "If no, what is wrong?",
+      detailTrigger: "No",
+      displayOrder: 19,
+      isActive: 1,
+    });
+
+    const adminCaller = appRouter.createCaller(createContext("admin"));
+    await expect(
+      adminCaller.dashboard.saveChecklistQuestion({
+        checklistType: "opening",
+        sectionTitle: "Setup",
+        prompt: "Menus visible and clean",
+        detailPrompt: "If no, what is wrong?",
+        detailTrigger: "No",
+        displayOrder: 19,
+      })
+    ).resolves.toEqual(
+      expect.objectContaining({
+        success: true,
+      })
+    );
+
+    const employeeCaller = appRouter.createCaller(createContext("user"));
+    await expect(
+      employeeCaller.dashboard.saveChecklistQuestion({
+        checklistType: "opening",
+        sectionTitle: "Setup",
+        prompt: "Menus visible and clean",
+        detailPrompt: "If no, what is wrong?",
+        detailTrigger: "No",
+        displayOrder: 19,
+      })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("submits an end-of-day report with exact payment fields and notifies the owner", async () => {

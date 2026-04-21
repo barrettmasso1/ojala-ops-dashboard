@@ -9,6 +9,7 @@ import {
   CupSoda,
   PackagePlus,
   Search,
+  Trash2,
   TrendingUp,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -112,6 +113,15 @@ export default function ManagerDashboard() {
     parLevel: "0",
     notes: "",
   });
+  const [checklistForm, setChecklistForm] = useState({
+    id: undefined as number | undefined,
+    checklistType: "opening" as "opening" | "closing",
+    sectionTitle: "Equipment",
+    prompt: "",
+    detailPrompt: "If no, explain the issue.",
+    detailTrigger: "No" as "Yes" | "No" | "Never",
+    displayOrder: "1",
+  });
   const isAdmin = user?.role === "admin";
 
   useEffect(() => {
@@ -128,6 +138,8 @@ export default function ManagerDashboard() {
   const wowQuery = trpc.dashboard.weekOverWeek.useQuery(undefined, { enabled: isAdmin, refetchOnWindowFocus: false });
   const alertsQuery = trpc.dashboard.inventoryAlerts.useQuery(undefined, { enabled: isAdmin, refetchOnWindowFocus: false });
   const inventoryItemsQuery = trpc.dashboard.inventoryItems.useQuery(undefined, { enabled: isAdmin, refetchOnWindowFocus: false });
+  const openingChecklistQuery = trpc.dashboard.checklistQuestions.useQuery({ checklistType: "opening" }, { enabled: isAdmin, refetchOnWindowFocus: false });
+  const closingChecklistQuery = trpc.dashboard.checklistQuestions.useQuery({ checklistType: "closing" }, { enabled: isAdmin, refetchOnWindowFocus: false });
   const notesQuery = trpc.dashboard.recentNotes.useQuery({ limit: 10 }, { enabled: isAdmin, refetchOnWindowFocus: false });
 
   const saveInventoryMutation = trpc.dashboard.saveInventoryItem.useMutation({
@@ -143,6 +155,41 @@ export default function ManagerDashboard() {
         notes: "",
       });
       await Promise.all([utils.dashboard.inventoryItems.invalidate(), utils.dashboard.inventoryAlerts.invalidate()]);
+    },
+    onError: error => toast.error(error.message),
+  });
+
+  const saveChecklistMutation = trpc.dashboard.saveChecklistQuestion.useMutation({
+    onSuccess: async () => {
+      toast.success("Checklist question saved.");
+      setChecklistForm({
+        id: undefined,
+        checklistType: "opening",
+        sectionTitle: "Equipment",
+        prompt: "",
+        detailPrompt: "If no, explain the issue.",
+        detailTrigger: "No",
+        displayOrder: "1",
+      });
+      await Promise.all([
+        utils.dashboard.checklistQuestions.invalidate({ checklistType: "opening" }),
+        utils.dashboard.checklistQuestions.invalidate({ checklistType: "closing" }),
+        utils.forms.checklistQuestions.invalidate({ checklistType: "opening" }),
+        utils.forms.checklistQuestions.invalidate({ checklistType: "closing" }),
+      ]);
+    },
+    onError: error => toast.error(error.message),
+  });
+
+  const removeChecklistMutation = trpc.dashboard.removeChecklistQuestion.useMutation({
+    onSuccess: async () => {
+      toast.success("Checklist question removed.");
+      await Promise.all([
+        utils.dashboard.checklistQuestions.invalidate({ checklistType: "opening" }),
+        utils.dashboard.checklistQuestions.invalidate({ checklistType: "closing" }),
+        utils.forms.checklistQuestions.invalidate({ checklistType: "opening" }),
+        utils.forms.checklistQuestions.invalidate({ checklistType: "closing" }),
+      ]);
     },
     onError: error => toast.error(error.message),
   });
@@ -183,6 +230,8 @@ export default function ManagerDashboard() {
   const wowData = wowQuery.data ?? [];
   const inventoryAlerts = alertsQuery.data ?? [];
   const inventoryItems = inventoryItemsQuery.data ?? [];
+  const openingChecklistQuestions = openingChecklistQuery.data ?? [];
+  const closingChecklistQuestions = closingChecklistQuery.data ?? [];
 
   return (
     <DashboardLayout>
@@ -481,6 +530,130 @@ export default function ManagerDashboard() {
         </div>
 
         <div className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
+          <SurfaceCard className="xl:col-span-2">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Checklist management</p>
+                <h2 className="mt-3 text-3xl font-medium tracking-[-0.04em] text-[#2d2925]">Opening and closing question control</h2>
+                <p className="mt-3 max-w-3xl text-sm leading-7 text-[#6b6258]">Add new accountability questions or remove ones that no longer belong. Staff forms update from this structure instead of depending on hard-coded fields.</p>
+              </div>
+            </div>
+
+            <form
+              className="mt-6 grid gap-4 rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6] p-5"
+              onSubmit={event => {
+                event.preventDefault();
+                saveChecklistMutation.mutate({
+                  id: checklistForm.id,
+                  checklistType: checklistForm.checklistType,
+                  sectionTitle: checklistForm.sectionTitle,
+                  prompt: checklistForm.prompt,
+                  detailPrompt: checklistForm.detailPrompt,
+                  detailTrigger: checklistForm.detailTrigger,
+                  displayOrder: Number(checklistForm.displayOrder || 0),
+                });
+              }}
+            >
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <select className={inventoryFieldClassName()} value={checklistForm.checklistType} onChange={event => setChecklistForm(current => ({ ...current, checklistType: event.target.value as "opening" | "closing", sectionTitle: event.target.value === "opening" ? "Equipment" : "Cleaning" }))}>
+                  <option value="opening">Opening Checklist</option>
+                  <option value="closing">Closing Checklist</option>
+                </select>
+                <input className={inventoryFieldClassName()} placeholder="Section title" value={checklistForm.sectionTitle} onChange={event => setChecklistForm(current => ({ ...current, sectionTitle: event.target.value }))} />
+                <input className={inventoryFieldClassName()} type="number" min="0" step="1" placeholder="Display order" value={checklistForm.displayOrder} onChange={event => setChecklistForm(current => ({ ...current, displayOrder: event.target.value }))} />
+                <input className={inventoryFieldClassName()} placeholder="Question prompt" value={checklistForm.prompt} onChange={event => setChecklistForm(current => ({ ...current, prompt: event.target.value }))} />
+                <input className={inventoryFieldClassName()} placeholder="Conditional detail prompt" value={checklistForm.detailPrompt} onChange={event => setChecklistForm(current => ({ ...current, detailPrompt: event.target.value }))} />
+                <select className={inventoryFieldClassName()} value={checklistForm.detailTrigger} onChange={event => setChecklistForm(current => ({ ...current, detailTrigger: event.target.value as "Yes" | "No" | "Never" }))}>
+                  <option value="No">Require details when answer is No</option>
+                  <option value="Yes">Require details when answer is Yes</option>
+                  <option value="Never">No follow-up detail field</option>
+                </select>
+              </div>
+              <div className="flex justify-end gap-3">
+                {checklistForm.id ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setChecklistForm({
+                        id: undefined,
+                        checklistType: "opening",
+                        sectionTitle: "Equipment",
+                        prompt: "",
+                        detailPrompt: "If no, explain the issue.",
+                        detailTrigger: "No",
+                        displayOrder: "1",
+                      })
+                    }
+                    className="rounded-full border border-[#d7cec0] bg-white/80 px-5 py-3 text-sm font-medium text-[#31423d] shadow-sm transition hover:bg-white"
+                  >
+                    Cancel Edit
+                  </button>
+                ) : null}
+                <button disabled={saveChecklistMutation.isPending} className="rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
+                  {saveChecklistMutation.isPending ? "Saving..." : checklistForm.id ? "Update Question" : "Add Question"}
+                </button>
+              </div>
+            </form>
+
+            <div className="mt-6 grid gap-6 xl:grid-cols-2">
+              {[
+                { title: "Opening Checklist", tone: "opening", items: openingChecklistQuestions, loading: openingChecklistQuery.isLoading, error: openingChecklistQuery.error },
+                { title: "Closing Checklist", tone: "closing", items: closingChecklistQuestions, loading: closingChecklistQuery.isLoading, error: closingChecklistQuery.error },
+              ].map(group => (
+                <div key={group.title} className="rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6] p-5">
+                  <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">{group.title}</p>
+                  {group.loading ? (
+                    <div className="mt-4"><StatePanel title="Loading checklist questions" description="Pulling the current question set for this checklist." /></div>
+                  ) : group.error ? (
+                    <div className="mt-4"><StatePanel title="Unable to load checklist questions" description="Please try again in a moment." tone="error" /></div>
+                  ) : group.items.length === 0 ? (
+                    <div className="mt-4"><StatePanel title="No questions configured" description="Add a question above to build this checklist." tone="warning" /></div>
+                  ) : (
+                    <div className="mt-4 space-y-3">
+                      {group.items.map(question => (
+                        <div key={question.id} className="rounded-2xl border border-[#e7ddd1] bg-white p-4 shadow-sm">
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <p className="text-xs uppercase tracking-[0.22em] text-[#8b9088]">{question.sectionTitle}</p>
+                              <p className="mt-2 font-medium text-[#24332f]">{question.prompt}</p>
+                              <p className="mt-2 text-sm leading-6 text-[#68716b]">Trigger: {question.detailTrigger}. {question.detailPrompt || "No follow-up detail prompt."}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setChecklistForm({
+                                    id: question.id,
+                                    checklistType: question.checklistType,
+                                    sectionTitle: question.sectionTitle,
+                                    prompt: question.prompt,
+                                    detailPrompt: question.detailPrompt ?? "",
+                                    detailTrigger: question.detailTrigger,
+                                    displayOrder: String(question.displayOrder),
+                                  })
+                                }
+                                className="rounded-full border border-[#d7cec0] bg-white/80 px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-[#31423d] shadow-sm transition hover:bg-white"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeChecklistMutation.mutate({ id: question.id })}
+                                className="inline-flex items-center gap-2 rounded-full border border-[#ead4d4] bg-[#fff6f6] px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-[#8a4343] shadow-sm transition hover:bg-white"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </SurfaceCard>
           <SurfaceCard>
             <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Sales trend</p>
             <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Daily sales across the last four weeks</h2>

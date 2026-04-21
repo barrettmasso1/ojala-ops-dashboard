@@ -22,3 +22,13 @@
 - [x] Hide dashboard navigation items conditionally so employee-facing experiences never render manager-only links
 - [x] Add an edit workflow for existing inventory items so managers can maintain inventory instead of only adding entries
 - [x] Document responsive validation for key landing, portal, and dashboard screens after the refinement pass
+- [x] Update the application typography and brand styling to match the live Ojala customer website so the operations app feels like a true subpage of the main site
+- [x] Add a branded access point within the customer-facing experience for log in and staff or management entry under the same overall URL structure
+- [x] Simplify employee-only access into clear direct links for inventory, daily report, closing report, opening report, and related operational inputs
+- [x] Align the public-facing entry experience with the long-term single-site vision so customer pages and backend workflows feel like one branded system
+- [x] Add an employee-facing inventory input workflow so staff can update item counts from simple direct links without accessing the manager dashboard
+- [x] Convert Opening Checklist into definitive yes-or-no accountability questions with conditional issue detail fields instead of mostly open text responses
+- [x] Convert Closing Checklist into definitive yes-or-no accountability questions with conditional issue detail fields instead of mostly open text responses
+- [x] Add employee-preparation checks to the opening workflow so presentation and uniform readiness are explicitly confirmed
+- [x] Implement manager-editable checklist question management so owners can add and remove opening and closing questions over time
+- [x] Preserve the specific Ojalá Opening and Ojalá Closing question sets provided by the user as the initial checklist baseline

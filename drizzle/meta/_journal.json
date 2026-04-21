@@ -15,6 +15,13 @@
       "when": 1776735646139,
       "tag": "0001_free_liz_osborn",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1776738939597,
+      "tag": "0002_good_silk_fever",
+      "breakpoints": true
     }
   ]
 }

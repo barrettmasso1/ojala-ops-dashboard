@@ -12,6 +12,19 @@ export const users = mysqlTable("users", {
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
 
+export const checklistQuestions = mysqlTable("checklistQuestions", {
+  id: int("id").autoincrement().primaryKey(),
+  checklistType: mysqlEnum("checklistType", ["opening", "closing"]).notNull(),
+  sectionTitle: varchar("sectionTitle", { length: 80 }).notNull(),
+  prompt: text("prompt").notNull(),
+  detailPrompt: text("detailPrompt"),
+  detailTrigger: mysqlEnum("detailTrigger", ["Yes", "No", "Never"]).notNull().default("Never"),
+  displayOrder: int("displayOrder").notNull().default(0),
+  isActive: int("isActive").notNull().default(1),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export const openingChecklists = mysqlTable("openingChecklists", {
   id: int("id").autoincrement().primaryKey(),
   businessDate: varchar("businessDate", { length: 10 }).notNull(),
@@ -22,6 +35,7 @@ export const openingChecklists = mysqlTable("openingChecklists", {
   startingCash: decimal("startingCash", { precision: 10, scale: 2 }).notNull(),
   cashMatchesSystem: varchar("cashMatchesSystem", { length: 3 }).notNull(),
   storeReadyStatus: varchar("storeReadyStatus", { length: 3 }).notNull(),
+  responseJson: text("responseJson"),
   notes: text("notes"),
   submittedByUserId: int("submittedByUserId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -36,6 +50,7 @@ export const closingChecklists = mysqlTable("closingChecklists", {
   cleaningStatus: text("cleaningStatus").notNull(),
   productStorageStatus: text("productStorageStatus").notNull(),
   storeClosedStatus: varchar("storeClosedStatus", { length: 3 }).notNull(),
+  responseJson: text("responseJson"),
   notes: text("notes"),
   submittedByUserId: int("submittedByUserId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -75,6 +90,8 @@ export const inventoryItems = mysqlTable("inventoryItems", {
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+export type ChecklistQuestion = typeof checklistQuestions.$inferSelect;
+export type InsertChecklistQuestion = typeof checklistQuestions.$inferInsert;
 export type OpeningChecklist = typeof openingChecklists.$inferSelect;
 export type InsertOpeningChecklist = typeof openingChecklists.$inferInsert;
 export type ClosingChecklist = typeof closingChecklists.$inferSelect;
