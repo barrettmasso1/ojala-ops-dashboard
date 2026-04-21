@@ -323,12 +323,20 @@ export default function EmployeePortal() {
   const closingQuestions = closingQuestionsQuery.data ?? [];
   const inventoryItems = inventoryItemsQuery.data ?? [];
 
+  const openingNapkinsQuestion = useMemo(
+    () => openingQuestions.find(question => question.sectionTitle === "Setup" && question.prompt === "Napkins stocked"),
+    [openingQuestions],
+  );
+
   const groupedOpeningQuestions = useMemo(() => {
     return openingQuestions.reduce<Record<string, ChecklistQuestion[]>>((acc, question) => {
+      if (question.id === openingNapkinsQuestion?.id) {
+        return acc;
+      }
       acc[question.sectionTitle] = [...(acc[question.sectionTitle] ?? []), question];
       return acc;
     }, {});
-  }, [openingQuestions]);
+  }, [openingQuestions, openingNapkinsQuestion]);
 
   const groupedClosingQuestions = useMemo(() => {
     return closingQuestions.reduce<Record<string, ChecklistQuestion[]>>((acc, question) => {
@@ -525,7 +533,7 @@ export default function EmployeePortal() {
                       <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#f7f0e7] p-5">
                         <div>
                           <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">Counted stock at opening</p>
-                          <h4 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">Cups, lids, and spoons</h4>
+                          <h4 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">Cups, lids, spoons, and napkins</h4>
                         </div>
                         <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                           {openingStockFields.map(field => (
@@ -548,6 +556,26 @@ export default function EmployeePortal() {
                               />
                             </Field>
                           ))}
+                          {openingNapkinsQuestion ? (
+                            <Field label={openingNapkinsQuestion.prompt} hint="Setup">
+                              <select
+                                className={inputClassName()}
+                                value={openingAnswers[openingNapkinsQuestion.id]?.answer ?? "No"}
+                                onChange={event =>
+                                  setOpeningAnswers(state => ({
+                                    ...state,
+                                    [openingNapkinsQuestion.id]: {
+                                      answer: event.target.value as YesNo,
+                                      detail: state[openingNapkinsQuestion.id]?.detail ?? "",
+                                    },
+                                  }))
+                                }
+                              >
+                                <option value="No">No</option>
+                                <option value="Yes">Yes</option>
+                              </select>
+                            </Field>
+                          ) : null}
                         </div>
                       </div>
                     ) : null}
