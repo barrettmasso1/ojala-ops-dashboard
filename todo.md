@@ -42,3 +42,4 @@
 - [x] Remove the extra instructional copy from the employee forms so the interface stays concise
 - [x] Delete the lower duplicate dropdown shown beneath the opening and closing final Yes/No confirmation controls
 - [x] Extend the Here-and-To Go cup-count section to full width in the end-of-day report and place Cash below it
+- [x] Move counted opening stock for cups, lids, and spoons into the Opening Section Setup area so those inputs appear together with napkins in one setup section

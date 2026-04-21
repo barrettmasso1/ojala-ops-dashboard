@@ -507,35 +507,6 @@ export default function EmployeePortal() {
                 </Field>
               </div>
 
-              <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#f7f0e7] p-5">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">Counted stock at opening</p>
-                  <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">Cups, lids, and spoons</h3>
-                </div>
-                <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  {openingStockFields.map(field => (
-                    <Field key={field.key} label={field.label} hint={field.group}>
-                      <input
-                        className={inputClassName()}
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={openingForm.stockCounts[field.key]}
-                        onChange={event =>
-                          setOpeningForm(current => ({
-                            ...current,
-                            stockCounts: {
-                              ...current.stockCounts,
-                              [field.key]: event.target.value,
-                            },
-                          }))
-                        }
-                      />
-                    </Field>
-                  ))}
-                </div>
-              </div>
-
               {openingQuestionsQuery.isLoading ? <p className="text-sm text-[#6b6258]">Loading opening questions…</p> : null}
               {Object.entries(groupedOpeningQuestions).map(([section, questions]) => (
                 <div key={section} className="space-y-4">
@@ -544,6 +515,36 @@ export default function EmployeePortal() {
                     <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">{section}</h3>
                   </div>
                   <div className="grid gap-4">
+                    {section === "Setup" ? (
+                      <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#f7f0e7] p-5">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">Counted stock at opening</p>
+                          <h4 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">Cups, lids, and spoons</h4>
+                        </div>
+                        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                          {openingStockFields.map(field => (
+                            <Field key={field.key} label={field.label} hint={field.group}>
+                              <input
+                                className={inputClassName()}
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={openingForm.stockCounts[field.key]}
+                                onChange={event =>
+                                  setOpeningForm(current => ({
+                                    ...current,
+                                    stockCounts: {
+                                      ...current.stockCounts,
+                                      [field.key]: event.target.value,
+                                    },
+                                  }))
+                                }
+                              />
+                            </Field>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                     {questions.map(question => (
                       <ChecklistQuestionRow
                         key={question.id}
