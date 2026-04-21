@@ -19,12 +19,25 @@ type ChecklistQuestion = {
 
 type ChecklistAnswerState = Record<number, { answer: YesNo; detail: string }>;
 
+type OpeningStockCounts = {
+  cups4oz: string;
+  cups8oz: string;
+  cupsPint: string;
+  cupsLiter: string;
+  lids4oz: string;
+  lids8oz: string;
+  lidsPint: string;
+  lidsLiter: string;
+  spoons: string;
+};
+
 type OpeningForm = {
   businessDate: string;
   staffName: string;
   startingCash: string;
   cashCountedAndCorrect: YesNo;
   storeReadyToOpen: YesNo;
+  stockCounts: OpeningStockCounts;
   notes: string;
 };
 
@@ -33,7 +46,6 @@ type ClosingForm = {
   staffName: string;
   cashCounted: string;
   cashMatchesSystem: YesNo;
-  storeClosedProperly: YesNo;
   notes: string;
 };
 
@@ -41,10 +53,14 @@ type EndOfDayForm = {
   businessDate: string;
   shift: "AM" | "PM" | "Full Day";
   staffName: string;
-  cups4oz: string;
-  cups8oz: string;
-  cupsPint: string;
-  cupsLiter: string;
+  cups4ozHere: string;
+  cups4ozToGo: string;
+  cups8ozHere: string;
+  cups8ozToGo: string;
+  cupsPintHere: string;
+  cupsPintToGo: string;
+  cupsLiterHere: string;
+  cupsLiterToGo: string;
   cashTotal: string;
   cardTotal: string;
   zelleTotal: string;
@@ -60,12 +76,25 @@ function todayValue() {
   return new Date().toISOString().slice(0, 10);
 }
 
+const initialOpeningStockCounts = (): OpeningStockCounts => ({
+  cups4oz: "0",
+  cups8oz: "0",
+  cupsPint: "0",
+  cupsLiter: "0",
+  lids4oz: "0",
+  lids8oz: "0",
+  lidsPint: "0",
+  lidsLiter: "0",
+  spoons: "0",
+});
+
 const initialOpeningForm = (): OpeningForm => ({
   businessDate: todayValue(),
   staffName: "",
   startingCash: "",
-  cashCountedAndCorrect: "Yes",
-  storeReadyToOpen: "Yes",
+  cashCountedAndCorrect: "No",
+  storeReadyToOpen: "No",
+  stockCounts: initialOpeningStockCounts(),
   notes: "",
 });
 
@@ -73,8 +102,7 @@ const initialClosingForm = (): ClosingForm => ({
   businessDate: todayValue(),
   staffName: "",
   cashCounted: "",
-  cashMatchesSystem: "Yes",
-  storeClosedProperly: "Yes",
+  cashMatchesSystem: "No",
   notes: "",
 });
 
@@ -82,10 +110,14 @@ const initialEndOfDayForm = (): EndOfDayForm => ({
   businessDate: todayValue(),
   shift: "AM",
   staffName: "",
-  cups4oz: "0",
-  cups8oz: "0",
-  cupsPint: "0",
-  cupsLiter: "0",
+  cups4ozHere: "0",
+  cups4ozToGo: "0",
+  cups8ozHere: "0",
+  cups8ozToGo: "0",
+  cupsPintHere: "0",
+  cupsPintToGo: "0",
+  cupsLiterHere: "0",
+  cupsLiterToGo: "0",
   cashTotal: "0",
   cardTotal: "0",
   zelleTotal: "0",
@@ -94,6 +126,29 @@ const initialEndOfDayForm = (): EndOfDayForm => ({
   lowItemNotes: "",
   generalNotes: "",
 });
+
+const openingStockFields: Array<{ key: keyof OpeningStockCounts; label: string; group: string }> = [
+  { key: "cups4oz", label: "Cups 4oz", group: "Cup counts" },
+  { key: "cups8oz", label: "Cups 8oz", group: "Cup counts" },
+  { key: "cupsPint", label: "Cups Pint", group: "Cup counts" },
+  { key: "cupsLiter", label: "Cups Liter", group: "Cup counts" },
+  { key: "lids4oz", label: "Lids 4oz", group: "Lid counts" },
+  { key: "lids8oz", label: "Lids 8oz", group: "Lid counts" },
+  { key: "lidsPint", label: "Lids Pint", group: "Lid counts" },
+  { key: "lidsLiter", label: "Lids Liter", group: "Lid counts" },
+  { key: "spoons", label: "Spoons stocked", group: "Utensils" },
+];
+
+const endOfDayCupRows: Array<{
+  label: string;
+  hereKey: keyof EndOfDayForm;
+  toGoKey: keyof EndOfDayForm;
+}> = [
+  { label: "4oz", hereKey: "cups4ozHere", toGoKey: "cups4ozToGo" },
+  { label: "8oz", hereKey: "cups8ozHere", toGoKey: "cups8ozToGo" },
+  { label: "Pint", hereKey: "cupsPintHere", toGoKey: "cupsPintToGo" },
+  { label: "Liter", hereKey: "cupsLiterHere", toGoKey: "cupsLiterToGo" },
+];
 
 function SectionCard({
   id,
@@ -134,6 +189,10 @@ function Field({ label, children, hint }: { label: string; children: React.React
 
 function inputClassName() {
   return "h-12 rounded-2xl border border-[#dbd2c5] bg-[#fcfaf6] px-4 text-sm text-[#2f2a26] shadow-sm outline-none transition focus:border-[#5b5045] focus:ring-4 focus:ring-[#5b5045]/10";
+}
+
+function smallInputClassName() {
+  return "h-10 rounded-xl border border-[#dbd2c5] bg-[#fcfaf6] px-3 text-sm text-[#2f2a26] shadow-sm outline-none transition focus:border-[#5b5045] focus:ring-4 focus:ring-[#5b5045]/10";
 }
 
 function textareaClassName() {
@@ -196,7 +255,7 @@ function buildAnswersPayload(questions: ChecklistQuestion[], answers: ChecklistA
     questionId: question.id,
     sectionTitle: question.sectionTitle,
     prompt: question.prompt,
-    answer: answers[question.id]?.answer ?? "Yes",
+    answer: answers[question.id]?.answer ?? "No",
     detail: answers[question.id]?.detail ?? "",
   }));
 }
@@ -283,7 +342,7 @@ export default function EmployeePortal() {
   }
 
   return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,_#f7f1e8_0%,_#f3ece2_50%,_#f7f2ea_100%)] pb-16">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(86,111,104,0.10),_transparent_26%),linear-gradient(180deg,_#fbf8f2_0%,_#f4eee4_46%,_#f8f4ec_100%)] pb-16">
       <div className="container pt-8 md:pt-12">
         <div className="overflow-hidden rounded-[2rem] border border-white/70 bg-white/70 shadow-[0_28px_80px_rgba(88,83,72,0.12)] backdrop-blur">
           <div className="grid gap-0 lg:grid-cols-[1.15fr_0.85fr]">
@@ -293,7 +352,7 @@ export default function EmployeePortal() {
                 Clear daily accountability for calm operations.
               </h1>
               <p className="mt-5 max-w-2xl text-base leading-8 text-[#6a6158]">
-                Welcome back, {introName}. Each checklist now asks for clear confirmation that required opening and closing actions were actually completed.
+                Welcome back, {introName}. These forms now default to <strong>No</strong> so each task must be positively confirmed before a shift is considered ready or complete.
               </p>
               <div className="mt-8 grid gap-4 md:grid-cols-4">
                 {[
@@ -317,9 +376,9 @@ export default function EmployeePortal() {
                   <p className="text-sm font-medium uppercase tracking-[0.24em]">Submission guidance</p>
                 </div>
                 <div className="mt-4 space-y-4 text-sm leading-7 text-[#6b6258]">
-                  <p>Use <strong>Yes</strong> or <strong>No</strong> to confirm each required action. If something is not complete, explain it before you submit.</p>
-                  <p>For payment totals, use the exact labels <strong>Cash</strong>, <strong>Card</strong>, <strong>Zelle</strong>, and <strong>Venmo</strong>.</p>
-                  <p>For cup counts, use the exact labels <strong>4oz</strong>, <strong>8oz</strong>, <strong>Pint</strong>, and <strong>Liter</strong>.</p>
+                  <p>Use <strong>Yes</strong> or <strong>No</strong> to confirm each required action. Because the forms default to <strong>No</strong>, every completed step requires an active decision.</p>
+                  <p>Opening now captures counted stock for cups, lids, and spoons so morning inventory can be reconciled later against what was sold.</p>
+                  <p>End-of-day cup counts are split into <strong>Here</strong> and <strong>To Go</strong> without making the form longer vertically.</p>
                 </div>
               </div>
             </div>
@@ -404,7 +463,7 @@ export default function EmployeePortal() {
             id="opening"
             icon={<ClipboardCheck className="h-5 w-5" />}
             title="Ojalá Opening Checklist"
-            description="Confirm each opening action explicitly so the day starts with verified readiness, not assumptions."
+            description="Confirm each opening action explicitly and record starting stock counts so the day begins with verified readiness and measurable inventory."
           >
             <form
               className="grid gap-6"
@@ -416,6 +475,17 @@ export default function EmployeePortal() {
                   startingCash: Number(openingForm.startingCash || 0),
                   cashCountedAndCorrect: openingForm.cashCountedAndCorrect,
                   storeReadyToOpen: openingForm.storeReadyToOpen,
+                  stockCounts: {
+                    cups4oz: Number(openingForm.stockCounts.cups4oz || 0),
+                    cups8oz: Number(openingForm.stockCounts.cups8oz || 0),
+                    cupsPint: Number(openingForm.stockCounts.cupsPint || 0),
+                    cupsLiter: Number(openingForm.stockCounts.cupsLiter || 0),
+                    lids4oz: Number(openingForm.stockCounts.lids4oz || 0),
+                    lids8oz: Number(openingForm.stockCounts.lids8oz || 0),
+                    lidsPint: Number(openingForm.stockCounts.lidsPint || 0),
+                    lidsLiter: Number(openingForm.stockCounts.lidsLiter || 0),
+                    spoons: Number(openingForm.stockCounts.spoons || 0),
+                  },
                   checklistAnswers: buildAnswersPayload(openingQuestions, openingAnswers),
                   notes: openingForm.notes,
                 });
@@ -433,10 +503,42 @@ export default function EmployeePortal() {
                 </Field>
                 <Field label="Cash counted and correct">
                   <select className={inputClassName()} value={openingForm.cashCountedAndCorrect} onChange={event => setOpeningForm(current => ({ ...current, cashCountedAndCorrect: event.target.value as YesNo }))}>
-                    <option value="Yes">Yes</option>
                     <option value="No">No</option>
+                    <option value="Yes">Yes</option>
                   </select>
                 </Field>
+              </div>
+
+              <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#f7f0e7] p-5">
+                <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">Counted stock at opening</p>
+                    <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">Cups, lids, and spoons</h3>
+                  </div>
+                  <p className="max-w-2xl text-sm leading-7 text-[#6b6258]">These counts replace the old yes-or-no stock prompts for cups, lids, and spoons. Napkins remain in the checklist below.</p>
+                </div>
+                <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {openingStockFields.map(field => (
+                    <Field key={field.key} label={field.label} hint={field.group}>
+                      <input
+                        className={inputClassName()}
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={openingForm.stockCounts[field.key]}
+                        onChange={event =>
+                          setOpeningForm(current => ({
+                            ...current,
+                            stockCounts: {
+                              ...current.stockCounts,
+                              [field.key]: event.target.value,
+                            },
+                          }))
+                        }
+                      />
+                    </Field>
+                  ))}
+                </div>
               </div>
 
               {openingQuestionsQuery.isLoading ? <p className="text-sm text-[#6b6258]">Loading opening questions…</p> : null}
@@ -451,7 +553,7 @@ export default function EmployeePortal() {
                       <ChecklistQuestionRow
                         key={question.id}
                         question={question}
-                        state={openingAnswers[question.id] ?? { answer: "Yes", detail: "" }}
+                        state={openingAnswers[question.id] ?? { answer: "No", detail: "" }}
                         onChange={next => setOpeningAnswers(state => ({ ...state, [question.id]: next }))}
                       />
                     ))}
@@ -462,8 +564,8 @@ export default function EmployeePortal() {
               <div className="grid gap-5 md:grid-cols-2">
                 <Field label="Store ready to open">
                   <select className={inputClassName()} value={openingForm.storeReadyToOpen} onChange={event => setOpeningForm(current => ({ ...current, storeReadyToOpen: event.target.value as YesNo }))}>
-                    <option value="Yes">Yes</option>
                     <option value="No">No</option>
+                    <option value="Yes">Yes</option>
                   </select>
                 </Field>
                 <Field label="Notes / issues">
@@ -494,7 +596,6 @@ export default function EmployeePortal() {
                   staffName: closingForm.staffName,
                   cashCounted: Number(closingForm.cashCounted || 0),
                   cashMatchesSystem: closingForm.cashMatchesSystem,
-                  storeClosedProperly: closingForm.storeClosedProperly,
                   checklistAnswers: buildAnswersPayload(closingQuestions, closingAnswers),
                   notes: closingForm.notes,
                 });
@@ -512,8 +613,8 @@ export default function EmployeePortal() {
                 </Field>
                 <Field label="Matches system?">
                   <select className={inputClassName()} value={closingForm.cashMatchesSystem} onChange={event => setClosingForm(current => ({ ...current, cashMatchesSystem: event.target.value as YesNo }))}>
-                    <option value="Yes">Yes</option>
                     <option value="No">No</option>
+                    <option value="Yes">Yes</option>
                   </select>
                 </Field>
               </div>
@@ -530,7 +631,7 @@ export default function EmployeePortal() {
                       <ChecklistQuestionRow
                         key={question.id}
                         question={question}
-                        state={closingAnswers[question.id] ?? { answer: "Yes", detail: "" }}
+                        state={closingAnswers[question.id] ?? { answer: "No", detail: "" }}
                         onChange={next => setClosingAnswers(state => ({ ...state, [question.id]: next }))}
                       />
                     ))}
@@ -538,17 +639,9 @@ export default function EmployeePortal() {
                 </div>
               ))}
 
-              <div className="grid gap-5 md:grid-cols-2">
-                <Field label="Store closed properly">
-                  <select className={inputClassName()} value={closingForm.storeClosedProperly} onChange={event => setClosingForm(current => ({ ...current, storeClosedProperly: event.target.value as YesNo }))}>
-                    <option value="Yes">Yes</option>
-                    <option value="No">No</option>
-                  </select>
-                </Field>
-                <Field label="Notes / issues">
-                  <textarea className={textareaClassName()} value={closingForm.notes} onChange={event => setClosingForm(current => ({ ...current, notes: event.target.value }))} />
-                </Field>
-              </div>
+              <Field label="Notes / issues">
+                <textarea className={textareaClassName()} value={closingForm.notes} onChange={event => setClosingForm(current => ({ ...current, notes: event.target.value }))} />
+              </Field>
 
               <div className="flex justify-end">
                 <button disabled={closingMutation.isPending} className="rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
@@ -562,22 +655,31 @@ export default function EmployeePortal() {
             id="end-of-day"
             icon={<ReceiptText className="h-5 w-5" />}
             title="End-of-Day Report"
-            description="Capture the structured sales picture for the day with the fixed payment and cup labels required by the dashboard."
+            description="Capture the structured sales picture for the day with fixed payment labels and compact Here-versus-To Go counts for each cup size."
           >
             <form
               className="grid gap-5 md:grid-cols-2 xl:grid-cols-4"
               onSubmit={event => {
                 event.preventDefault();
                 endOfDayMutation.mutate({
-                  ...endOfDayForm,
-                  cups4oz: Number(endOfDayForm.cups4oz || 0),
-                  cups8oz: Number(endOfDayForm.cups8oz || 0),
-                  cupsPint: Number(endOfDayForm.cupsPint || 0),
-                  cupsLiter: Number(endOfDayForm.cupsLiter || 0),
+                  businessDate: endOfDayForm.businessDate,
+                  shift: endOfDayForm.shift,
+                  staffName: endOfDayForm.staffName,
+                  cups4ozHere: Number(endOfDayForm.cups4ozHere || 0),
+                  cups4ozToGo: Number(endOfDayForm.cups4ozToGo || 0),
+                  cups8ozHere: Number(endOfDayForm.cups8ozHere || 0),
+                  cups8ozToGo: Number(endOfDayForm.cups8ozToGo || 0),
+                  cupsPintHere: Number(endOfDayForm.cupsPintHere || 0),
+                  cupsPintToGo: Number(endOfDayForm.cupsPintToGo || 0),
+                  cupsLiterHere: Number(endOfDayForm.cupsLiterHere || 0),
+                  cupsLiterToGo: Number(endOfDayForm.cupsLiterToGo || 0),
                   cashTotal: Number(endOfDayForm.cashTotal || 0),
                   cardTotal: Number(endOfDayForm.cardTotal || 0),
                   zelleTotal: Number(endOfDayForm.zelleTotal || 0),
                   venmoTotal: Number(endOfDayForm.venmoTotal || 0),
+                  wasteNotes: endOfDayForm.wasteNotes,
+                  lowItemNotes: endOfDayForm.lowItemNotes,
+                  generalNotes: endOfDayForm.generalNotes,
                 });
               }}
             >
@@ -595,13 +697,45 @@ export default function EmployeePortal() {
                 <input className={inputClassName()} value={endOfDayForm.staffName} onChange={event => setEndOfDayForm(current => ({ ...current, staffName: event.target.value }))} />
               </Field>
               <div className="rounded-2xl border border-[#e5ddd0] bg-[#f8f2e8] px-4 py-3 text-sm leading-7 text-[#6a6158] xl:col-span-1">
-                Payment method labels are fixed as <strong>Cash</strong>, <strong>Card</strong>, <strong>Zelle</strong>, and <strong>Venmo</strong>.
+                Payment labels stay fixed as <strong>Cash</strong>, <strong>Card</strong>, <strong>Zelle</strong>, and <strong>Venmo</strong>.
               </div>
 
-              <Field label="4oz"><input className={inputClassName()} type="number" min="0" step="1" value={endOfDayForm.cups4oz} onChange={event => setEndOfDayForm(current => ({ ...current, cups4oz: event.target.value }))} /></Field>
-              <Field label="8oz"><input className={inputClassName()} type="number" min="0" step="1" value={endOfDayForm.cups8oz} onChange={event => setEndOfDayForm(current => ({ ...current, cups8oz: event.target.value }))} /></Field>
-              <Field label="Pint"><input className={inputClassName()} type="number" min="0" step="1" value={endOfDayForm.cupsPint} onChange={event => setEndOfDayForm(current => ({ ...current, cupsPint: event.target.value }))} /></Field>
-              <Field label="Liter"><input className={inputClassName()} type="number" min="0" step="1" value={endOfDayForm.cupsLiter} onChange={event => setEndOfDayForm(current => ({ ...current, cupsLiter: event.target.value }))} /></Field>
+              <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] p-5 xl:col-span-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">Cup counts sold</p>
+                    <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">Here and To Go</h3>
+                  </div>
+                  <div className="grid grid-cols-[minmax(0,1fr)_88px_88px] items-center gap-3 text-xs uppercase tracking-[0.22em] text-[#8a8176]">
+                    <span />
+                    <span className="text-center">Here</span>
+                    <span className="text-center">To Go</span>
+                  </div>
+                </div>
+                <div className="mt-5 space-y-3">
+                  {endOfDayCupRows.map(row => (
+                    <div key={row.label} className="grid grid-cols-[minmax(0,1fr)_88px_88px] items-center gap-3 rounded-2xl border border-[#eadfce] bg-white/80 p-3">
+                      <span className="text-sm font-medium text-[#2f2a26]">{row.label}</span>
+                      <input
+                        className={smallInputClassName()}
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={endOfDayForm[row.hereKey]}
+                        onChange={event => setEndOfDayForm(current => ({ ...current, [row.hereKey]: event.target.value }))}
+                      />
+                      <input
+                        className={smallInputClassName()}
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={endOfDayForm[row.toGoKey]}
+                        onChange={event => setEndOfDayForm(current => ({ ...current, [row.toGoKey]: event.target.value }))}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
 
               <Field label="Cash"><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.cashTotal} onChange={event => setEndOfDayForm(current => ({ ...current, cashTotal: event.target.value }))} /></Field>
               <Field label="Card"><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.cardTotal} onChange={event => setEndOfDayForm(current => ({ ...current, cardTotal: event.target.value }))} /></Field>

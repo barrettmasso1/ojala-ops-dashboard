@@ -45,16 +45,12 @@ const defaultChecklistQuestions: Array<InsertChecklistQuestion> = [
   { checklistType: "opening", sectionTitle: "Cleanliness", prompt: "Floors clean", detailPrompt: "If no, what still needs attention?", detailTrigger: "No", displayOrder: 6, isActive: 1 },
   { checklistType: "opening", sectionTitle: "Cleanliness", prompt: "Sink clean", detailPrompt: "If no, what still needs attention?", detailTrigger: "No", displayOrder: 7, isActive: 1 },
   { checklistType: "opening", sectionTitle: "Cleanliness", prompt: "Trash emptied", detailPrompt: "If no, explain why.", detailTrigger: "No", displayOrder: 8, isActive: 1 },
-  { checklistType: "opening", sectionTitle: "Setup", prompt: "Cups stocked", detailPrompt: "If no, what is missing?", detailTrigger: "No", displayOrder: 9, isActive: 1 },
-  { checklistType: "opening", sectionTitle: "Setup", prompt: "Lids stocked", detailPrompt: "If no, what is missing?", detailTrigger: "No", displayOrder: 10, isActive: 1 },
-  { checklistType: "opening", sectionTitle: "Setup", prompt: "Spoons stocked", detailPrompt: "If no, what is missing?", detailTrigger: "No", displayOrder: 11, isActive: 1 },
-  { checklistType: "opening", sectionTitle: "Setup", prompt: "Napkins stocked", detailPrompt: "If no, what is missing?", detailTrigger: "No", displayOrder: 12, isActive: 1 },
-  { checklistType: "opening", sectionTitle: "Setup", prompt: "Toppings filled", detailPrompt: "If no, what needs refilling?", detailTrigger: "No", displayOrder: 13, isActive: 1 },
-  { checklistType: "opening", sectionTitle: "Employee Preparation", prompt: "Employee ready for work", detailPrompt: "If no, explain what is incomplete.", detailTrigger: "No", displayOrder: 14, isActive: 1 },
-  { checklistType: "opening", sectionTitle: "Employee Preparation", prompt: "Shirt clean and ironed", detailPrompt: "If no, explain the issue.", detailTrigger: "No", displayOrder: 15, isActive: 1 },
-  { checklistType: "opening", sectionTitle: "Employee Preparation", prompt: "Specified uniform worn correctly", detailPrompt: "If no, explain the issue.", detailTrigger: "No", displayOrder: 16, isActive: 1 },
-  { checklistType: "opening", sectionTitle: "Employee Preparation", prompt: "Presentation clean and professional", detailPrompt: "If no, explain the issue.", detailTrigger: "No", displayOrder: 17, isActive: 1 },
-  { checklistType: "opening", sectionTitle: "Final", prompt: "Store ready to open", detailPrompt: "If no, what is still pending?", detailTrigger: "No", displayOrder: 18, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Setup", prompt: "Napkins stocked", detailPrompt: "If no, what is missing?", detailTrigger: "No", displayOrder: 9, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Employee Preparation", prompt: "Employee ready for work", detailPrompt: "If no, explain what is incomplete.", detailTrigger: "No", displayOrder: 10, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Employee Preparation", prompt: "Shirt clean and ironed", detailPrompt: "If no, explain the issue.", detailTrigger: "No", displayOrder: 11, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Employee Preparation", prompt: "Specified uniform worn correctly", detailPrompt: "If no, explain the issue.", detailTrigger: "No", displayOrder: 12, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Employee Preparation", prompt: "Presentation clean and professional", detailPrompt: "If no, explain the issue.", detailTrigger: "No", displayOrder: 13, isActive: 1 },
+  { checklistType: "opening", sectionTitle: "Final", prompt: "Store ready to open", detailPrompt: "If no, what is still pending?", detailTrigger: "No", displayOrder: 14, isActive: 1 },
   { checklistType: "closing", sectionTitle: "Cleaning", prompt: "Counters cleaned", detailPrompt: "If no, what remains?", detailTrigger: "No", displayOrder: 1, isActive: 1 },
   { checklistType: "closing", sectionTitle: "Cleaning", prompt: "Floors cleaned", detailPrompt: "If no, what remains?", detailTrigger: "No", displayOrder: 2, isActive: 1 },
   { checklistType: "closing", sectionTitle: "Cleaning", prompt: "Utensils washed", detailPrompt: "If no, what remains?", detailTrigger: "No", displayOrder: 3, isActive: 1 },
@@ -63,6 +59,13 @@ const defaultChecklistQuestions: Array<InsertChecklistQuestion> = [
   { checklistType: "closing", sectionTitle: "Product", prompt: "Freezers closed and working", detailPrompt: "If no, explain the issue.", detailTrigger: "No", displayOrder: 6, isActive: 1 },
   { checklistType: "closing", sectionTitle: "Final", prompt: "Store closed properly", detailPrompt: "If no, explain the issue.", detailTrigger: "No", displayOrder: 7, isActive: 1 },
 ];
+
+const retiredChecklistPrompts = new Set([
+  "Cups stocked",
+  "Lids stocked",
+  "Spoons stocked",
+  "Toppings filled",
+]);
 
 function calculateOpeningCompletion(entry: {
   staffName: string;
@@ -404,7 +407,7 @@ export async function listChecklistQuestions(checklistType: "opening" | "closing
     .orderBy(checklistQuestions.displayOrder, checklistQuestions.id);
 
   if (existing.length > 0) {
-    return existing.filter(item => item.isActive === 1);
+    return existing.filter(item => item.isActive === 1 && !retiredChecklistPrompts.has(item.prompt));
   }
 
   const defaults = defaultChecklistQuestions.filter(item => item.checklistType === checklistType);

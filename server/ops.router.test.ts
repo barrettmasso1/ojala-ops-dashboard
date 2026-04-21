@@ -82,12 +82,12 @@ describe("operations router", () => {
     expect(dbMocks.listChecklistQuestions).toHaveBeenCalledWith("opening");
   });
 
-  it("submits an opening checklist using structured yes-no answers and notifies the owner", async () => {
+  it("submits an opening checklist with stock counts and structured yes-no answers", async () => {
     dbMocks.createOpeningChecklist.mockResolvedValue({
       businessDate: "2026-04-21",
       staffName: "Ava",
       cashMatchesSystem: "Yes",
-      storeReadyStatus: "Yes",
+      storeReadyStatus: "No",
     });
 
     const caller = appRouter.createCaller(createContext("user"));
@@ -96,7 +96,18 @@ describe("operations router", () => {
       staffName: "Ava",
       startingCash: 120,
       cashCountedAndCorrect: "Yes",
-      storeReadyToOpen: "Yes",
+      storeReadyToOpen: "No",
+      stockCounts: {
+        cups4oz: 24,
+        cups8oz: 18,
+        cupsPint: 12,
+        cupsLiter: 6,
+        lids4oz: 24,
+        lids8oz: 18,
+        lidsPint: 12,
+        lidsLiter: 6,
+        spoons: 140,
+      },
       checklistAnswers: [
         {
           questionId: 1,
@@ -123,8 +134,9 @@ describe("operations router", () => {
         staffName: "Ava",
         startingCash: "120.00",
         cashMatchesSystem: "Yes",
-        storeReadyStatus: "Yes",
-        responseJson: expect.stringContaining("Shirt clean and ironed"),
+        storeReadyStatus: "No",
+        setupStatus: expect.stringContaining("Cup counts — 4oz: 24, 8oz: 18, Pint: 12, Liter: 6"),
+        responseJson: expect.stringContaining("\"spoons\":140"),
         submittedByUserId: 1,
       })
     );
@@ -136,7 +148,7 @@ describe("operations router", () => {
     );
   });
 
-  it("submits a closing checklist using structured yes-no answers and notifies the owner", async () => {
+  it("submits a closing checklist using the checklist confirmation for store closed properly", async () => {
     dbMocks.createClosingChecklist.mockResolvedValue({
       businessDate: "2026-04-21",
       staffName: "Marco",
@@ -150,7 +162,6 @@ describe("operations router", () => {
       staffName: "Marco",
       cashCounted: 210,
       cashMatchesSystem: "No",
-      storeClosedProperly: "Yes",
       checklistAnswers: [
         {
           questionId: 7,
@@ -158,6 +169,13 @@ describe("operations router", () => {
           prompt: "Trash taken out",
           answer: "No",
           detail: "Waiting on pickup",
+        },
+        {
+          questionId: 8,
+          sectionTitle: "Final",
+          prompt: "Store closed properly",
+          answer: "Yes",
+          detail: "",
         },
       ],
       notes: "Closing note",
@@ -169,6 +187,7 @@ describe("operations router", () => {
         cashCounted: "210.00",
         cashMatchesSystem: "No",
         storeClosedStatus: "Yes",
+        productStorageStatus: expect.stringContaining("Store closed properly: Yes"),
         responseJson: expect.stringContaining("Trash taken out"),
       })
     );
@@ -221,7 +240,7 @@ describe("operations router", () => {
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  it("submits an end-of-day report with exact payment fields and notifies the owner", async () => {
+  it("submits an end-of-day report with compact here-and-to-go cup counts and notifies the owner", async () => {
     dbMocks.createEndOfDayReport.mockResolvedValue({
       businessDate: "2026-04-21",
       shift: "PM",
@@ -233,10 +252,14 @@ describe("operations router", () => {
       businessDate: "2026-04-21",
       shift: "PM",
       staffName: "Marco",
-      cups4oz: 12,
-      cups8oz: 18,
-      cupsPint: 6,
-      cupsLiter: 2,
+      cups4ozHere: 4,
+      cups4ozToGo: 8,
+      cups8ozHere: 6,
+      cups8ozToGo: 12,
+      cupsPintHere: 2,
+      cupsPintToGo: 4,
+      cupsLiterHere: 1,
+      cupsLiterToGo: 1,
       cashTotal: 250,
       cardTotal: 410,
       zelleTotal: 80,
@@ -254,9 +277,17 @@ describe("operations router", () => {
         zelleTotal: "80.00",
         venmoTotal: "60.00",
         cups4oz: 12,
+        cups4ozHere: 4,
+        cups4ozToGo: 8,
         cups8oz: 18,
+        cups8ozHere: 6,
+        cups8ozToGo: 12,
         cupsPint: 6,
+        cupsPintHere: 2,
+        cupsPintToGo: 4,
         cupsLiter: 2,
+        cupsLiterHere: 1,
+        cupsLiterToGo: 1,
       })
     );
     expect(notificationMocks.notifyOwner).toHaveBeenCalledWith(

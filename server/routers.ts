@@ -29,12 +29,25 @@ const checklistAnswerSchema = z.object({
   detail: z.string().optional().default(""),
 });
 
+const openingStockCountsSchema = z.object({
+  cups4oz: z.number().int().min(0),
+  cups8oz: z.number().int().min(0),
+  cupsPint: z.number().int().min(0),
+  cupsLiter: z.number().int().min(0),
+  lids4oz: z.number().int().min(0),
+  lids8oz: z.number().int().min(0),
+  lidsPint: z.number().int().min(0),
+  lidsLiter: z.number().int().min(0),
+  spoons: z.number().int().min(0),
+});
+
 const openingChecklistSchema = z.object({
   businessDate: z.string().optional(),
   staffName: z.string().min(1),
   startingCash: z.number().min(0),
   cashCountedAndCorrect: z.enum(["Yes", "No"]),
   storeReadyToOpen: z.enum(["Yes", "No"]),
+  stockCounts: openingStockCountsSchema,
   checklistAnswers: z.array(checklistAnswerSchema).min(1),
   notes: z.string().optional().default(""),
 });
@@ -46,17 +59,20 @@ const closingChecklistSchema = z.object({
   cashMatchesSystem: z.enum(["Yes", "No"]),
   checklistAnswers: z.array(checklistAnswerSchema).min(1),
   notes: z.string().optional().default(""),
-  storeClosedProperly: z.enum(["Yes", "No"]),
 });
 
 const endOfDayReportSchema = z.object({
   businessDate: z.string().min(1),
   shift: z.enum(["AM", "PM", "Full Day"]),
   staffName: z.string().min(1),
-  cups4oz: z.number().int().min(0),
-  cups8oz: z.number().int().min(0),
-  cupsPint: z.number().int().min(0),
-  cupsLiter: z.number().int().min(0),
+  cups4ozHere: z.number().int().min(0),
+  cups4ozToGo: z.number().int().min(0),
+  cups8ozHere: z.number().int().min(0),
+  cups8ozToGo: z.number().int().min(0),
+  cupsPintHere: z.number().int().min(0),
+  cupsPintToGo: z.number().int().min(0),
+  cupsLiterHere: z.number().int().min(0),
+  cupsLiterToGo: z.number().int().min(0),
   cashTotal: z.number().min(0),
   cardTotal: z.number().min(0),
   zelleTotal: z.number().min(0),
@@ -136,13 +152,19 @@ export const appRouter = router({
         equipmentStatus: (answersBySection.Equipment ?? []).join("\n") || "No equipment responses provided",
         cleanlinessStatus: (answersBySection.Cleanliness ?? []).join("\n") || "No cleanliness responses provided",
         setupStatus: [
+          `Cup counts — 4oz: ${input.stockCounts.cups4oz}, 8oz: ${input.stockCounts.cups8oz}, Pint: ${input.stockCounts.cupsPint}, Liter: ${input.stockCounts.cupsLiter}`,
+          `Lid counts — 4oz: ${input.stockCounts.lids4oz}, 8oz: ${input.stockCounts.lids8oz}, Pint: ${input.stockCounts.lidsPint}, Liter: ${input.stockCounts.lidsLiter}`,
+          `Spoons stocked: ${input.stockCounts.spoons}`,
           ...(answersBySection.Setup ?? []),
           ...(answersBySection["Employee Preparation"] ?? []),
         ].join("\n") || "No setup responses provided",
         startingCash: input.startingCash.toFixed(2),
         cashMatchesSystem: input.cashCountedAndCorrect,
         storeReadyStatus: input.storeReadyToOpen,
-        responseJson: JSON.stringify(input.checklistAnswers),
+        responseJson: JSON.stringify({
+          checklistAnswers: input.checklistAnswers,
+          stockCounts: input.stockCounts,
+        }),
         notes: input.notes ?? "",
         submittedByUserId: ctx.user.id,
       });
@@ -161,6 +183,7 @@ export const appRouter = router({
         acc[answer.sectionTitle] = [...(acc[answer.sectionTitle] ?? []), line];
         return acc;
       }, {});
+      const storeClosedAnswer = input.checklistAnswers.find(answer => answer.prompt === "Store closed properly")?.answer ?? "No";
 
       const record = await createClosingChecklist({
         businessDate: input.businessDate ?? new Date().toISOString().slice(0, 10),
@@ -168,8 +191,10 @@ export const appRouter = router({
         cashCounted: input.cashCounted.toFixed(2),
         cashMatchesSystem: input.cashMatchesSystem,
         cleaningStatus: (answersBySection.Cleaning ?? []).join("\n") || "No cleaning responses provided",
-        productStorageStatus: (answersBySection.Product ?? []).join("\n") || "No product responses provided",
-        storeClosedStatus: input.storeClosedProperly,
+        productStorageStatus: [(answersBySection.Product ?? []).join("\n"), (answersBySection.Final ?? []).join("\n")]
+          .filter(Boolean)
+          .join("\n") || "No product responses provided",
+        storeClosedStatus: storeClosedAnswer,
         responseJson: JSON.stringify(input.checklistAnswers),
         notes: input.notes ?? "",
         submittedByUserId: ctx.user.id,
@@ -186,6 +211,10 @@ export const appRouter = router({
     submitEndOfDay: protectedProcedure.input(endOfDayReportSchema).mutation(async ({ ctx, input }) => {
       const record = await createEndOfDayReport({
         ...input,
+        cups4oz: input.cups4ozHere + input.cups4ozToGo,
+        cups8oz: input.cups8ozHere + input.cups8ozToGo,
+        cupsPint: input.cupsPintHere + input.cupsPintToGo,
+        cupsLiter: input.cupsLiterHere + input.cupsLiterToGo,
         cashTotal: input.cashTotal.toFixed(2),
         cardTotal: input.cardTotal.toFixed(2),
         zelleTotal: input.zelleTotal.toFixed(2),

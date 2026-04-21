@@ -32,3 +32,8 @@
 - [x] Add employee-preparation checks to the opening workflow so presentation and uniform readiness are explicitly confirmed
 - [x] Implement manager-editable checklist question management so owners can add and remove opening and closing questions over time
 - [x] Preserve the specific Ojalá Opening and Ojalá Closing question sets provided by the user as the initial checklist baseline
+- [x] Default all checklist questions to No so employees must actively choose Yes
+- [x] Remove the duplicate closing confirmation so the notes field can expand cleanly
+- [x] Replace opening stock yes-no checks for cups, lids, and spoons with count-based inputs while removing the toppings question entirely
+- [x] Update the end-of-day report to capture 4oz, 8oz, Pint, and Liter sales as Here and To Go counts in a compact side-by-side layout
+- [x] Ensure the revised stock-count and here-versus-to-go fields can support future inventory and sales reconciliation
