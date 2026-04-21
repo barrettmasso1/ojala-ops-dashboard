@@ -43,3 +43,7 @@
 - [x] Delete the lower duplicate dropdown shown beneath the opening and closing final Yes/No confirmation controls
 - [x] Extend the Here-and-To Go cup-count section to full width in the end-of-day report and place Cash below it
 - [x] Move counted opening stock for cups, lids, and spoons into the Opening Section Setup area so those inputs appear together with napkins in one setup section
+- [x] Place Cash and Card on the same row in the end-of-day form
+- [x] Place Venmo and Zelle on the same row in the end-of-day form
+- [x] Add a Total Sales field to the left of Waste Notes in the end-of-day form
+- [x] Center the Submit End-of-Day Report button and make it full width

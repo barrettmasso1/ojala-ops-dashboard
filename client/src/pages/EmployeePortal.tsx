@@ -337,6 +337,12 @@ export default function EmployeePortal() {
     }, {});
   }, [closingQuestions]);
 
+  const totalSales = useMemo(() => {
+    return [endOfDayForm.cashTotal, endOfDayForm.cardTotal, endOfDayForm.zelleTotal, endOfDayForm.venmoTotal]
+      .map(value => Number(value || 0))
+      .reduce((sum, value) => sum + value, 0);
+  }, [endOfDayForm.cashTotal, endOfDayForm.cardTotal, endOfDayForm.zelleTotal, endOfDayForm.venmoTotal]);
+
   if (loading) {
     return <div className="min-h-screen bg-[#f8f4ed]" />;
   }
@@ -723,16 +729,19 @@ export default function EmployeePortal() {
                 </div>
               </div>
 
-              <div className="md:col-span-2 xl:col-span-4"><Field label="Cash"><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.cashTotal} onChange={event => setEndOfDayForm(current => ({ ...current, cashTotal: event.target.value }))} /></Field></div>
+              <Field label="Cash"><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.cashTotal} onChange={event => setEndOfDayForm(current => ({ ...current, cashTotal: event.target.value }))} /></Field>
               <Field label="Card"><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.cardTotal} onChange={event => setEndOfDayForm(current => ({ ...current, cardTotal: event.target.value }))} /></Field>
-              <Field label="Zelle"><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.zelleTotal} onChange={event => setEndOfDayForm(current => ({ ...current, zelleTotal: event.target.value }))} /></Field>
               <Field label="Venmo"><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.venmoTotal} onChange={event => setEndOfDayForm(current => ({ ...current, venmoTotal: event.target.value }))} /></Field>
+              <Field label="Zelle"><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.zelleTotal} onChange={event => setEndOfDayForm(current => ({ ...current, zelleTotal: event.target.value }))} /></Field>
 
-              <div className="xl:col-span-2"><Field label="Waste Notes"><textarea className={textareaClassName()} value={endOfDayForm.wasteNotes} onChange={event => setEndOfDayForm(current => ({ ...current, wasteNotes: event.target.value }))} /></Field></div>
+              <Field label="Total Sales">
+                <input className={inputClassName()} type="text" value={`$${totalSales.toFixed(2)}`} readOnly />
+              </Field>
+              <Field label="Waste Notes"><textarea className={textareaClassName()} value={endOfDayForm.wasteNotes} onChange={event => setEndOfDayForm(current => ({ ...current, wasteNotes: event.target.value }))} /></Field>
               <div className="xl:col-span-2"><Field label="Low-Item Notes"><textarea className={textareaClassName()} value={endOfDayForm.lowItemNotes} onChange={event => setEndOfDayForm(current => ({ ...current, lowItemNotes: event.target.value }))} /></Field></div>
               <div className="xl:col-span-4"><Field label="General Notes"><textarea className={textareaClassName()} value={endOfDayForm.generalNotes} onChange={event => setEndOfDayForm(current => ({ ...current, generalNotes: event.target.value }))} /></Field></div>
-              <div className="xl:col-span-4 flex justify-end">
-                <button disabled={endOfDayMutation.isPending} className="rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
+              <div className="xl:col-span-4 flex justify-center">
+                <button disabled={endOfDayMutation.isPending} className="w-full rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
                   {endOfDayMutation.isPending ? "Submitting..." : "Submit End-of-Day Report"}
                 </button>
               </div>
