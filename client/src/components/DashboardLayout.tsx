@@ -21,27 +21,28 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LayoutDashboard, LogOut, PanelLeft, Users } from "lucide-react";
+import { BarChart3, ClipboardList, LogOut, PanelLeft, ShieldCheck } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
+import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { Button } from "./ui/button";
 
-const menuItems = [
-  { icon: LayoutDashboard, label: "Page 1", path: "/" },
-  { icon: Users, label: "Page 2", path: "/some-path" },
+const menuItems: Array<{
+  icon: typeof BarChart3;
+  label: string;
+  path: string;
+  roles: Array<"admin" | "user">;
+}> = [
+  { icon: BarChart3, label: "Dashboard", path: "/dashboard", roles: ["admin"] },
+  { icon: ClipboardList, label: "Employee Portal", path: "/portal", roles: ["admin", "user"] },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
-const DEFAULT_WIDTH = 280;
-const MIN_WIDTH = 200;
-const MAX_WIDTH = 480;
+const DEFAULT_WIDTH = 292;
+const MIN_WIDTH = 220;
+const MAX_WIDTH = 420;
 
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
     return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
@@ -53,27 +54,26 @@ export default function DashboardLayout({
   }, [sidebarWidth]);
 
   if (loading) {
-    return <DashboardLayoutSkeleton />
+    return <DashboardLayoutSkeleton />;
   }
 
   if (!user) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="flex flex-col items-center gap-8 p-8 max-w-md w-full">
-          <div className="flex flex-col items-center gap-6">
-            <h1 className="text-2xl font-semibold tracking-tight text-center">
-              Sign in to continue
-            </h1>
-            <p className="text-sm text-muted-foreground text-center max-w-sm">
-              Access to this dashboard requires authentication. Continue to launch the login flow.
-            </p>
+      <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(95,127,120,0.16),_transparent_35%),linear-gradient(180deg,_#f9f6f0_0%,_#f3ece1_55%,_#f7f4ee_100%)] px-6 py-12">
+        <div className="w-full max-w-md rounded-[2rem] border border-white/70 bg-white/80 p-10 text-center shadow-[0_30px_80px_rgba(84,77,63,0.12)] backdrop-blur">
+          <div className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-[#e9dfcf] text-[#52665f]">
+            <ShieldCheck className="h-7 w-7" />
           </div>
+          <h1 className="font-serif text-3xl tracking-tight text-[#1f2a27]">Sign in to continue</h1>
+          <p className="mt-4 text-sm leading-6 text-[#5c645e]">
+            This workspace is reserved for authenticated Ojala team members. Continue to access the employee portal or the management dashboard.
+          </p>
           <Button
             onClick={() => {
               window.location.href = getLoginUrl();
             }}
             size="lg"
-            className="w-full shadow-lg hover:shadow-xl transition-all"
+            className="mt-8 w-full rounded-full bg-[#52665f] text-white shadow-lg shadow-[#52665f]/20 hover:bg-[#41534d]"
           >
             Sign in
           </Button>
@@ -84,15 +84,11 @@ export default function DashboardLayout({
 
   return (
     <SidebarProvider
-      style={
-        {
-          "--sidebar-width": `${sidebarWidth}px`,
-        } as CSSProperties
-      }
+      style={{
+        "--sidebar-width": `${sidebarWidth}px`,
+      } as CSSProperties}
     >
-      <DashboardLayoutContent setSidebarWidth={setSidebarWidth}>
-        {children}
-      </DashboardLayoutContent>
+      <DashboardLayoutContent setSidebarWidth={setSidebarWidth}>{children}</DashboardLayoutContent>
     </SidebarProvider>
   );
 }
@@ -102,17 +98,15 @@ type DashboardLayoutContentProps = {
   setSidebarWidth: (width: number) => void;
 };
 
-function DashboardLayoutContent({
-  children,
-  setSidebarWidth,
-}: DashboardLayoutContentProps) {
+function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutContentProps) {
   const { user, logout } = useAuth();
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const activeMenuItem = menuItems.find(item => item.path === location);
+  const visibleMenuItems = menuItems.filter(item => item.roles.includes((user?.role ?? "user") as "admin" | "user"));
+  const activeMenuItem = visibleMenuItems.find(item => location.startsWith(item.path));
   const isMobile = useIsMobile();
 
   useEffect(() => {
@@ -124,7 +118,6 @@ function DashboardLayoutContent({
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing) return;
-
       const sidebarLeft = sidebarRef.current?.getBoundingClientRect().left ?? 0;
       const newWidth = e.clientX - sidebarLeft;
       if (newWidth >= MIN_WIDTH && newWidth <= MAX_WIDTH) {
@@ -154,46 +147,46 @@ function DashboardLayoutContent({
   return (
     <>
       <div className="relative" ref={sidebarRef}>
-        <Sidebar
-          collapsible="icon"
-          className="border-r-0"
-          disableTransition={isResizing}
-        >
-          <SidebarHeader className="h-16 justify-center">
-            <div className="flex items-center gap-3 px-2 transition-all w-full">
+        <Sidebar collapsible="icon" className="border-r-0 bg-transparent" disableTransition={isResizing}>
+          <SidebarHeader className="h-20 justify-center border-r border-[#d7d0c4]/70 bg-[#f6efe4]/70 px-4 backdrop-blur">
+            <div className="flex w-full items-center gap-3 px-2">
               <button
                 onClick={toggleSidebar}
-                className="h-8 w-8 flex items-center justify-center hover:bg-accent rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring shrink-0"
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-white/70 text-[#52665f] shadow-sm transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#52665f]"
                 aria-label="Toggle navigation"
               >
-                <PanelLeft className="h-4 w-4 text-muted-foreground" />
+                <PanelLeft className="h-4 w-4" />
               </button>
               {!isCollapsed ? (
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="font-semibold tracking-tight truncate">
-                    Navigation
-                  </span>
+                <div className="min-w-0">
+                  <p className="font-serif text-xl tracking-tight text-[#21312d]">Ojala Ops</p>
+                  <p className="text-xs uppercase tracking-[0.28em] text-[#7a8077]">Manager workspace</p>
                 </div>
               ) : null}
             </div>
           </SidebarHeader>
 
-          <SidebarContent className="gap-0">
+          <SidebarContent className="gap-0 border-r border-[#d7d0c4]/70 bg-[#f8f3eb]/85 px-2 py-4 backdrop-blur">
+            <div className="mb-5 rounded-[1.5rem] border border-white/70 bg-white/75 p-4 text-[#44524e] shadow-[0_16px_35px_rgba(88,83,72,0.08)] group-data-[collapsible=icon]:hidden">
+              <p className="text-xs uppercase tracking-[0.24em] text-[#8b8f87]">Today’s focus</p>
+              <p className="mt-2 font-serif text-lg text-[#20312b]">Calm operations. Clear reporting.</p>
+              <p className="mt-2 text-sm leading-6 text-[#66706a]">
+                Review daily performance, inspect notes, and catch inventory risk before it becomes a service issue.
+              </p>
+            </div>
             <SidebarMenu className="px-2 py-1">
-              {menuItems.map(item => {
-                const isActive = location === item.path;
+              {visibleMenuItems.map(item => {
+                const isActive = location.startsWith(item.path);
                 return (
                   <SidebarMenuItem key={item.path}>
                     <SidebarMenuButton
                       isActive={isActive}
                       onClick={() => setLocation(item.path)}
                       tooltip={item.label}
-                      className={`h-10 transition-all font-normal`}
+                      className="h-12 rounded-xl text-[#4e5e59] transition-all data-[active=true]:bg-[#52665f] data-[active=true]:text-white data-[active=true]:shadow-lg data-[active=true]:shadow-[#52665f]/20"
                     >
-                      <item.icon
-                        className={`h-4 w-4 ${isActive ? "text-primary" : ""}`}
-                      />
-                      <span>{item.label}</span>
+                      <item.icon className="h-4 w-4" />
+                      <span className="font-medium">{item.label}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 );
@@ -201,30 +194,23 @@ function DashboardLayoutContent({
             </SidebarMenu>
           </SidebarContent>
 
-          <SidebarFooter className="p-3">
+          <SidebarFooter className="border-r border-[#d7d0c4]/70 bg-[#f8f3eb]/85 p-4 backdrop-blur">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <Avatar className="h-9 w-9 border shrink-0">
-                    <AvatarFallback className="text-xs font-medium">
-                      {user?.name?.charAt(0).toUpperCase()}
+                <button className="flex w-full items-center gap-3 rounded-2xl border border-white/70 bg-white/80 px-3 py-3 text-left shadow-sm transition-colors hover:bg-white group-data-[collapsible=icon]:justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#52665f]">
+                  <Avatar className="h-10 w-10 border border-[#d8d2c7] bg-[#e7ddcf] text-[#354743]">
+                    <AvatarFallback className="bg-[#e7ddcf] text-sm font-semibold text-[#354743]">
+                      {user?.name?.charAt(0).toUpperCase() ?? "O"}
                     </AvatarFallback>
                   </Avatar>
-                  <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-                    <p className="text-sm font-medium truncate leading-none">
-                      {user?.name || "-"}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate mt-1.5">
-                      {user?.email || "-"}
-                    </p>
+                  <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
+                    <p className="truncate text-sm font-medium text-[#24332f]">{user?.name || "Team member"}</p>
+                    <p className="mt-1 truncate text-xs text-[#7a8077]">{user?.role === "admin" ? "Owner / Manager" : "Employee"}</p>
                   </div>
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem
-                  onClick={logout}
-                  className="cursor-pointer text-destructive focus:text-destructive"
-                >
+              <DropdownMenuContent align="end" className="w-48 rounded-xl border-[#e5ddd0] bg-white/95 backdrop-blur">
+                <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:text-destructive">
                   <LogOut className="mr-2 h-4 w-4" />
                   <span>Sign out</span>
                 </DropdownMenuItem>
@@ -233,7 +219,7 @@ function DashboardLayoutContent({
           </SidebarFooter>
         </Sidebar>
         <div
-          className={`absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-primary/20 transition-colors ${isCollapsed ? "hidden" : ""}`}
+          className={`absolute right-0 top-0 h-full w-1 cursor-col-resize transition-colors hover:bg-[#52665f]/20 ${isCollapsed ? "hidden" : ""}`}
           onMouseDown={() => {
             if (isCollapsed) return;
             setIsResizing(true);
@@ -242,22 +228,18 @@ function DashboardLayoutContent({
         />
       </div>
 
-      <SidebarInset>
+      <SidebarInset className="bg-[radial-gradient(circle_at_top,_rgba(82,102,95,0.14),_transparent_28%),linear-gradient(180deg,_#fbf8f2_0%,_#f5efe6_48%,_#f9f5ed_100%)]">
         {isMobile && (
-          <div className="flex border-b h-14 items-center justify-between bg-background/95 px-2 backdrop-blur supports-[backdrop-filter]:backdrop-blur sticky top-0 z-40">
-            <div className="flex items-center gap-2">
-              <SidebarTrigger className="h-9 w-9 rounded-lg bg-background" />
-              <div className="flex items-center gap-3">
-                <div className="flex flex-col gap-1">
-                  <span className="tracking-tight text-foreground">
-                    {activeMenuItem?.label ?? "Menu"}
-                  </span>
-                </div>
+          <div className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-[#d9d1c5]/70 bg-[#f9f4ec]/90 px-3 backdrop-blur">
+            <div className="flex items-center gap-3">
+              <SidebarTrigger className="h-9 w-9 rounded-full bg-white/80 text-[#52665f] shadow-sm" />
+              <div>
+                <p className="font-serif text-lg text-[#20312b]">{activeMenuItem?.label ?? "Workspace"}</p>
               </div>
             </div>
           </div>
         )}
-        <main className="flex-1 p-4">{children}</main>
+        <main className="flex-1 p-4 md:p-6 lg:p-8">{children}</main>
       </SidebarInset>
     </>
   );

@@ -1,0 +1,24 @@
+# Project TODO
+
+- [x] Define the application information architecture for employee-only and manager-only experiences
+- [x] Design the database schema for opening checklists, closing checklists, end-of-day reports, inventory categories, and dashboard summaries
+- [x] Implement role-based access so employees only see the form portal and owners/managers see the full dashboard
+- [x] Build the Opening Checklist form with equipment status, cleanliness, setup, starting cash, store-ready status, and notes
+- [x] Build the Closing Checklist form with cash counted, cash-matches-system confirmation, cleaning, product storage, store-closed status, staff name, and notes
+- [x] Build the End-of-Day Report form with date, shift, staff name, 4oz, 8oz, Pint, and Liter cup counts, Cash, Card, Zelle, and Venmo totals, waste notes, low-item notes, and general notes
+- [x] Implement automatic owner notifications for every new form submission
+- [x] Build the day-by-day searchable report view with sales totals, payment breakdown, and cups sold by size
+- [x] Build checklist completion tracking with opening and closing completion rates per day
+- [x] Build a week-over-week sales comparison chart
+- [x] Build the inventory alerts section for Ingredients, Supplies, and Utensils
+- [x] Build the recent notes feed aggregating low-item alerts, waste notes, closing notes, and general notes
+- [x] Create an elegant, polished visual design system with refined typography, sophisticated colors, and meticulous spacing
+- [x] Add automated tests covering core form submission, dashboard aggregation, and access-control workflows
+- [x] Hide manager-only entry points and manager navigation from employee-facing experiences so employees see only the form portal
+- [x] Add explicit loading, empty, and error states to all dashboard data sections
+- [x] Replace seeded inventory placeholders with manager-editable inventory setup and maintenance flows
+- [x] Add automated tests for dashboard aggregation outputs, including daily totals, weekly comparisons, and recent-notes aggregation
+- [x] Re-validate responsive polish after the refinement pass
+- [x] Hide dashboard navigation items conditionally so employee-facing experiences never render manager-only links
+- [x] Add an edit workflow for existing inventory items so managers can maintain inventory instead of only adding entries
+- [x] Document responsive validation for key landing, portal, and dashboard screens after the refinement pass
