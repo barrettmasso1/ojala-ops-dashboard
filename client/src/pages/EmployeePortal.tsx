@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { type PortalLanguage, translateErrorMessage, translatePortalText } from "@/lib/employeePortalI18n";
 import { getOpeningNapkinsQuestion, groupOpeningQuestionsForPortal } from "@/lib/openingSetup";
 import { trpc } from "@/lib/trpc";
 import { ClipboardCheck, MoonStar, Package2, ReceiptText, Sparkles } from "lucide-react";
@@ -202,10 +203,12 @@ function ChecklistQuestionRow({
   question,
   state,
   onChange,
+  language,
 }: {
   question: ChecklistQuestion;
   state: { answer: YesNo; detail: string };
   onChange: (next: { answer: YesNo; detail: string }) => void;
+  language: PortalLanguage;
 }) {
   const showDetail = question.detailTrigger !== "Never" && state.answer === question.detailTrigger;
 
@@ -213,8 +216,8 @@ function ChecklistQuestionRow({
     <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] p-4 shadow-sm">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p className="text-sm font-medium text-[#2f2a26]">{question.prompt}</p>
-          <p className="mt-1 text-xs uppercase tracking-[0.24em] text-[#8a8176]">{question.sectionTitle}</p>
+          <p className="text-sm font-medium text-[#2f2a26]">{translatePortalText(question.prompt, language)}</p>
+          <p className="mt-1 text-xs uppercase tracking-[0.24em] text-[#8a8176]">{translatePortalText(question.sectionTitle, language)}</p>
         </div>
         <div className="flex gap-2">
           {(["Yes", "No"] as const).map(option => {
@@ -228,7 +231,7 @@ function ChecklistQuestionRow({
                   active ? "bg-[#2f2a26] text-white" : "border border-[#ddd4c8] bg-white text-[#2f2a26] hover:bg-[#f5eee5]"
                 }`}
               >
-                {option}
+                {translatePortalText(option, language)}
               </button>
             );
           })}
@@ -236,7 +239,7 @@ function ChecklistQuestionRow({
       </div>
       {showDetail ? (
         <div className="mt-4">
-          <Field label={question.detailPrompt || "Please explain"}>
+          <Field label={translatePortalText(question.detailPrompt || "Please explain", language)}>
             <textarea
               className={textareaClassName()}
               value={state.detail}
@@ -262,6 +265,8 @@ function buildAnswersPayload(questions: ChecklistQuestion[], answers: ChecklistA
 export default function EmployeePortal() {
   const { user, loading } = useAuth({ redirectOnUnauthenticated: true });
   const utils = trpc.useUtils();
+  const [language, setLanguage] = useState<PortalLanguage>("en");
+  const t = (text: string) => translatePortalText(text, language);
 
   const [openingForm, setOpeningForm] = useState<OpeningForm>(initialOpeningForm);
   const [closingForm, setClosingForm] = useState<ClosingForm>(initialClosingForm);
@@ -276,27 +281,27 @@ export default function EmployeePortal() {
 
   const openingMutation = trpc.forms.submitOpening.useMutation({
     onSuccess: async () => {
-      toast.success("Opening Checklist submitted.");
+      toast.success(t("Opening Checklist submitted."));
       setOpeningForm(initialOpeningForm());
       setOpeningAnswers({});
       await Promise.all([utils.dashboard.daily.invalidate(), utils.dashboard.recentNotes.invalidate()]);
     },
-    onError: error => toast.error(error.message),
+    onError: error => toast.error(translateErrorMessage(error.message, language)),
   });
 
   const closingMutation = trpc.forms.submitClosing.useMutation({
     onSuccess: async () => {
-      toast.success("Closing Checklist submitted.");
+      toast.success(t("Closing Checklist submitted."));
       setClosingForm(initialClosingForm());
       setClosingAnswers({});
       await Promise.all([utils.dashboard.daily.invalidate(), utils.dashboard.recentNotes.invalidate()]);
     },
-    onError: error => toast.error(error.message),
+    onError: error => toast.error(translateErrorMessage(error.message, language)),
   });
 
   const endOfDayMutation = trpc.forms.submitEndOfDay.useMutation({
     onSuccess: async () => {
-      toast.success("End-of-Day Report submitted.");
+      toast.success(t("End-of-Day Report submitted."));
       setEndOfDayForm(initialEndOfDayForm());
       await Promise.all([
         utils.dashboard.daily.invalidate(),
@@ -305,18 +310,18 @@ export default function EmployeePortal() {
         utils.dashboard.recentNotes.invalidate(),
       ]);
     },
-    onError: error => toast.error(error.message),
+    onError: error => toast.error(translateErrorMessage(error.message, language)),
   });
 
   const inventoryMutation = trpc.forms.submitInventoryUpdate.useMutation({
     onSuccess: async () => {
-      toast.success("Inventory updated.");
+      toast.success(t("Inventory updated."));
       await Promise.all([inventoryItemsQuery.refetch(), utils.dashboard.inventoryAlerts.invalidate()]);
     },
-    onError: error => toast.error(error.message),
+    onError: error => toast.error(translateErrorMessage(error.message, language)),
   });
 
-  const introName = useMemo(() => user?.name?.split(" ")[0] ?? "team", [user?.name]);
+  const introName = useMemo(() => user?.name?.split(" ")[0] ?? t("team"), [user?.name, language]);
 
   const openingQuestions = openingQuestionsQuery.data ?? [];
   const closingQuestions = closingQuestionsQuery.data ?? [];
@@ -352,13 +357,48 @@ export default function EmployeePortal() {
         <div className="overflow-hidden rounded-[2rem] border border-white/70 bg-white/70 shadow-[0_28px_80px_rgba(88,83,72,0.12)] backdrop-blur">
           <div className="grid gap-0 lg:grid-cols-[1.15fr_0.85fr]">
             <div className="border-b border-[#e4dccf] p-8 lg:border-b-0 lg:border-r lg:p-10">
-              <p className="text-[11px] uppercase tracking-[0.34em] text-[#7d756b]">Staff portal</p>
-              <h1 className="mt-4 text-4xl font-light tracking-[-0.05em] text-[#2d2925] md:text-5xl">
-                Clear daily accountability for calm operations.
-              </h1>
-              <p className="mt-5 max-w-2xl text-base leading-8 text-[#6a6158]">
-                Welcome back, {introName}. These forms now default to <strong>No</strong> so each task must be positively confirmed before a shift is considered ready or complete.
-              </p>
+              <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.34em] text-[#7d756b]">{t("Staff portal")}</p>
+                  <h1 className="mt-4 text-4xl font-light tracking-[-0.05em] text-[#2d2925] md:text-5xl">
+                    {t("Clear daily accountability for calm operations.")}
+                  </h1>
+                  <p className="mt-5 max-w-2xl text-base leading-8 text-[#6a6158]">
+                    {language === "en" ? (
+                      <>
+                        Welcome back, {introName}. These forms now default to <strong>No</strong> so each task must be positively confirmed before a shift is considered ready or complete.
+                      </>
+                    ) : (
+                      <>
+                        {t("Welcome back")}, {introName}. {t("These forms now default to")} <strong>{t("No")}</strong> {t("so each task must be positively confirmed before a shift is considered ready or complete.")}
+                      </>
+                    )}
+                  </p>
+                </div>
+                <div className="rounded-[1.5rem] border border-[#e5ddd0] bg-[#f9f4ec] p-3 shadow-sm">
+                  <p className="text-[11px] uppercase tracking-[0.28em] text-[#7d756b]">{t("Language")}</p>
+                  <div className="mt-3 flex gap-2">
+                    {([
+                      { value: "en", label: "English" },
+                      { value: "es", label: "Spanish" },
+                    ] as const).map(option => {
+                      const active = language === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setLanguage(option.value)}
+                          className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                            active ? "bg-[#2f2a26] text-white" : "border border-[#ddd4c8] bg-white text-[#2f2a26] hover:bg-[#f5eee5]"
+                          }`}
+                        >
+                          {t(option.label)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
               <div className="mt-8 grid gap-4 md:grid-cols-4">
                 {[
                   { label: "Inventory", value: "Quick stock updates", href: "#inventory" },
@@ -367,9 +407,9 @@ export default function EmployeePortal() {
                   { label: "Opening", value: "Start ready", href: "#opening" },
                 ].map(item => (
                   <a key={item.label} href={item.href} className="rounded-2xl border border-white/80 bg-[#fbf7f0] p-4 shadow-sm transition hover:bg-white">
-                    <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">Direct link</p>
-                    <p className="mt-2 font-medium text-[#253630]">{item.label}</p>
-                    <p className="mt-2 text-sm text-[#67706a]">{item.value}</p>
+                    <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">{t("Direct link")}</p>
+                    <p className="mt-2 font-medium text-[#253630]">{t(item.label)}</p>
+                    <p className="mt-2 text-sm text-[#67706a]">{t(item.value)}</p>
                   </a>
                 ))}
               </div>
@@ -378,10 +418,10 @@ export default function EmployeePortal() {
               <div className="rounded-[1.75rem] border border-[#e5ddd0] bg-[#f9f4ec] p-6">
                 <div className="flex items-center gap-3 text-[#5d544a]">
                   <Sparkles className="h-5 w-5" />
-                  <p className="text-sm font-medium uppercase tracking-[0.24em]">Daily workflow</p>
+                  <p className="text-sm font-medium uppercase tracking-[0.24em]">{t("Daily workflow")}</p>
                 </div>
                 <div className="mt-4 space-y-4 text-sm leading-7 text-[#6b6258]">
-                  <p>Move through inventory, opening, closing, and reporting from one place designed to feel consistent with the rest of Ojalá.</p>
+                  <p>{t("Move through inventory, opening, closing, and reporting from one place designed to feel consistent with the rest of Ojalá.")}</p>
                 </div>
               </div>
             </div>
@@ -392,13 +432,13 @@ export default function EmployeePortal() {
           <SectionCard
             id="inventory"
             icon={<Package2 className="h-5 w-5" />}
-            title="Inventory Input"
-            description="Employees can quickly update counted quantities without entering the manager dashboard."
+            title={t("Inventory Input")}
+            description={t("Employees can quickly update counted quantities without entering the manager dashboard.")}
           >
             {inventoryItemsQuery.isLoading ? (
-              <p className="text-sm text-[#6b6258]">Loading inventory items…</p>
+              <p className="text-sm text-[#6b6258]">{t("Loading inventory items…")}</p>
             ) : inventoryItems.length === 0 ? (
-              <p className="text-sm text-[#6b6258]">No inventory items have been set up yet by management.</p>
+              <p className="text-sm text-[#6b6258]">{t("No inventory items have been set up yet by management.")}</p>
             ) : (
               <div className="grid gap-4 lg:grid-cols-2">
                 {inventoryItems.map(item => {
@@ -410,9 +450,9 @@ export default function EmployeePortal() {
                     <div key={item.id} className="rounded-[1.5rem] border border-[#e7ddd1] bg-[#fbf7f1] p-5 shadow-sm">
                       <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{item.category}</p>
                       <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">{item.itemName}</h3>
-                      <p className="mt-1 text-sm text-[#6b6258]">Par level: {item.parLevel} {item.unitLabel}</p>
+                      <p className="mt-1 text-sm text-[#6b6258]">{t("Par level")}: {item.parLevel} {item.unitLabel}</p>
                       <div className="mt-4 grid gap-4">
-                        <Field label={`Current quantity (${item.unitLabel})`}>
+                        <Field label={`${t("Current quantity")} (${item.unitLabel})`}>
                           <input
                             className={inputClassName()}
                             type="number"
@@ -427,7 +467,7 @@ export default function EmployeePortal() {
                             }
                           />
                         </Field>
-                        <Field label="Notes">
+                        <Field label={t("Notes")}>
                           <textarea
                             className={textareaClassName()}
                             value={current.notes}
@@ -451,7 +491,7 @@ export default function EmployeePortal() {
                             }
                             className="w-full rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]"
                           >
-                            Save inventory update
+                            {t("Save inventory update")}
                           </button>
                         </div>
                       </div>
@@ -465,7 +505,7 @@ export default function EmployeePortal() {
           <SectionCard
             id="opening"
             icon={<ClipboardCheck className="h-5 w-5" />}
-            title="Ojalá Opening Checklist"
+            title={t("Ojalá Opening Checklist")}
             description=""
           >
             <form
@@ -495,40 +535,40 @@ export default function EmployeePortal() {
               }}
             >
               <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-                <Field label="Business Date">
+                <Field label={t("Business Date")}>
                   <input className={inputClassName()} type="date" value={openingForm.businessDate} onChange={event => setOpeningForm(current => ({ ...current, businessDate: event.target.value }))} />
                 </Field>
-                <Field label="Staff Name">
+                <Field label={t("Staff Name")}>
                   <input className={inputClassName()} value={openingForm.staffName} onChange={event => setOpeningForm(current => ({ ...current, staffName: event.target.value }))} />
                 </Field>
-                <Field label="Starting cash amount">
+                <Field label={t("Starting cash amount")}>
                   <input className={inputClassName()} type="number" min="0" step="0.01" value={openingForm.startingCash} onChange={event => setOpeningForm(current => ({ ...current, startingCash: event.target.value }))} />
                 </Field>
-                <Field label="Cash counted and correct">
+                <Field label={t("Cash counted and correct")}>
                   <select className={inputClassName()} value={openingForm.cashCountedAndCorrect} onChange={event => setOpeningForm(current => ({ ...current, cashCountedAndCorrect: event.target.value as YesNo }))}>
-                    <option value="No">No</option>
-                    <option value="Yes">Yes</option>
+                    <option value="No">{t("No")}</option>
+                    <option value="Yes">{t("Yes")}</option>
                   </select>
                 </Field>
               </div>
 
-              {openingQuestionsQuery.isLoading ? <p className="text-sm text-[#6b6258]">Loading opening questions…</p> : null}
+              {openingQuestionsQuery.isLoading ? <p className="text-sm text-[#6b6258]">{t("Loading opening questions…")}</p> : null}
               {Object.entries(groupedOpeningQuestions).map(([section, questions]) => (
                 <div key={section} className="space-y-4">
                   <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#f7f0e7] px-5 py-4">
-                    <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">Opening section</p>
-                    <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">{section}</h3>
+                    <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{t("Opening section")}</p>
+                    <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">{t(section)}</h3>
                   </div>
                   <div className="grid gap-4">
                     {section === "Setup" ? (
                       <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#f7f0e7] p-5">
                         <div>
-                          <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">Counted stock at opening</p>
-                          <h4 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">Cups, lids, spoons, and napkins</h4>
+                          <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{t("Counted stock at opening")}</p>
+                          <h4 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">{t("Cups, lids, spoons, and napkins")}</h4>
                         </div>
                         <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                           {openingStockFields.map(field => (
-                            <Field key={field.key} label={field.label} hint={field.group}>
+                            <Field key={field.key} label={t(field.label)} hint={t(field.group)}>
                               <input
                                 className={inputClassName()}
                                 type="number"
@@ -548,7 +588,7 @@ export default function EmployeePortal() {
                             </Field>
                           ))}
                           {openingNapkinsQuestion ? (
-                            <Field label={openingNapkinsQuestion.prompt} hint="Setup">
+                            <Field label={t(openingNapkinsQuestion.prompt)} hint={t("Setup")}>
                               <select
                                 className={inputClassName()}
                                 value={openingAnswers[openingNapkinsQuestion.id]?.answer ?? "No"}
@@ -576,6 +616,7 @@ export default function EmployeePortal() {
                         question={question}
                         state={openingAnswers[question.id] ?? { answer: "No", detail: "" }}
                         onChange={next => setOpeningAnswers(state => ({ ...state, [question.id]: next }))}
+                        language={language}
                       />
                     ))}
                   </div>
@@ -584,7 +625,7 @@ export default function EmployeePortal() {
 
               <div className="grid gap-5 md:grid-cols-2">
                 <div className="md:col-span-2">
-                  <Field label="Notes / issues">
+                  <Field label={t("Notes / issues")}>
                     <textarea className={textareaClassName()} value={openingForm.notes} onChange={event => setOpeningForm(current => ({ ...current, notes: event.target.value }))} />
                   </Field>
                 </div>
@@ -592,7 +633,7 @@ export default function EmployeePortal() {
 
               <div className="flex w-full">
                 <button disabled={openingMutation.isPending} className="w-full rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
-                  {openingMutation.isPending ? "Submitting..." : "Submit Opening Checklist"}
+                  {openingMutation.isPending ? t("Submitting...") : t("Submit Opening Checklist")}
                 </button>
               </div>
             </form>
@@ -601,7 +642,7 @@ export default function EmployeePortal() {
           <SectionCard
             id="closing"
             icon={<MoonStar className="h-5 w-5" />}
-            title="Ojalá Closing Checklist"
+            title={t("Ojalá Closing Checklist")}
             description=""
           >
             <form
@@ -619,29 +660,29 @@ export default function EmployeePortal() {
               }}
             >
               <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-                <Field label="Business Date">
+                <Field label={t("Business Date")}>
                   <input className={inputClassName()} type="date" value={closingForm.businessDate} onChange={event => setClosingForm(current => ({ ...current, businessDate: event.target.value }))} />
                 </Field>
-                <Field label="Staff Name">
+                <Field label={t("Staff Name")}>
                   <input className={inputClassName()} value={closingForm.staffName} onChange={event => setClosingForm(current => ({ ...current, staffName: event.target.value }))} />
                 </Field>
-                <Field label="Cash total counted">
+                <Field label={t("Cash total counted")}>
                   <input className={inputClassName()} type="number" min="0" step="0.01" value={closingForm.cashCounted} onChange={event => setClosingForm(current => ({ ...current, cashCounted: event.target.value }))} />
                 </Field>
-                <Field label="Matches system?">
+                <Field label={t("Matches system?")}>
                   <select className={inputClassName()} value={closingForm.cashMatchesSystem} onChange={event => setClosingForm(current => ({ ...current, cashMatchesSystem: event.target.value as YesNo }))}>
-                    <option value="No">No</option>
-                    <option value="Yes">Yes</option>
+                    <option value="No">{t("No")}</option>
+                    <option value="Yes">{t("Yes")}</option>
                   </select>
                 </Field>
               </div>
 
-              {closingQuestionsQuery.isLoading ? <p className="text-sm text-[#6b6258]">Loading closing questions…</p> : null}
+              {closingQuestionsQuery.isLoading ? <p className="text-sm text-[#6b6258]">{t("Loading closing questions…")}</p> : null}
               {Object.entries(groupedClosingQuestions).map(([section, questions]) => (
                 <div key={section} className="space-y-4">
                   <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#f7f0e7] px-5 py-4">
-                    <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">Closing section</p>
-                    <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">{section}</h3>
+                    <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{t("Closing section")}</p>
+                    <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">{t(section)}</h3>
                   </div>
                   <div className="grid gap-4">
                     {questions.map(question => (
@@ -650,6 +691,7 @@ export default function EmployeePortal() {
                         question={question}
                         state={closingAnswers[question.id] ?? { answer: "No", detail: "" }}
                         onChange={next => setClosingAnswers(state => ({ ...state, [question.id]: next }))}
+                        language={language}
                       />
                     ))}
                   </div>
@@ -662,7 +704,7 @@ export default function EmployeePortal() {
 
               <div className="flex w-full">
                 <button disabled={closingMutation.isPending} className="w-full rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
-                  {closingMutation.isPending ? "Submitting..." : "Submit Closing Checklist"}
+                  {closingMutation.isPending ? t("Submitting...") : t("Submit Closing Checklist")}
                 </button>
               </div>
             </form>
@@ -671,7 +713,7 @@ export default function EmployeePortal() {
           <SectionCard
             id="end-of-day"
             icon={<ReceiptText className="h-5 w-5" />}
-            title="End-of-Day Report"
+            title={t("End-of-Day Report")}
             description=""
           >
             <form
@@ -699,21 +741,21 @@ export default function EmployeePortal() {
                 });
               }}
             >
-              <Field label="Date">
+              <Field label={t("Date")}>
                 <input className={inputClassName()} type="date" value={endOfDayForm.businessDate} onChange={event => setEndOfDayForm(current => ({ ...current, businessDate: event.target.value }))} />
               </Field>
-              <Field label="Staff Name">
+              <Field label={t("Staff Name")}>
                 <input className={inputClassName()} value={endOfDayForm.staffName} onChange={event => setEndOfDayForm(current => ({ ...current, staffName: event.target.value }))} />
               </Field>
 
               <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] p-5 md:col-span-2 xl:col-span-4">
                 <div className="grid gap-4 md:grid-cols-[minmax(120px,180px)_minmax(0,1fr)_minmax(0,1fr)] md:items-end">
                   <div>
-                    <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">Cup counts sold</p>
-                    <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">Here and To Go</h3>
+                    <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{t("Cup counts sold")}</p>
+                    <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">{t("Here and To Go")}</h3>
                   </div>
-                  <span className="text-sm font-medium uppercase tracking-[0.22em] text-[#8a8176] md:text-center">Here</span>
-                  <span className="text-sm font-medium uppercase tracking-[0.22em] text-[#8a8176] md:text-center">To Go</span>
+                  <span className="text-sm font-medium uppercase tracking-[0.22em] text-[#8a8176] md:text-center">{t("Here")}</span>
+                  <span className="text-sm font-medium uppercase tracking-[0.22em] text-[#8a8176] md:text-center">{t("To Go")}</span>
                 </div>
                 <div className="mt-5 space-y-3">
                   {endOfDayCupRows.map(row => (
@@ -740,20 +782,20 @@ export default function EmployeePortal() {
                 </div>
               </div>
 
-              <Field label="Cash"><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.cashTotal} onChange={event => setEndOfDayForm(current => ({ ...current, cashTotal: event.target.value }))} /></Field>
-              <Field label="Card"><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.cardTotal} onChange={event => setEndOfDayForm(current => ({ ...current, cardTotal: event.target.value }))} /></Field>
-              <Field label="Venmo"><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.venmoTotal} onChange={event => setEndOfDayForm(current => ({ ...current, venmoTotal: event.target.value }))} /></Field>
-              <Field label="Zelle"><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.zelleTotal} onChange={event => setEndOfDayForm(current => ({ ...current, zelleTotal: event.target.value }))} /></Field>
+              <Field label={t("Cash")}><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.cashTotal} onChange={event => setEndOfDayForm(current => ({ ...current, cashTotal: event.target.value }))} /></Field>
+              <Field label={t("Card")}><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.cardTotal} onChange={event => setEndOfDayForm(current => ({ ...current, cardTotal: event.target.value }))} /></Field>
+              <Field label={t("Venmo")}><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.venmoTotal} onChange={event => setEndOfDayForm(current => ({ ...current, venmoTotal: event.target.value }))} /></Field>
+              <Field label={t("Zelle")}><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.zelleTotal} onChange={event => setEndOfDayForm(current => ({ ...current, zelleTotal: event.target.value }))} /></Field>
 
-              <Field label="Total Sales">
+              <Field label={t("Total Sales")}>
                 <input className={inputClassName()} type="text" value={`$${totalSales.toFixed(2)}`} readOnly />
               </Field>
-              <Field label="Waste Notes"><textarea className={textareaClassName()} value={endOfDayForm.wasteNotes} onChange={event => setEndOfDayForm(current => ({ ...current, wasteNotes: event.target.value }))} /></Field>
-              <div className="xl:col-span-2"><Field label="Low-Item Notes"><textarea className={textareaClassName()} value={endOfDayForm.lowItemNotes} onChange={event => setEndOfDayForm(current => ({ ...current, lowItemNotes: event.target.value }))} /></Field></div>
-              <div className="xl:col-span-4"><Field label="General Notes"><textarea className={textareaClassName()} value={endOfDayForm.generalNotes} onChange={event => setEndOfDayForm(current => ({ ...current, generalNotes: event.target.value }))} /></Field></div>
+              <Field label={t("Waste Notes")}><textarea className={textareaClassName()} value={endOfDayForm.wasteNotes} onChange={event => setEndOfDayForm(current => ({ ...current, wasteNotes: event.target.value }))} /></Field>
+              <div className="xl:col-span-2"><Field label={t("Low-Item Notes")}><textarea className={textareaClassName()} value={endOfDayForm.lowItemNotes} onChange={event => setEndOfDayForm(current => ({ ...current, lowItemNotes: event.target.value }))} /></Field></div>
+              <div className="xl:col-span-4"><Field label={t("General Notes")}><textarea className={textareaClassName()} value={endOfDayForm.generalNotes} onChange={event => setEndOfDayForm(current => ({ ...current, generalNotes: event.target.value }))} /></Field></div>
               <div className="md:col-span-2 xl:col-span-4 flex w-full">
                 <button disabled={endOfDayMutation.isPending} className="w-full rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
-                  {endOfDayMutation.isPending ? "Submitting..." : "Submit End-of-Day Report"}
+                  {endOfDayMutation.isPending ? t("Submitting...") : t("Submit End-of-Day Report")}
                 </button>
               </div>
             </form>
