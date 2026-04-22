@@ -2,7 +2,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { type PortalLanguage, translateErrorMessage, translatePortalText } from "@/lib/employeePortalI18n";
 import { getOpeningNapkinsQuestion, groupOpeningQuestionsForPortal } from "@/lib/openingSetup";
 import { trpc } from "@/lib/trpc";
-import { ClipboardCheck, MoonStar, Package2, ReceiptText, Sparkles } from "lucide-react";
+import { ClipboardCheck, MoonStar, Package2, ReceiptText } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -355,75 +355,46 @@ export default function EmployeePortal() {
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(86,111,104,0.10),_transparent_26%),linear-gradient(180deg,_#fbf8f2_0%,_#f4eee4_46%,_#f8f4ec_100%)] pb-16">
       <div className="container pt-8 md:pt-12">
         <div className="overflow-hidden rounded-[2rem] border border-white/70 bg-white/70 shadow-[0_28px_80px_rgba(88,83,72,0.12)] backdrop-blur">
-          <div className="grid gap-0 lg:grid-cols-[1.15fr_0.85fr]">
-            <div className="border-b border-[#e4dccf] p-8 lg:border-b-0 lg:border-r lg:p-10">
-              <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.34em] text-[#7d756b]">{t("Staff portal")}</p>
-                  <h1 className="mt-4 text-4xl font-light tracking-[-0.05em] text-[#2d2925] md:text-5xl">
-                    {t("Clear daily accountability for calm operations.")}
-                  </h1>
-                  <p className="mt-5 max-w-2xl text-base leading-8 text-[#6a6158]">
-                    {language === "en" ? (
-                      <>
-                        Welcome back, {introName}. These forms now default to <strong>No</strong> so each task must be positively confirmed before a shift is considered ready or complete.
-                      </>
-                    ) : (
-                      <>
-                        {t("Welcome back")}, {introName}. {t("These forms now default to")} <strong>{t("No")}</strong> {t("so each task must be positively confirmed before a shift is considered ready or complete.")}
-                      </>
-                    )}
-                  </p>
+          <div className="p-8 lg:p-10">
+            <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+              <p className="text-[11px] uppercase tracking-[0.34em] text-[#7d756b]">{t("Staff portal")}</p>
+              <div className="rounded-[1.5rem] border border-[#e5ddd0] bg-[#f9f4ec] p-3 shadow-sm">
+                <p className="text-[11px] uppercase tracking-[0.28em] text-[#7d756b]">{t("Language")}</p>
+                <div className="mt-3 flex gap-2">
+                  {([
+                    { value: "en", label: "English" },
+                    { value: "es", label: "Spanish" },
+                  ] as const).map(option => {
+                    const active = language === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setLanguage(option.value)}
+                        className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                          active ? "bg-[#2f2a26] text-white" : "border border-[#ddd4c8] bg-white text-[#2f2a26] hover:bg-[#f5eee5]"
+                        }`}
+                      >
+                        {t(option.label)}
+                      </button>
+                    );
+                  })}
                 </div>
-                <div className="rounded-[1.5rem] border border-[#e5ddd0] bg-[#f9f4ec] p-3 shadow-sm">
-                  <p className="text-[11px] uppercase tracking-[0.28em] text-[#7d756b]">{t("Language")}</p>
-                  <div className="mt-3 flex gap-2">
-                    {([
-                      { value: "en", label: "English" },
-                      { value: "es", label: "Spanish" },
-                    ] as const).map(option => {
-                      const active = language === option.value;
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          onClick={() => setLanguage(option.value)}
-                          className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-                            active ? "bg-[#2f2a26] text-white" : "border border-[#ddd4c8] bg-white text-[#2f2a26] hover:bg-[#f5eee5]"
-                          }`}
-                        >
-                          {t(option.label)}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-              <div className="mt-8 grid gap-4 md:grid-cols-4">
-                {[
-                  { label: "Inventory", value: "Quick stock updates", href: "#inventory" },
-                  { label: "Daily Report", value: "Sales and notes", href: "#end-of-day" },
-                  { label: "Closing", value: "Lock in final checks", href: "#closing" },
-                  { label: "Opening", value: "Start ready", href: "#opening" },
-                ].map(item => (
-                  <a key={item.label} href={item.href} className="rounded-2xl border border-white/80 bg-[#fbf7f0] p-4 shadow-sm transition hover:bg-white">
-                    <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">{t("Direct link")}</p>
-                    <p className="mt-2 font-medium text-[#253630]">{t(item.label)}</p>
-                    <p className="mt-2 text-sm text-[#67706a]">{t(item.value)}</p>
-                  </a>
-                ))}
               </div>
             </div>
-            <div className="p-8 lg:p-10">
-              <div className="rounded-[1.75rem] border border-[#e5ddd0] bg-[#f9f4ec] p-6">
-                <div className="flex items-center gap-3 text-[#5d544a]">
-                  <Sparkles className="h-5 w-5" />
-                  <p className="text-sm font-medium uppercase tracking-[0.24em]">{t("Daily workflow")}</p>
-                </div>
-                <div className="mt-4 space-y-4 text-sm leading-7 text-[#6b6258]">
-                  <p>{t("Move through inventory, opening, closing, and reporting from one place designed to feel consistent with the rest of Ojalá.")}</p>
-                </div>
-              </div>
+            <div className="mt-8 grid gap-4 md:grid-cols-4">
+              {[
+                { label: "Inventory", value: "Quick stock updates", href: "#inventory" },
+                { label: "Daily Report", value: "Sales and notes", href: "#end-of-day" },
+                { label: "Closing", value: "Lock in final checks", href: "#closing" },
+                { label: "Opening", value: "Start ready", href: "#opening" },
+              ].map(item => (
+                <a key={item.label} href={item.href} className="rounded-2xl border border-white/80 bg-[#fbf7f0] p-4 shadow-sm transition hover:bg-white">
+                  <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">{t("Direct link")}</p>
+                  <p className="mt-2 font-medium text-[#253630]">{t(item.label)}</p>
+                  <p className="mt-2 text-sm text-[#67706a]">{t(item.value)}</p>
+                </a>
+              ))}
             </div>
           </div>
         </div>

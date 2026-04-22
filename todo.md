@@ -56,3 +56,4 @@
 - [x] Verify the opening Setup section visibly renders counted inputs for cups, napkins, and spoons in the employee portal after the restoration
 - [x] Add a regression test covering the opening Setup rendering logic so the counted stock fields cannot disappear when Setup checklist prompts are filtered
 - [x] Add an easy English/Spanish toggle to the employee-facing portal so staff can switch the interface between English and Spanish
+- [x] Remove the employee portal hero heading, intro paragraph, and daily workflow copy block from the top of the portal
