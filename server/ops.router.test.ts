@@ -243,14 +243,12 @@ describe("operations router", () => {
   it("submits an end-of-day report with compact here-and-to-go cup counts and notifies the owner", async () => {
     dbMocks.createEndOfDayReport.mockResolvedValue({
       businessDate: "2026-04-21",
-      shift: "PM",
       staffName: "Marco",
     });
 
     const caller = appRouter.createCaller(createContext("user"));
     const result = await caller.forms.submitEndOfDay({
       businessDate: "2026-04-21",
-      shift: "PM",
       staffName: "Marco",
       cups4ozHere: 4,
       cups4ozToGo: 8,

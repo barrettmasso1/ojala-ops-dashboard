@@ -59,7 +59,6 @@ export const closingChecklists = mysqlTable("closingChecklists", {
 export const endOfDayReports = mysqlTable("endOfDayReports", {
   id: int("id").autoincrement().primaryKey(),
   businessDate: varchar("businessDate", { length: 10 }).notNull(),
-  shift: varchar("shift", { length: 16 }).notNull(),
   staffName: varchar("staffName", { length: 160 }).notNull(),
   cups4oz: int("cups4oz").notNull().default(0),
   cups4ozHere: int("cups4ozHere").notNull().default(0),

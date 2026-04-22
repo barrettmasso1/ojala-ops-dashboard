@@ -50,3 +50,5 @@
 - [x] Move Napkins stocked into the counted stock area beside Spoons stocked in the Opening Section Setup and render it as a Yes/No dropdown
 - [x] Make the submission buttons at the bottom of all employee forms full width so they match the form width consistently
 - [x] Fix the Submit End-of-Day Report button so it truly spans the full form width like the other employee form actions
+- [x] Change the opening checklist label from "Trash emptied" to "All trash is emptied"
+- [x] Fully remove the Shift field from the End-of-Day Report so the form and saved report go from Date directly to Staff Name

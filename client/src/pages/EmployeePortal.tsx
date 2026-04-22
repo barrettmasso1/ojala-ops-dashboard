@@ -51,7 +51,6 @@ type ClosingForm = {
 
 type EndOfDayForm = {
   businessDate: string;
-  shift: "AM" | "PM" | "Full Day";
   staffName: string;
   cups4ozHere: string;
   cups4ozToGo: string;
@@ -108,7 +107,6 @@ const initialClosingForm = (): ClosingForm => ({
 
 const initialEndOfDayForm = (): EndOfDayForm => ({
   businessDate: todayValue(),
-  shift: "AM",
   staffName: "",
   cups4ozHere: "0",
   cups4ozToGo: "0",
@@ -689,7 +687,6 @@ export default function EmployeePortal() {
                 event.preventDefault();
                 endOfDayMutation.mutate({
                   businessDate: endOfDayForm.businessDate,
-                  shift: endOfDayForm.shift,
                   staffName: endOfDayForm.staffName,
                   cups4ozHere: Number(endOfDayForm.cups4ozHere || 0),
                   cups4ozToGo: Number(endOfDayForm.cups4ozToGo || 0),
@@ -711,13 +708,6 @@ export default function EmployeePortal() {
             >
               <Field label="Date">
                 <input className={inputClassName()} type="date" value={endOfDayForm.businessDate} onChange={event => setEndOfDayForm(current => ({ ...current, businessDate: event.target.value }))} />
-              </Field>
-              <Field label="Shift">
-                <select className={inputClassName()} value={endOfDayForm.shift} onChange={event => setEndOfDayForm(current => ({ ...current, shift: event.target.value as EndOfDayForm["shift"] }))}>
-                  <option value="AM">AM</option>
-                  <option value="PM">PM</option>
-                  <option value="Full Day">Full Day</option>
-                </select>
               </Field>
               <Field label="Staff Name">
                 <input className={inputClassName()} value={endOfDayForm.staffName} onChange={event => setEndOfDayForm(current => ({ ...current, staffName: event.target.value }))} />

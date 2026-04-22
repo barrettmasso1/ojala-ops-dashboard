@@ -1,0 +1,1 @@
+ALTER TABLE `endOfDayReports` DROP COLUMN `shift`;

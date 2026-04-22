@@ -63,7 +63,6 @@ const closingChecklistSchema = z.object({
 
 const endOfDayReportSchema = z.object({
   businessDate: z.string().min(1),
-  shift: z.enum(["AM", "PM", "Full Day"]),
   staffName: z.string().min(1),
   cups4ozHere: z.number().int().min(0),
   cups4ozToGo: z.number().int().min(0),
@@ -228,7 +227,7 @@ export const appRouter = router({
       const totalSales = input.cashTotal + input.cardTotal + input.zelleTotal + input.venmoTotal;
       await notifyOwner({
         title: `End-of-Day Report submitted for ${record.businessDate}`,
-        content: `${record.staffName} submitted the end-of-day report for the ${record.shift} shift. Total sales: $${totalSales.toFixed(2)}.`,
+        content: `${record.staffName} submitted the end-of-day report. Total sales: $${totalSales.toFixed(2)}.`,
       });
 
       return { success: true } as const;
