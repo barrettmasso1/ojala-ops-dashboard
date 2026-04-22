@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { getOpeningNapkinsQuestion, groupOpeningQuestionsForPortal } from "@/lib/openingSetup";
 import { trpc } from "@/lib/trpc";
 import { ClipboardCheck, MoonStar, Package2, ReceiptText, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -321,20 +322,12 @@ export default function EmployeePortal() {
   const closingQuestions = closingQuestionsQuery.data ?? [];
   const inventoryItems = inventoryItemsQuery.data ?? [];
 
-  const openingNapkinsQuestion = useMemo(
-    () => openingQuestions.find(question => question.sectionTitle === "Setup" && question.prompt === "Napkins stocked"),
-    [openingQuestions],
-  );
+  const openingNapkinsQuestion = useMemo(() => getOpeningNapkinsQuestion(openingQuestions), [openingQuestions]);
 
-  const groupedOpeningQuestions = useMemo(() => {
-    return openingQuestions.reduce<Record<string, ChecklistQuestion[]>>((acc, question) => {
-      if (question.id === openingNapkinsQuestion?.id) {
-        return acc;
-      }
-      acc[question.sectionTitle] = [...(acc[question.sectionTitle] ?? []), question];
-      return acc;
-    }, {});
-  }, [openingQuestions, openingNapkinsQuestion]);
+  const groupedOpeningQuestions = useMemo(
+    () => groupOpeningQuestionsForPortal(openingQuestions, openingNapkinsQuestion?.id),
+    [openingQuestions, openingNapkinsQuestion],
+  );
 
   const groupedClosingQuestions = useMemo(() => {
     return closingQuestions.reduce<Record<string, ChecklistQuestion[]>>((acc, question) => {
