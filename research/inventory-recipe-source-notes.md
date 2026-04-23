@@ -58,3 +58,9 @@ The app should support separate concepts for inventory items, recipes, and recip
 The employee portal inventory section now renders in grouped department blocks. The preview shows an **Ingredients** group with 21 countable items and a **Utensils & Cleaning** group with 12 items. Within the second group, **Packaging** is visibly represented through the **To-Go Bags** item, alongside Cup/Lid, Utensil, and Other categories.
 
 The manager dashboard preview now shows packaging explicitly in the inventory table under **Utensils & Cleaning → Packaging → To-Go Bags**. The cookbook section is visible and includes recipe cards with **batch cost**, **cost per ounce**, **missing cost counts**, **linked reorder items**, and an ingredient table with a **Purchasing status** column. The visible states include **Add cost** and **Needs reorder**, confirming that the recipe view now surfaces purchasing guidance tied to inventory mappings.
+
+## Preview verification notes — 2026-04-22 (inventory save button refinement)
+
+The employee portal still loads the grouped inventory and ready-made gelato sections correctly after the button-width refinement. A lower-page inspection is being used to confirm the shared **Save inventory and gelato updates** control now spans the full container width visually.
+
+Additional preview scrolling confirmed that the grouped inventory cards remain intact through the utensils, packaging, and napkins sections after the full-width button refinement. The shared save control sits farther below these groups, and the portal continues rendering the inventory workflow correctly while I move toward the final lower-page confirmation.

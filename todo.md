@@ -75,3 +75,6 @@
 - [x] Add a ready-made gelato section to the employee portal inventory form with daily weight-in-kg inputs for each requested flavor
 - [x] Persist ready-made gelato daily weights by business date so later sales-versus-stock variance checks can use the recorded flavor counts
 - [x] Add regression coverage for saving ready-made gelato weights through the employee portal API
+- [x] Make the shared Save inventory and gelato updates button span the full available width in the employee portal inventory section
+- [x] Fix the shared inventory and gelato save button container so the button truly fills the full available width with no remaining horizontal gap
+- [x] Resolve the current server router transform error and revalidate the employee portal after the full-width button fix

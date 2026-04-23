@@ -600,17 +600,17 @@ export default function EmployeePortal() {
                   )}
                 </div>
                 <div className="rounded-[1.75rem] border border-[#e7ddd1] bg-white/85 p-5 shadow-sm">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div className="text-sm text-[#6b6258]">
-                      {pendingInventoryUpdates.length + pendingReadyMadeGelatoUpdates.length > 0
-                        ? `${pendingInventoryUpdates.length + pendingReadyMadeGelatoUpdates.length} ${t("updates ready to save")}`
-                        : ""}
-                    </div>
+                  <div className="flex flex-col gap-3">
+                    {pendingInventoryUpdates.length + pendingReadyMadeGelatoUpdates.length > 0 ? (
+                      <div className="text-sm text-[#6b6258]">
+                        {`${pendingInventoryUpdates.length + pendingReadyMadeGelatoUpdates.length} ${t("updates ready to save")}`}
+                      </div>
+                    ) : null}
                     <button
                       type="button"
                       onClick={handleSaveInventoryUpdates}
                       disabled={inventoryMutation.isPending || readyMadeGelatoMutation.isPending}
-                      className="w-full rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60 md:w-auto md:min-w-[20rem]"
+                      className="w-full rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {inventoryMutation.isPending || readyMadeGelatoMutation.isPending ? t("Saving inventory and gelato...") : t("Save inventory and gelato updates")}
                     </button>
