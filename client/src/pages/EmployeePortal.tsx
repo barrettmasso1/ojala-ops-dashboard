@@ -315,6 +315,7 @@ export default function EmployeePortal() {
   const [closingAnswers, setClosingAnswers] = useState<ChecklistAnswerState>({});
   const [inventoryUpdates, setInventoryUpdates] = useState<InventoryUpdateState>({});
   const [readyMadeGelato, setReadyMadeGelato] = useState<ReadyMadeGelatoState>(() => initialReadyMadeGelatoState());
+  const [otherFlavorName, setOtherFlavorName] = useState("");
 
   const openingQuestionsQuery = trpc.forms.checklistQuestions.useQuery({ checklistType: "opening" });
   const closingQuestionsQuery = trpc.forms.checklistQuestions.useQuery({ checklistType: "closing" });
@@ -386,35 +387,46 @@ export default function EmployeePortal() {
 
   const pendingInventoryUpdates = useMemo(() => getPendingInventorySaves(inventoryItems, inventoryUpdates), [inventoryItems, inventoryUpdates]);
 
+  const readyMadeGelatoFlavorNames = useMemo(() => {
+    const seeded = READY_MADE_GELATO_FLAVORS.filter(flavor => flavor in readyMadeGelato.flavors);
+    const custom = Object.keys(readyMadeGelato.flavors)
+      .filter(flavor => !READY_MADE_GELATO_FLAVORS.includes(flavor as (typeof READY_MADE_GELATO_FLAVORS)[number]))
+      .sort((a, b) => a.localeCompare(b));
+    return [...seeded, ...custom];
+  }, [readyMadeGelato.flavors]);
+
   useEffect(() => {
     if (!readyMadeGelatoQuery.data) return;
     setReadyMadeGelato(current => ({
       ...current,
-      flavors: Object.fromEntries(
-        readyMadeGelatoQuery.data.map(item => [
-          item.flavor,
-          {
-            opening: {
-              smallPanCount: String(item.opening.smallPanCount ?? 0),
-              smallGrossWeightKg: String(item.opening.smallGrossWeightKg ?? 0),
-              largePanCount: String(item.opening.largePanCount ?? 0),
-              largeGrossWeightKg: String(item.opening.largeGrossWeightKg ?? 0),
+      flavors: {
+        ...current.flavors,
+        ...(Object.fromEntries(
+          readyMadeGelatoQuery.data.map(item => [
+            item.flavor,
+            {
+              opening: {
+                smallPanCount: String(item.opening.smallPanCount ?? 0),
+                smallGrossWeightKg: String(item.opening.smallGrossWeightKg ?? 0),
+                largePanCount: String(item.opening.largePanCount ?? 0),
+                largeGrossWeightKg: String(item.opening.largeGrossWeightKg ?? 0),
+              },
+              closing: {
+                smallPanCount: String(item.closing.smallPanCount ?? 0),
+                smallGrossWeightKg: String(item.closing.smallGrossWeightKg ?? 0),
+                largePanCount: String(item.closing.largePanCount ?? 0),
+                largeGrossWeightKg: String(item.closing.largeGrossWeightKg ?? 0),
+              },
             },
-            closing: {
-              smallPanCount: String(item.closing.smallPanCount ?? 0),
-              smallGrossWeightKg: String(item.closing.smallGrossWeightKg ?? 0),
-              largePanCount: String(item.closing.largePanCount ?? 0),
-              largeGrossWeightKg: String(item.closing.largeGrossWeightKg ?? 0),
-            },
-          },
-        ])
-      ) as Record<string, ReadyMadeGelatoFlavorState>,
+          ])
+        ) as Record<string, ReadyMadeGelatoFlavorState>),
+      },
     }));
   }, [readyMadeGelatoQuery.data]);
 
   const pendingReadyMadeGelatoUpdates = useMemo(() => {
     return (["opening", "closing"] as const).flatMap(shiftType => {
-      return READY_MADE_GELATO_FLAVORS.map(flavor => {
+      return readyMadeGelatoFlavorNames.map(flavor => {
         const currentEntry = readyMadeGelato.flavors[flavor]?.[shiftType] ?? initialReadyMadeGelatoShiftState();
         const existingEntry = readyMadeGelatoQuery.data?.find(item => item.flavor === flavor)?.[shiftType];
         const candidate = {
@@ -435,7 +447,7 @@ export default function EmployeePortal() {
         return unchanged ? null : candidate;
       }).filter(Boolean);
     });
-  }, [readyMadeGelato.flavors, readyMadeGelatoQuery.data]);
+  }, [readyMadeGelato.flavors, readyMadeGelatoFlavorNames, readyMadeGelatoQuery.data]);
 
   const openingNapkinsQuestion = useMemo(() => getOpeningNapkinsQuestion(openingQuestions), [openingQuestions]);
 
@@ -628,14 +640,55 @@ export default function EmployeePortal() {
                     <p className="mt-4 text-sm text-[#6b6258]">{t("Loading ready-made gelato…")}</p>
                   ) : (
                     <div className="mt-4 grid gap-6">
-                      <Field label={t("Business Date")}>
-                        <input
-                          className={inputClassName()}
-                          type="date"
-                          value={readyMadeGelato.businessDate}
-                          onChange={event => setReadyMadeGelato(current => ({ ...current, businessDate: event.target.value }))}
-                        />
-                      </Field>
+                      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+                        <Field label={t("Business Date")}>
+                          <input
+                            className={inputClassName()}
+                            type="date"
+                            value={readyMadeGelato.businessDate}
+                            onChange={event => setReadyMadeGelato(current => ({ ...current, businessDate: event.target.value }))}
+                          />
+                        </Field>
+                        <div className="rounded-[1.5rem] border border-[#e7ddd1] bg-white p-4 shadow-sm">
+                          <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{t("Other flavor / flavor of the day")}</p>
+                          <p className="mt-2 text-sm text-[#6b6258]">{t("Add temporary flavors here so opening and closing weigh-ins can include anything not already listed in the cookbook.")}</p>
+                          <div className="mt-4 flex flex-col gap-3 md:flex-row">
+                            <input
+                              className={inputClassName()}
+                              type="text"
+                              value={otherFlavorName}
+                              onChange={event => setOtherFlavorName(event.target.value)}
+                              placeholder={t("Example: Flavor of the Day")}
+                            />
+                            <button
+                              type="button"
+                              className="rounded-full border border-[#d7cec0] bg-[#f9f4ec] px-5 py-3 text-sm font-medium text-[#31423d] transition hover:bg-white"
+                              onClick={() => {
+                                const flavor = otherFlavorName.trim();
+                                if (!flavor) return;
+                                if (readyMadeGelato.flavors[flavor]) {
+                                  toast.success(t("That flavor is already on today's weigh-in list."));
+                                  setOtherFlavorName("");
+                                  return;
+                                }
+                                setReadyMadeGelato(current => ({
+                                  ...current,
+                                  flavors: {
+                                    ...current.flavors,
+                                    [flavor]: {
+                                      opening: initialReadyMadeGelatoShiftState(),
+                                      closing: initialReadyMadeGelatoShiftState(),
+                                    },
+                                  },
+                                }));
+                                setOtherFlavorName("");
+                              }}
+                            >
+                              {t("Add flavor")}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                       {([
                         {
                           shiftType: "opening" as const,
@@ -654,7 +707,7 @@ export default function EmployeePortal() {
                             <p className="mt-2 text-sm text-[#6b6258]">{section.description}</p>
                           </div>
                           <div className="mt-4 grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-                            {READY_MADE_GELATO_FLAVORS.map(flavor => {
+                            {readyMadeGelatoFlavorNames.map(flavor => {
                               const entry = readyMadeGelato.flavors[flavor]?.[section.shiftType] ?? initialReadyMadeGelatoShiftState();
                               return (
                                 <div key={`${section.shiftType}-${flavor}`} className="rounded-[1.5rem] border border-[#e7ddd1] bg-white p-5 shadow-sm">

@@ -13,6 +13,19 @@ describe("db aggregation helpers", () => {
           startingCash: "120.00",
           cashMatchesSystem: "Yes",
           storeReadyStatus: "Yes",
+          responseJson: JSON.stringify({
+            stockCounts: {
+              cups4oz: 40,
+              cups8oz: 35,
+              cupsPint: 12,
+              cupsLiter: 8,
+              lids4oz: 38,
+              lids8oz: 35,
+              lidsPint: 12,
+              lidsLiter: 8,
+              spoons: 60,
+            },
+          }),
           createdAt: new Date("2026-04-21T08:00:00Z"),
         },
       ],
@@ -76,6 +89,38 @@ describe("db aggregation helpers", () => {
           largePanCount: 1,
           largeGrossWeightKg: "4.00",
         },
+        {
+          id: 3,
+          businessDate: "2026-04-21",
+          flavor: "Flavor of the Day",
+          shiftType: "opening" as const,
+          smallPanCount: 1,
+          smallGrossWeightKg: "1.90",
+          largePanCount: 0,
+          largeGrossWeightKg: "0.00",
+        },
+        {
+          id: 4,
+          businessDate: "2026-04-21",
+          flavor: "Flavor of the Day",
+          shiftType: "closing" as const,
+          smallPanCount: 1,
+          smallGrossWeightKg: "1.75",
+          largePanCount: 0,
+          largeGrossWeightKg: "0.00",
+        },
+      ],
+      [
+        { itemName: "4oz To-Go Cups", currentQuantity: "34", lastCountDate: "2026-04-21" },
+        { itemName: "4oz To-Go Lids", currentQuantity: "33", lastCountDate: "2026-04-21" },
+        { itemName: "8oz To-Go Cups", currentQuantity: "16", lastCountDate: "2026-04-21" },
+        { itemName: "8oz To-Go Lids", currentQuantity: "16", lastCountDate: "2026-04-21" },
+        { itemName: "16oz To-Go Cups", currentQuantity: "6", lastCountDate: "2026-04-21" },
+        { itemName: "16oz To-Go Lids", currentQuantity: "6", lastCountDate: "2026-04-21" },
+        { itemName: "32oz To-Go Cups", currentQuantity: "6", lastCountDate: "2026-04-21" },
+        { itemName: "32oz To-Go Lids", currentQuantity: "6", lastCountDate: "2026-04-21" },
+        { itemName: "Bamboo To-Go Spoons", currentQuantity: "44", lastCountDate: "2026-04-21" },
+        { itemName: "Edible Spoons", currentQuantity: "10", lastCountDate: "2026-04-21" },
       ],
       "2026-04-21"
     );
@@ -89,14 +134,32 @@ describe("db aggregation helpers", () => {
     });
     expect(snapshot.cups).toEqual({ "4oz": 15, "8oz": 19, Pint: 6, Liter: 2 });
     expect(snapshot.soldVolumeOunces).toBe(372);
-    expect(snapshot.gelato.openingVolumeOunces).toBeCloseTo(272, 0);
-    expect(snapshot.gelato.closingVolumeOunces).toBeCloseTo(239.57, 2);
-    expect(snapshot.gelato.actualDistributedVolumeOunces).toBeCloseTo(32.43, 2);
-    expect(snapshot.gelato.varianceVolumeOunces).toBeCloseTo(-339.57, 2);
+    expect(snapshot.gelato.openingVolumeOunces).toBeCloseTo(384, 0);
+    expect(snapshot.gelato.closingVolumeOunces).toBeCloseTo(341.16, 2);
+    expect(snapshot.gelato.actualDistributedVolumeOunces).toBeCloseTo(42.84, 2);
+    expect(snapshot.gelato.varianceVolumeOunces).toBeCloseTo(-329.16, 2);
     expect(snapshot.gelato.discrepancyStatus).toBe("major");
     expect(snapshot.gelato.discrepancyLabel).toBe("Major discrepancy");
     expect(snapshot.gelato.flavors.find(item => item.flavor === "Vanilla")).toMatchObject({
       usedVolumeOunces: expect.closeTo(32.43, 2),
+    });
+    expect(snapshot.gelato.flavors.find(item => item.flavor === "Flavor of the Day")).toMatchObject({
+      usedVolumeOunces: expect.closeTo(10.41, 2),
+    });
+    expect(snapshot.packaging.varianceCount).toBeCloseTo(71, 2);
+    expect(snapshot.packaging.discrepancyStatus).toBe("major");
+    expect(snapshot.packaging.discrepancyLabel).toBe("Major discrepancy");
+    expect(snapshot.packaging.items.find(item => item.key === "cups8oz")).toMatchObject({
+      expectedUsed: 0,
+      actualUsed: 19,
+      variance: 19,
+      discrepancyStatus: "major",
+    });
+    expect(snapshot.packaging.items.find(item => item.key === "spoons")).toMatchObject({
+      expectedUsed: 0,
+      actualUsed: 6,
+      variance: 6,
+      discrepancyStatus: "major",
     });
     expect(snapshot.checklistCompletion).toEqual({ opening: 1, closing: 1 });
     expect(snapshot.latestReportStaff).toBe("Sofia");
@@ -111,9 +174,13 @@ describe("db aggregation helpers", () => {
           businessDate: "2026-04-21",
           staffName: "Marco",
           cups4oz: 0,
+          cups4ozToGo: 0,
           cups8oz: 1,
+          cups8ozToGo: 1,
           cupsPint: 0,
+          cupsPintToGo: 0,
           cupsLiter: 0,
+          cupsLiterToGo: 0,
           cashTotal: "0.00",
           cardTotal: "0.00",
           zelleTotal: "0.00",
@@ -141,14 +208,31 @@ describe("db aggregation helpers", () => {
           largeGrossWeightKg: "0.00",
         },
       ],
+      [
+        {
+          itemName: "8oz To-Go Cups",
+          currentQuantity: "11",
+          lastCountDate: "2026-04-20",
+        },
+        {
+          itemName: "8oz To-Go Lids",
+          currentQuantity: "11",
+          lastCountDate: "2026-04-20",
+        },
+      ],
       "2026-04-21"
     );
-
     expect(snapshot.soldVolumeOunces).toBe(8);
     expect(snapshot.gelato.actualDistributedVolumeOunces).toBeCloseTo(3.47, 2);
     expect(snapshot.gelato.varianceVolumeOunces).toBeCloseTo(-4.53, 2);
     expect(snapshot.gelato.discrepancyStatus).toBe("minor");
     expect(snapshot.gelato.discrepancyLabel).toBe("Sample / minor discrepancy");
+    expect(snapshot.packaging.items.find(item => item.key === "cups8oz")).toMatchObject({
+      discrepancyStatus: "pending",
+      discrepancyLabel: "Awaiting same-day closing inventory count",
+    });
+    expect(snapshot.packaging.discrepancyStatus).toBe("pending");
+    expect(snapshot.packaging.discrepancyLabel).toBe("Awaiting same-day closing inventory count");
   });
 
   it("builds week-over-week sales series with previous week and delta values", () => {

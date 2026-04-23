@@ -318,6 +318,11 @@ export default function ManagerDashboard() {
                       <p className="mt-2 font-serif text-3xl text-[#1f2b27]">{daily?.gelato?.varianceVolumeOunces?.toFixed?.(2) ?? "0.00"}</p>
                       <p className="mt-2 text-xs uppercase tracking-[0.18em] text-[#7b847e]">{daily?.gelato?.discrepancyLabel ?? "Waiting for measurements"}</p>
                     </div>
+                    <div className="rounded-2xl bg-white/80 p-4 shadow-sm">
+                      <p className="text-sm text-[#7c847d]">Packaging discrepancy</p>
+                      <p className="mt-2 font-serif text-3xl text-[#1f2b27]">{daily?.packaging?.varianceCount == null ? "—" : daily.packaging.varianceCount.toFixed(2)}</p>
+                      <p className="mt-2 text-xs uppercase tracking-[0.18em] text-[#7b847e]">{daily?.packaging?.discrepancyLabel ?? "Awaiting opening stock counts"}</p>
+                    </div>
                   </div>
                 )}
               </div>
@@ -411,6 +416,10 @@ export default function ManagerDashboard() {
                           <td className="px-4 py-3">Discrepancy review</td>
                           <td className="px-4 py-3">{daily.gelato.discrepancyLabel} (threshold {daily.gelato.minorDiscrepancyThresholdOunces.toFixed(2)} oz)</td>
                         </tr>
+                        <tr>
+                          <td className="px-4 py-3">Packaging and utensil review</td>
+                          <td className="px-4 py-3">{daily.packaging.discrepancyLabel} {daily.packaging.varianceCount == null ? "" : `(variance ${daily.packaging.varianceCount.toFixed(2)} units, threshold ${daily.packaging.minorDiscrepancyThresholdCount})`}</td>
+                        </tr>
                       </tbody>
                     </table>
                   </div>
@@ -431,6 +440,34 @@ export default function ManagerDashboard() {
                             <td className="px-4 py-3">{item.opening.totalVolumeOunces.toFixed(2)}</td>
                             <td className="px-4 py-3">{item.closing.totalVolumeOunces.toFixed(2)}</td>
                             <td className="px-4 py-3">{item.usedVolumeOunces.toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="mt-6 overflow-hidden rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6]">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-[#f4ede2] text-[#60706b]">
+                        <tr>
+                          <th className="px-4 py-3 font-medium">Service item</th>
+                          <th className="px-4 py-3 font-medium">Opening count</th>
+                          <th className="px-4 py-3 font-medium">Closing count</th>
+                          <th className="px-4 py-3 font-medium">Expected used</th>
+                          <th className="px-4 py-3 font-medium">Actual used</th>
+                          <th className="px-4 py-3 font-medium">Variance</th>
+                          <th className="px-4 py-3 font-medium">Review</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
+                        {daily.packaging.items.map(item => (
+                          <tr key={item.key}>
+                            <td className="px-4 py-3">{item.label}</td>
+                            <td className="px-4 py-3">{item.openingQuantity}</td>
+                            <td className="px-4 py-3">{item.closingQuantity == null ? "Awaiting count" : item.closingQuantity.toFixed(2)}</td>
+                            <td className="px-4 py-3">{item.expectedUsed}</td>
+                            <td className="px-4 py-3">{item.actualUsed == null ? "—" : item.actualUsed.toFixed(2)}</td>
+                            <td className="px-4 py-3">{item.variance == null ? "—" : item.variance.toFixed(2)}</td>
+                            <td className="px-4 py-3">{item.discrepancyLabel}</td>
                           </tr>
                         ))}
                       </tbody>

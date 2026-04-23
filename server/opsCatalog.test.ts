@@ -42,6 +42,31 @@ describe("ops catalog seed data", () => {
     ]);
   });
 
+  it("applies the updated par levels for core ingredients, packaging, and utensils", () => {
+    const byName = new Map(DEFAULT_INVENTORY_ITEMS.map(item => [item.itemName, item]));
+
+    expect(byName.get("Almond Base")).toMatchObject({ parLevel: "30" });
+    expect(byName.get("Coco Base")).toMatchObject({ parLevel: "30" });
+    expect(byName.get("Kombucha")).toMatchObject({ parLevel: "3" });
+    expect(byName.get("Cacao")).toMatchObject({ parLevel: "20" });
+    expect(byName.get("Cacao Butter")).toMatchObject({ parLevel: "1" });
+    expect(byName.get("Mint extract")).toMatchObject({ parLevel: "0.5" });
+    expect(byName.get("Peanut Butter")).toMatchObject({ parLevel: "40" });
+    expect(byName.get("Pistachio")).toMatchObject({ parLevel: "5" });
+    expect(byName.get("Vanilla")).toMatchObject({ parLevel: "32" });
+    expect(byName.get("16oz To-Go Cups")).toMatchObject({ parLevel: "200" });
+    expect(byName.get("16oz To-Go Lids")).toMatchObject({ parLevel: "200" });
+    expect(byName.get("32oz To-Go Cups")).toMatchObject({ parLevel: "100" });
+    expect(byName.get("32oz To-Go Lids")).toMatchObject({ parLevel: "100" });
+    expect(byName.get("8oz To-Go Cups")).toMatchObject({ parLevel: "300" });
+    expect(byName.get("8oz To-Go Lids")).toMatchObject({ parLevel: "300" });
+    expect(byName.get("4oz To-Go Cups")).toMatchObject({ parLevel: "300" });
+    expect(byName.get("To-Go Bags")).toMatchObject({ parLevel: "25" });
+    expect(byName.get("Bamboo To-Go Spoons")).toMatchObject({ parLevel: "50" });
+    expect(byName.get("Dine-In Metal Spoons")).toMatchObject({ parLevel: "25" });
+    expect(byName.get("Edible Spoons")).toMatchObject({ parLevel: "200" });
+  });
+
   it("preserves representative workbook ingredient rows, measurements, and seeded base costs", () => {
     expect(DEFAULT_RECIPE_ITEMS).toContainEqual(expect.objectContaining({
       recipeName: "Watermelon & Lime",

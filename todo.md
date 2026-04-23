@@ -98,3 +98,6 @@
 - [x] Convert measured gelato weight into equivalent serving volume ounces so opening inventory, ending inventory, and sold cup volumes reconcile in the same unit system
 - [x] Use separate small-pan and large-pan calibration rules when converting measured gelato weight to equivalent serving volume ounces
 - [x] Classify nightly gelato reconciliation differences as sample/minor discrepancy or major discrepancy in the manager dashboard
+- [x] Update the inventory catalog par levels for the user-specified ingredients, cups, lids, bags, and spoons while preserving any values still awaiting confirmation
+- [x] Add support for entering other or flavor-of-the-day gelato items in the opening and closing weigh-in workflow
+- [x] Extend manager reconciliation so opening and closing packaging-utensil counts can be compared against sold serving counts and surfaced as discrepancy notes
