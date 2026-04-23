@@ -8,11 +8,16 @@ import {
   InsertClosingChecklist,
   InsertEndOfDayReport,
   InsertOpeningChecklist,
+  InsertRecipe,
+  InsertRecipeIngredient,
   InsertUser,
   inventoryItems,
   openingChecklists,
+  recipeIngredients,
+  recipes,
   users,
 } from "../drizzle/schema";
+import { DEFAULT_INVENTORY_ITEMS, DEFAULT_RECIPE_ITEMS } from "../shared/opsCatalog";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -66,6 +71,122 @@ const retiredChecklistPrompts = new Set([
   "Spoons stocked",
   "Toppings filled",
 ]);
+
+function normalizeKey(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function normalizeUnit(value?: string) {
+  const raw = normalizeKey(value ?? "");
+  if (!raw) return "";
+  const aliases: Record<string, string> = {
+    bag: "bag",
+    bags: "bag",
+    box: "box",
+    boxes: "box",
+    pack: "pack",
+    packs: "pack",
+    set: "set",
+    unit: "unit",
+    units: "unit",
+    g: "g",
+    gram: "g",
+    grams: "g",
+    kg: "kg",
+    kilo: "kg",
+    kilos: "kg",
+    kilogram: "kg",
+    kilograms: "kg",
+    l: "l",
+    liter: "l",
+    liters: "l",
+    litre: "l",
+    litres: "l",
+    ml: "ml",
+    cup: "cup",
+    cups: "cup",
+    tsp: "tsp",
+    teaspoon: "tsp",
+    teaspoons: "tsp",
+    tbsp: "tbsp",
+    tablespoon: "tbsp",
+    tablespoons: "tbsp",
+    lime: "lime",
+    limes: "lime",
+  };
+  return aliases[raw] ?? raw;
+}
+
+function findInventoryMatchByName<T extends { id?: number; itemName: string; unitType?: string; costPerUnit?: string | number }>(name: string, items: T[]) {
+  const normalized = normalizeKey(name);
+  return items.find(item => normalizeKey(item.itemName) === normalized)
+    ?? items.find(item => normalizeKey(item.itemName).includes(normalized))
+    ?? items.find(item => normalized.includes(normalizeKey(item.itemName)));
+}
+
+async function ensureInventorySeeded() {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const existing = await db.select().from(inventoryItems).limit(1);
+  if (existing.length > 0) return;
+
+  await db.insert(inventoryItems).values(
+    DEFAULT_INVENTORY_ITEMS.map(item => ({
+      department: item.department,
+      category: item.category,
+      itemName: item.itemName,
+      unitType: item.unitType,
+      packSize: item.packSize,
+      costPerUnit: item.costPerUnit,
+      currentQuantity: item.currentInventory,
+      parLevel: item.parLevel,
+      reorderQuantity: item.reorderQuantity,
+      supplier: item.supplier,
+      supplierContact: item.supplierContact,
+      lastCountDate: "",
+      notes: item.notes,
+    }))
+  );
+}
+
+async function ensureRecipesSeeded() {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const existing = await db.select().from(recipes).limit(1);
+  if (existing.length > 0) return;
+
+  const recipeNames = Array.from(new Set(DEFAULT_RECIPE_ITEMS.map(item => item.recipeName)));
+  if (recipeNames.length === 0) return;
+
+  const recipeRows: InsertRecipe[] = recipeNames.map(name => ({
+    name,
+    batchYieldOunces: "0.00",
+    notes: "",
+    processSteps: "",
+  }));
+
+  await db.insert(recipes).values(recipeRows);
+  const insertedRecipes = await db.select().from(recipes).orderBy(recipes.name);
+  const recipeIdByName = new Map(insertedRecipes.map(recipe => [recipe.name, recipe.id]));
+
+  const ingredientRows: InsertRecipeIngredient[] = DEFAULT_RECIPE_ITEMS.map((item, index) => ({
+    recipeId: recipeIdByName.get(item.recipeName) ?? 0,
+    inventoryItemId: null,
+    ingredientName: item.ingredientName,
+    quantity: item.quantity || "0",
+    unitType: item.unitType || "units",
+    costPerUnit: item.costPerUnit || "0.00",
+    totalCost: item.totalCost || "0.00",
+    sortOrder: index + 1,
+    processSteps: item.processSteps || "",
+  })).filter(item => item.recipeId > 0);
+
+  if (ingredientRows.length > 0) {
+    await db.insert(recipeIngredients).values(ingredientRows);
+  }
+}
 
 function calculateOpeningCompletion(entry: {
   staffName: string;
@@ -478,47 +599,61 @@ export async function listInventoryItems() {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  return db.select().from(inventoryItems).orderBy(inventoryItems.category, inventoryItems.itemName);
+  await ensureInventorySeeded();
+
+  const items = await db.select().from(inventoryItems).orderBy(inventoryItems.department, inventoryItems.category, inventoryItems.itemName);
+  return items.map(item => ({
+    ...item,
+    currentQuantity: toNumber(item.currentQuantity),
+    parLevel: toNumber(item.parLevel),
+    reorderQuantity: toNumber(item.reorderQuantity),
+    costPerUnit: toNumber(item.costPerUnit),
+    reorderNeeded: toNumber(item.currentQuantity) <= toNumber(item.parLevel),
+  }));
 }
 
 export async function saveInventoryItem(input: {
   id?: number;
+  department: string;
   category: string;
   itemName: string;
-  unitLabel: string;
+  unitType: string;
+  packSize: string;
+  costPerUnit: string;
   currentQuantity: string;
   parLevel: string;
+  reorderQuantity: string;
+  supplier?: string;
+  supplierContact?: string;
+  lastCountDate?: string;
   notes?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  if (input.id) {
-    await db
-      .update(inventoryItems)
-      .set({
-        category: input.category,
-        itemName: input.itemName,
-        unitLabel: input.unitLabel,
-        currentQuantity: input.currentQuantity,
-        parLevel: input.parLevel,
-        notes: input.notes ?? "",
-      })
-      .where(eq(inventoryItems.id, input.id));
+  const values = {
+    department: input.department,
+    category: input.category,
+    itemName: input.itemName,
+    unitType: input.unitType,
+    packSize: input.packSize,
+    costPerUnit: input.costPerUnit,
+    currentQuantity: input.currentQuantity,
+    parLevel: input.parLevel,
+    reorderQuantity: input.reorderQuantity,
+    supplier: input.supplier ?? "",
+    supplierContact: input.supplierContact ?? "",
+    lastCountDate: input.lastCountDate ?? "",
+    notes: input.notes ?? "",
+  };
 
+  if (input.id) {
+    await db.update(inventoryItems).set(values).where(eq(inventoryItems.id, input.id));
     const updated = await db.select().from(inventoryItems).where(eq(inventoryItems.id, input.id)).limit(1);
     return updated[0];
   }
 
-  const result = await db.insert(inventoryItems).values({
-    category: input.category,
-    itemName: input.itemName,
-    unitLabel: input.unitLabel,
-    currentQuantity: input.currentQuantity,
-    parLevel: input.parLevel,
-    notes: input.notes ?? "",
-  });
-
+  const result = await db.insert(inventoryItems).values(values);
   const inserted = await db.select().from(inventoryItems).where(eq(inventoryItems.id, Number(result[0]?.insertId ?? 0))).limit(1);
   return inserted[0];
 }
@@ -542,11 +677,80 @@ export async function updateInventoryCount(input: {
     .set({
       currentQuantity: input.currentQuantity,
       notes: input.notes ?? current.notes ?? "",
+      lastCountDate: normalizeDate(),
     })
     .where(eq(inventoryItems.id, input.id));
 
   const updated = await db.select().from(inventoryItems).where(eq(inventoryItems.id, input.id)).limit(1);
   return updated[0];
+}
+
+export function buildRecipeCostSummaries(
+  recipeRows: Array<{ id: number; name: string; batchYieldOunces: string | number | null; notes?: string | null; processSteps?: string | null }>,
+  ingredientRows: Array<{ id: number; recipeId: number; ingredientName: string; quantity: string | number | null; unitType: string; inventoryItemId?: number | null; costPerUnit?: string | number | null; totalCost?: string | number | null; processSteps?: string | null }>,
+  inventoryRows: Array<{ id: number; itemName: string; unitType: string; costPerUnit: string | number; currentQuantity?: string | number | null; parLevel?: string | number | null; reorderQuantity?: string | number | null }>,
+) {
+  return recipeRows.map(recipe => {
+    const ingredients = ingredientRows
+      .filter(item => item.recipeId === recipe.id)
+      .map(item => {
+        const matchedInventoryItem = findInventoryMatchByName(item.ingredientName, inventoryRows);
+        const recipeUnit = normalizeUnit(item.unitType);
+        const inventoryUnit = normalizeUnit(matchedInventoryItem?.unitType);
+        const canUseInventoryCost = Boolean(matchedInventoryItem) && recipeUnit !== "" && recipeUnit === inventoryUnit;
+        const resolvedCostPerUnit = canUseInventoryCost
+          ? toNumber(matchedInventoryItem?.costPerUnit)
+          : toNumber(item.costPerUnit);
+        const calculatedTotalCost = resolvedCostPerUnit > 0
+          ? toNumber(item.quantity) * resolvedCostPerUnit
+          : toNumber(item.totalCost);
+
+        return {
+          id: item.id,
+          ingredientName: item.ingredientName,
+          quantity: toNumber(item.quantity),
+          unitType: item.unitType,
+          inventoryItemId: matchedInventoryItem?.id ?? item.inventoryItemId ?? null,
+          inventoryItemName: matchedInventoryItem?.itemName ?? null,
+          matchedInventoryUnit: matchedInventoryItem?.unitType ?? null,
+          costPerUnit: resolvedCostPerUnit,
+          totalCost: calculatedTotalCost,
+          costSource: canUseInventoryCost ? "inventory" : toNumber(item.costPerUnit) > 0 ? "recipe" : "missing",
+          processSteps: item.processSteps ?? "",
+        };
+      });
+
+    const batchCost = ingredients.reduce((sum, item) => sum + item.totalCost, 0);
+    const batchYieldOunces = toNumber(recipe.batchYieldOunces);
+
+    return {
+      id: recipe.id,
+      name: recipe.name,
+      batchYieldOunces,
+      batchCost,
+      costPerOunce: batchYieldOunces > 0 ? batchCost / batchYieldOunces : null,
+      notes: recipe.notes ?? "",
+      processSteps: recipe.processSteps ?? "",
+      ingredients,
+      missingCostCount: ingredients.filter(item => item.costSource === "missing").length,
+    };
+  });
+}
+
+export async function listRecipesWithCosts() {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await ensureInventorySeeded();
+  await ensureRecipesSeeded();
+
+  const [recipeRows, ingredientRows, inventoryRows] = await Promise.all([
+    db.select().from(recipes).orderBy(recipes.name),
+    db.select().from(recipeIngredients).orderBy(recipeIngredients.recipeId, recipeIngredients.sortOrder, recipeIngredients.id),
+    db.select().from(inventoryItems),
+  ]);
+
+  return buildRecipeCostSummaries(recipeRows, ingredientRows, inventoryRows);
 }
 
 export async function getDailyOperationsSnapshot(businessDate?: string) {
@@ -591,15 +795,20 @@ export async function getWeekOverWeekSales() {
 export async function getInventoryAlerts() {
   const items = await listInventoryItems();
   return items
-    .filter(item => toNumber(item.currentQuantity) <= toNumber(item.parLevel))
+    .filter(item => item.reorderNeeded)
     .map(item => ({
       id: item.id,
+      department: item.department,
       category: item.category,
       itemName: item.itemName,
-      unitLabel: item.unitLabel,
-      currentQuantity: toNumber(item.currentQuantity),
-      parLevel: toNumber(item.parLevel),
-      reorderAmount: Math.max(toNumber(item.parLevel) - toNumber(item.currentQuantity), 0),
+      unitType: item.unitType,
+      packSize: item.packSize,
+      currentQuantity: item.currentQuantity,
+      parLevel: item.parLevel,
+      reorderQuantity: item.reorderQuantity,
+      reorderAmount: Math.max(item.reorderQuantity || item.parLevel - item.currentQuantity, 0),
+      supplier: item.supplier,
+      supplierContact: item.supplierContact,
       notes: item.notes ?? "",
     }));
 }

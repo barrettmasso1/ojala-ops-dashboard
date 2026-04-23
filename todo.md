@@ -57,3 +57,15 @@
 - [x] Add a regression test covering the opening Setup rendering logic so the counted stock fields cannot disappear when Setup checklist prompts are filtered
 - [x] Add an easy English/Spanish toggle to the employee-facing portal so staff can switch the interface between English and Spanish
 - [x] Remove the employee portal hero heading, intro paragraph, and daily workflow copy block from the top of the portal
+- [x] Build an inventory system that tracks ingredients, packaging, utensils, and cleaning supplies with unit type, pack size, cost, current inventory, par level, reorder quantity, supplier details, and notes
+- [x] Create a staff-friendly inventory input workflow so employees can quickly count and submit inventory quantities
+- [x] Add low-stock and reorder visibility so managers can see what needs to be ordered based on par levels
+- [x] Build a recipe map / cookbook that shows each flavor's ingredients and quantities
+- [x] Calculate recipe cost per batch and cost per ounce using ingredient costs from inventory data
+- [x] Connect recipe ingredient usage to inventory visibility so recipe costing supports purchasing decisions
+- [x] Add explicit packaging coverage in the seeded inventory catalog and verify packaging appears in both manager and staff inventory workflows
+- [x] Strengthen the employee inventory workflow so staff can count and submit the richer inventory model by department from the portal
+- [x] Add automated tests for recipe cost aggregation, including batch cost, cost per ounce, and missing-cost handling
+- [x] Make recipe-to-inventory purchasing guidance clearer by surfacing recipe-linked low-cost or unmapped ingredients in the cookbook view
+- [x] Verify the employee inventory workflow and cookbook view in the live preview after the richer inventory rollout
+- [x] Add router-level regression coverage for successful employee inventory saves after the richer portal inventory workflow rewrite

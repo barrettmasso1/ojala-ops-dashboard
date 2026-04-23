@@ -106,11 +106,18 @@ export default function ManagerDashboard() {
   const [selectedDate, setSelectedDate] = useState(todayValue());
   const [inventoryForm, setInventoryForm] = useState({
     id: undefined as number | undefined,
-    category: "Ingredients" as "Ingredients" | "Supplies" | "Utensils",
+    department: "Ingredients",
+    category: "Base",
     itemName: "",
-    unitLabel: "units",
+    unitType: "units",
+    packSize: "",
+    costPerUnit: "0",
     currentQuantity: "0",
     parLevel: "0",
+    reorderQuantity: "0",
+    supplier: "",
+    supplierContact: "",
+    lastCountDate: "",
     notes: "",
   });
   const [checklistForm, setChecklistForm] = useState({
@@ -138,6 +145,7 @@ export default function ManagerDashboard() {
   const wowQuery = trpc.dashboard.weekOverWeek.useQuery(undefined, { enabled: isAdmin, refetchOnWindowFocus: false });
   const alertsQuery = trpc.dashboard.inventoryAlerts.useQuery(undefined, { enabled: isAdmin, refetchOnWindowFocus: false });
   const inventoryItemsQuery = trpc.dashboard.inventoryItems.useQuery(undefined, { enabled: isAdmin, refetchOnWindowFocus: false });
+  const recipesQuery = trpc.dashboard.recipes.useQuery(undefined, { enabled: isAdmin, refetchOnWindowFocus: false });
   const openingChecklistQuery = trpc.dashboard.checklistQuestions.useQuery({ checklistType: "opening" }, { enabled: isAdmin, refetchOnWindowFocus: false });
   const closingChecklistQuery = trpc.dashboard.checklistQuestions.useQuery({ checklistType: "closing" }, { enabled: isAdmin, refetchOnWindowFocus: false });
   const notesQuery = trpc.dashboard.recentNotes.useQuery({ limit: 10 }, { enabled: isAdmin, refetchOnWindowFocus: false });
@@ -147,11 +155,18 @@ export default function ManagerDashboard() {
       toast.success("Inventory item saved.");
       setInventoryForm({
         id: undefined,
-        category: "Ingredients",
+        department: "Ingredients",
+        category: "Base",
         itemName: "",
-        unitLabel: "units",
+        unitType: "units",
+        packSize: "",
+        costPerUnit: "0",
         currentQuantity: "0",
         parLevel: "0",
+        reorderQuantity: "0",
+        supplier: "",
+        supplierContact: "",
+        lastCountDate: "",
         notes: "",
       });
       await Promise.all([utils.dashboard.inventoryItems.invalidate(), utils.dashboard.inventoryAlerts.invalidate()]);
@@ -194,16 +209,6 @@ export default function ManagerDashboard() {
     onError: error => toast.error(error.message),
   });
 
-  const categoryCounts = useMemo(() => {
-    const base = { Ingredients: 0, Supplies: 0, Utensils: 0 };
-    for (const item of alertsQuery.data ?? []) {
-      if (item.category in base) {
-        base[item.category as keyof typeof base] += 1;
-      }
-    }
-    return base;
-  }, [alertsQuery.data]);
-
   const recentNotes = useMemo(
     () =>
       (notesQuery.data ?? []).filter(
@@ -230,6 +235,7 @@ export default function ManagerDashboard() {
   const wowData = wowQuery.data ?? [];
   const inventoryAlerts = alertsQuery.data ?? [];
   const inventoryItems = inventoryItemsQuery.data ?? [];
+  const recipes = recipesQuery.data ?? [];
   const openingChecklistQuestions = openingChecklistQuery.data ?? [];
   const closingChecklistQuestions = closingChecklistQuery.data ?? [];
 
@@ -377,9 +383,9 @@ export default function ManagerDashboard() {
             <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Manager-maintained inventory</h2>
             <div className="mt-6 grid gap-4 sm:grid-cols-3">
               {[
-                { label: "Ingredients", count: categoryCounts.Ingredients },
-                { label: "Supplies", count: categoryCounts.Supplies },
-                { label: "Utensils", count: categoryCounts.Utensils },
+                { label: "Ingredients tracked", count: inventoryItems.filter(item => item.department === "Ingredients").length },
+                { label: "Utensils & cleaning tracked", count: inventoryItems.filter(item => item.department === "Utensils & Cleaning").length },
+                { label: "Need reorder now", count: inventoryAlerts.length },
               ].map(item => (
                 <div key={item.label} className="rounded-2xl border border-[#e5ddd0] bg-[#fbf7f0] p-4 shadow-sm">
                   <p className="text-xs uppercase tracking-[0.22em] text-[#8b9088]">{item.label}</p>
@@ -394,11 +400,18 @@ export default function ManagerDashboard() {
                 event.preventDefault();
                 saveInventoryMutation.mutate({
                   id: inventoryForm.id,
+                  department: inventoryForm.department,
                   category: inventoryForm.category,
                   itemName: inventoryForm.itemName,
-                  unitLabel: inventoryForm.unitLabel,
+                  unitType: inventoryForm.unitType,
+                  packSize: inventoryForm.packSize,
+                  costPerUnit: Number(inventoryForm.costPerUnit || 0),
                   currentQuantity: Number(inventoryForm.currentQuantity || 0),
                   parLevel: Number(inventoryForm.parLevel || 0),
+                  reorderQuantity: Number(inventoryForm.reorderQuantity || 0),
+                  supplier: inventoryForm.supplier,
+                  supplierContact: inventoryForm.supplierContact,
+                  lastCountDate: inventoryForm.lastCountDate,
                   notes: inventoryForm.notes,
                 });
               }}
@@ -407,16 +420,22 @@ export default function ManagerDashboard() {
                 <PackagePlus className="h-5 w-5" />
                 <p className="text-sm font-medium uppercase tracking-[0.22em]">Add or set up an inventory item</p>
               </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                <select className={inventoryFieldClassName()} value={inventoryForm.category} onChange={event => setInventoryForm(current => ({ ...current, category: event.target.value as "Ingredients" | "Supplies" | "Utensils" }))}>
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <select className={inventoryFieldClassName()} value={inventoryForm.department} onChange={event => setInventoryForm(current => ({ ...current, department: event.target.value, category: event.target.value === "Ingredients" ? "Base" : "Utensil" }))}>
                   <option value="Ingredients">Ingredients</option>
-                  <option value="Supplies">Supplies</option>
-                  <option value="Utensils">Utensils</option>
+                  <option value="Utensils & Cleaning">Utensils & Cleaning</option>
                 </select>
+                <input className={inventoryFieldClassName()} placeholder="Category" value={inventoryForm.category} onChange={event => setInventoryForm(current => ({ ...current, category: event.target.value }))} />
                 <input className={inventoryFieldClassName()} placeholder="Item name" value={inventoryForm.itemName} onChange={event => setInventoryForm(current => ({ ...current, itemName: event.target.value }))} />
-                <input className={inventoryFieldClassName()} placeholder="Unit label" value={inventoryForm.unitLabel} onChange={event => setInventoryForm(current => ({ ...current, unitLabel: event.target.value }))} />
-                <input className={inventoryFieldClassName()} type="number" min="0" step="0.01" placeholder="Current quantity" value={inventoryForm.currentQuantity} onChange={event => setInventoryForm(current => ({ ...current, currentQuantity: event.target.value }))} />
+                <input className={inventoryFieldClassName()} placeholder="Unit type" value={inventoryForm.unitType} onChange={event => setInventoryForm(current => ({ ...current, unitType: event.target.value }))} />
+                <input className={inventoryFieldClassName()} placeholder="Pack size" value={inventoryForm.packSize} onChange={event => setInventoryForm(current => ({ ...current, packSize: event.target.value }))} />
+                <input className={inventoryFieldClassName()} type="number" min="0" step="0.01" placeholder="Cost per unit" value={inventoryForm.costPerUnit} onChange={event => setInventoryForm(current => ({ ...current, costPerUnit: event.target.value }))} />
+                <input className={inventoryFieldClassName()} type="number" min="0" step="0.01" placeholder="Current inventory" value={inventoryForm.currentQuantity} onChange={event => setInventoryForm(current => ({ ...current, currentQuantity: event.target.value }))} />
                 <input className={inventoryFieldClassName()} type="number" min="0" step="0.01" placeholder="Par level" value={inventoryForm.parLevel} onChange={event => setInventoryForm(current => ({ ...current, parLevel: event.target.value }))} />
+                <input className={inventoryFieldClassName()} type="number" min="0" step="0.01" placeholder="Reorder quantity" value={inventoryForm.reorderQuantity} onChange={event => setInventoryForm(current => ({ ...current, reorderQuantity: event.target.value }))} />
+                <input className={inventoryFieldClassName()} placeholder="Supplier" value={inventoryForm.supplier} onChange={event => setInventoryForm(current => ({ ...current, supplier: event.target.value }))} />
+                <input className={inventoryFieldClassName()} placeholder="Supplier contact" value={inventoryForm.supplierContact} onChange={event => setInventoryForm(current => ({ ...current, supplierContact: event.target.value }))} />
+                <input className={inventoryFieldClassName()} type="date" value={inventoryForm.lastCountDate} onChange={event => setInventoryForm(current => ({ ...current, lastCountDate: event.target.value }))} />
                 <input className={inventoryFieldClassName()} placeholder="Notes" value={inventoryForm.notes} onChange={event => setInventoryForm(current => ({ ...current, notes: event.target.value }))} />
               </div>
               <div className="flex justify-end">
@@ -427,11 +446,18 @@ export default function ManagerDashboard() {
                       onClick={() =>
                         setInventoryForm({
                           id: undefined,
-                          category: "Ingredients",
+                          department: "Ingredients",
+                          category: "Base",
                           itemName: "",
-                          unitLabel: "units",
+                          unitType: "units",
+                          packSize: "",
+                          costPerUnit: "0",
                           currentQuantity: "0",
                           parLevel: "0",
+                          reorderQuantity: "0",
+                          supplier: "",
+                          supplierContact: "",
+                          lastCountDate: "",
                           notes: "",
                         })
                       }
@@ -449,17 +475,18 @@ export default function ManagerDashboard() {
 
             <div className="mt-6 space-y-3">
               {alertsQuery.isLoading ? (
-                <StatePanel title="Loading inventory alerts" description="Reviewing Ingredients, Supplies, and Utensils against par levels." />
+                <StatePanel title="Loading inventory alerts" description="Reviewing ingredients, packaging, utensils, and cleaning items against their par levels." />
               ) : alertsQuery.error ? (
                 <StatePanel title="Unable to load inventory alerts" description="Inventory alerts could not be loaded right now. Try again shortly." tone="error" />
               ) : inventoryAlerts.length === 0 ? (
-                <StatePanel title="No active inventory alerts" description="Add your real inventory items and set par levels. Any item at or below par will surface here automatically." tone="warning" />
+                <StatePanel title="No active inventory alerts" description="Any item at or below par will surface here automatically once pricing and count targets are in place." tone="warning" />
               ) : (
-                inventoryAlerts.slice(0, 6).map(item => (
+                inventoryAlerts.slice(0, 8).map(item => (
                   <div key={item.id} className="flex items-start justify-between gap-4 rounded-2xl border border-[#eadfcf] bg-[#fcfaf6] p-4 shadow-sm">
                     <div>
                       <p className="font-medium text-[#24332f]">{item.itemName}</p>
-                      <p className="mt-1 text-sm text-[#69726c]">{item.category} · {item.currentQuantity} {item.unitLabel} on hand · par {item.parLevel}</p>
+                      <p className="mt-1 text-sm text-[#69726c]">{item.department} · {item.category} · {item.currentQuantity} {item.unitType} on hand · par {item.parLevel}</p>
+                      <p className="mt-1 text-sm text-[#69726c]">Suggested reorder: {item.reorderAmount} {item.unitType}</p>
                     </div>
                     <div className="inline-flex items-center gap-2 rounded-full bg-[#f5e7d3] px-3 py-2 text-xs font-medium uppercase tracking-[0.16em] text-[#805e2f]">
                       <AlertTriangle className="h-3.5 w-3.5" />
@@ -470,48 +497,63 @@ export default function ManagerDashboard() {
               )}
             </div>
 
-            <div className="mt-6 overflow-hidden rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6]">
-              <table className="w-full text-left text-sm">
+            <div className="mt-6 overflow-x-auto rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6]">
+              <table className="w-full min-w-[980px] text-left text-sm">
                 <thead className="bg-[#f4ede2] text-[#60706b]">
                   <tr>
+                    <th className="px-4 py-3 font-medium">Department</th>
                     <th className="px-4 py-3 font-medium">Category</th>
                     <th className="px-4 py-3 font-medium">Item</th>
+                    <th className="px-4 py-3 font-medium">Pack size</th>
                     <th className="px-4 py-3 font-medium">Current</th>
                     <th className="px-4 py-3 font-medium">Par</th>
+                    <th className="px-4 py-3 font-medium">Reorder</th>
+                    <th className="px-4 py-3 font-medium">Last count</th>
                     <th className="px-4 py-3 font-medium">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
                   {inventoryItemsQuery.isLoading ? (
                     <tr>
-                      <td className="px-4 py-4 text-[#68716b]" colSpan={5}>Loading inventory setup...</td>
+                      <td className="px-4 py-4 text-[#68716b]" colSpan={9}>Loading inventory setup...</td>
                     </tr>
                   ) : inventoryItemsQuery.error ? (
                     <tr>
-                      <td className="px-4 py-4 text-[#8a4343]" colSpan={5}>Unable to load inventory items right now.</td>
+                      <td className="px-4 py-4 text-[#8a4343]" colSpan={9}>Unable to load inventory items right now.</td>
                     </tr>
                   ) : inventoryItems.length === 0 ? (
                     <tr>
-                      <td className="px-4 py-4 text-[#68716b]" colSpan={5}>No inventory items are configured yet.</td>
+                      <td className="px-4 py-4 text-[#68716b]" colSpan={9}>No inventory items are configured yet.</td>
                     </tr>
                   ) : (
                     inventoryItems.map(item => (
                       <tr key={item.id}>
+                        <td className="px-4 py-3">{item.department}</td>
                         <td className="px-4 py-3">{item.category}</td>
                         <td className="px-4 py-3">{item.itemName}</td>
-                        <td className="px-4 py-3">{item.currentQuantity} {item.unitLabel}</td>
+                        <td className="px-4 py-3">{item.packSize || "—"}</td>
+                        <td className="px-4 py-3">{item.currentQuantity} {item.unitType}</td>
                         <td className="px-4 py-3">{item.parLevel}</td>
+                        <td className="px-4 py-3">{item.reorderQuantity}</td>
+                        <td className="px-4 py-3">{item.lastCountDate || "—"}</td>
                         <td className="px-4 py-3">
                           <button
                             type="button"
                             onClick={() =>
                               setInventoryForm({
                                 id: item.id,
-                                category: item.category as "Ingredients" | "Supplies" | "Utensils",
+                                department: item.department,
+                                category: item.category,
                                 itemName: item.itemName,
-                                unitLabel: item.unitLabel,
+                                unitType: item.unitType,
+                                packSize: item.packSize,
+                                costPerUnit: String(item.costPerUnit),
                                 currentQuantity: String(item.currentQuantity),
                                 parLevel: String(item.parLevel),
+                                reorderQuantity: String(item.reorderQuantity),
+                                supplier: item.supplier ?? "",
+                                supplierContact: item.supplierContact ?? "",
+                                lastCountDate: item.lastCountDate ?? "",
                                 notes: item.notes ?? "",
                               })
                             }
@@ -525,6 +567,114 @@ export default function ManagerDashboard() {
                   )}
                 </tbody>
               </table>
+            </div>
+          </SurfaceCard>
+
+          <SurfaceCard>
+            <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Recipe map and cookbook</p>
+            <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Flavor costing and ingredient visibility</h2>
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-[#6b6258]">Each recipe lists the ingredient quantities currently captured from the workbook, highlights missing cost mappings, and estimates batch cost and cost per ounce when the batch yield is known.</p>
+            <div className="mt-6 grid gap-4 sm:grid-cols-3">
+              {[
+                { label: "Recipes loaded", value: recipes.length },
+                { label: "Ingredients with missing costs", value: recipes.reduce((sum, recipe) => sum + recipe.missingCostCount, 0) },
+                { label: "Inventory items priced", value: inventoryItems.filter(item => item.costPerUnit > 0).length },
+              ].map(item => (
+                <div key={item.label} className="rounded-2xl border border-[#e5ddd0] bg-[#fbf7f0] p-4 shadow-sm">
+                  <p className="text-xs uppercase tracking-[0.22em] text-[#8b9088]">{item.label}</p>
+                  <p className="mt-3 font-serif text-3xl text-[#1f2b27]">{item.value}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-6 space-y-4">
+              {recipesQuery.isLoading ? (
+                <StatePanel title="Loading recipe workbook" description="Pulling cookbook recipes and ingredient rows into the dashboard." />
+              ) : recipesQuery.error ? (
+                <StatePanel title="Unable to load cookbook data" description="The cookbook data is temporarily unavailable." tone="error" />
+              ) : recipes.length === 0 ? (
+                <StatePanel title="No cookbook recipes yet" description="Recipes will appear here once the workbook seed data is available." tone="warning" />
+              ) : (
+                recipes.map(recipe => (
+                  <article key={recipe.id} className="rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6] p-5 shadow-sm">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">Recipe</p>
+                        <h3 className="mt-2 text-2xl font-medium tracking-[-0.03em] text-[#24332f]">{recipe.name}</h3>
+                        <p className="mt-2 text-sm text-[#69726c]">Batch cost: <span className="font-medium text-[#24332f]">${recipe.batchCost.toFixed(2)}</span></p>
+                        <p className="mt-1 text-sm text-[#69726c]">Cost per ounce: <span className="font-medium text-[#24332f]">{recipe.costPerOunce == null ? "Add batch yield to calculate" : `$${recipe.costPerOunce.toFixed(2)}/oz`}</span></p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <div className="rounded-full border border-[#e4dccf] bg-white/90 px-4 py-2 text-xs uppercase tracking-[0.18em] text-[#52665f]">
+                          Yield: {recipe.batchYieldOunces > 0 ? `${recipe.batchYieldOunces} oz` : "Pending"}
+                        </div>
+                        <div className="rounded-full border border-[#eadfcf] bg-[#f5e7d3] px-4 py-2 text-xs uppercase tracking-[0.18em] text-[#805e2f]">
+                          Missing costs: {recipe.missingCostCount}
+                        </div>
+                        <div className="rounded-full border border-[#e4dccf] bg-white/90 px-4 py-2 text-xs uppercase tracking-[0.18em] text-[#52665f]">
+                          Linked reorder items: {recipe.ingredients.filter(ingredient => {
+                            const matchedItem = inventoryItems.find(item => item.id === ingredient.inventoryItemId || item.itemName === ingredient.inventoryItemName);
+                            return Boolean(matchedItem?.reorderNeeded);
+                          }).length}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 overflow-x-auto rounded-2xl border border-[#e8dfd3] bg-white/80">
+                      <table className="w-full min-w-[720px] text-left text-sm">
+                        <thead className="bg-[#f4ede2] text-[#60706b]">
+                          <tr>
+                            <th className="px-4 py-3 font-medium">Ingredient</th>
+                            <th className="px-4 py-3 font-medium">Quantity</th>
+                            <th className="px-4 py-3 font-medium">Cost source</th>
+                            <th className="px-4 py-3 font-medium">Cost / unit</th>
+                            <th className="px-4 py-3 font-medium">Line cost</th>
+                            <th className="px-4 py-3 font-medium">Purchasing status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
+                          {recipe.ingredients.map(ingredient => {
+                            const matchedItem = inventoryItems.find(item => item.id === ingredient.inventoryItemId || item.itemName === ingredient.inventoryItemName);
+                            const purchasingStatus = ingredient.costSource === "missing"
+                              ? "Add cost"
+                              : matchedItem?.reorderNeeded
+                                ? "Needs reorder"
+                                : matchedItem
+                                  ? "Covered"
+                                  : "Unmapped";
+
+                            return (
+                            <tr key={ingredient.id}>
+                              <td className="px-4 py-3">
+                                <div>
+                                  <p className="font-medium">{ingredient.ingredientName}</p>
+                                  <p className="mt-1 text-xs text-[#7a827d]">{ingredient.inventoryItemName ? `Matched to ${ingredient.inventoryItemName}` : "No inventory cost match yet"}</p>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3">{ingredient.quantity} {ingredient.unitType}</td>
+                              <td className="px-4 py-3 capitalize">{ingredient.costSource}</td>
+                              <td className="px-4 py-3">${ingredient.costPerUnit.toFixed(2)}</td>
+                              <td className="px-4 py-3">${ingredient.totalCost.toFixed(2)}</td>
+                              <td className="px-4 py-3">
+                                <span className={`rounded-full px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] ${
+                                  purchasingStatus === "Needs reorder"
+                                    ? "bg-[#f5e7d3] text-[#805e2f]"
+                                    : purchasingStatus === "Add cost" || purchasingStatus === "Unmapped"
+                                      ? "bg-[#efe4dc] text-[#8b5a47]"
+                                      : "bg-[#e8f0ec] text-[#4d655d]"
+                                }`}>
+                                  {purchasingStatus}
+                                </span>
+                              </td>
+                            </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </article>
+                ))
+              )}
             </div>
           </SurfaceCard>
         </div>

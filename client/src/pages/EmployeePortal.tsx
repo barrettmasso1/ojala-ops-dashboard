@@ -326,6 +326,21 @@ export default function EmployeePortal() {
   const openingQuestions = openingQuestionsQuery.data ?? [];
   const closingQuestions = closingQuestionsQuery.data ?? [];
   const inventoryItems = inventoryItemsQuery.data ?? [];
+  const inventoryDepartments = useMemo(() => {
+    const grouped = new Map<string, typeof inventoryItems>();
+    for (const item of inventoryItems) {
+      const items = grouped.get(item.department) ?? [];
+      items.push(item);
+      grouped.set(item.department, items);
+    }
+    return Array.from(grouped.entries()).map(([department, items]) => ({
+      department,
+      items: [...items].sort((a, b) => {
+        if (a.category === b.category) return a.itemName.localeCompare(b.itemName);
+        return a.category.localeCompare(b.category);
+      }),
+    }));
+  }, [inventoryItems]);
 
   const openingNapkinsQuestion = useMemo(() => getOpeningNapkinsQuestion(openingQuestions), [openingQuestions]);
 
@@ -411,64 +426,84 @@ export default function EmployeePortal() {
             ) : inventoryItems.length === 0 ? (
               <p className="text-sm text-[#6b6258]">{t("No inventory items have been set up yet by management.")}</p>
             ) : (
-              <div className="grid gap-4 lg:grid-cols-2">
-                {inventoryItems.map(item => {
-                  const current = inventoryUpdates[item.id] ?? {
-                    currentQuantity: String(item.currentQuantity ?? "0"),
-                    notes: String(item.notes ?? ""),
-                  };
-                  return (
-                    <div key={item.id} className="rounded-[1.5rem] border border-[#e7ddd1] bg-[#fbf7f1] p-5 shadow-sm">
-                      <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{item.category}</p>
-                      <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">{item.itemName}</h3>
-                      <p className="mt-1 text-sm text-[#6b6258]">{t("Par level")}: {item.parLevel} {item.unitLabel}</p>
-                      <div className="mt-4 grid gap-4">
-                        <Field label={`${t("Current quantity")} (${item.unitLabel})`}>
-                          <input
-                            className={inputClassName()}
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={current.currentQuantity}
-                            onChange={event =>
-                              setInventoryUpdates(state => ({
-                                ...state,
-                                [item.id]: { ...current, currentQuantity: event.target.value },
-                              }))
-                            }
-                          />
-                        </Field>
-                        <Field label={t("Notes")}>
-                          <textarea
-                            className={textareaClassName()}
-                            value={current.notes}
-                            onChange={event =>
-                              setInventoryUpdates(state => ({
-                                ...state,
-                                [item.id]: { ...current, notes: event.target.value },
-                              }))
-                            }
-                          />
-                        </Field>
-                        <div className="flex w-full">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              inventoryMutation.mutate({
-                                id: item.id,
-                                currentQuantity: Number(current.currentQuantity || 0),
-                                notes: current.notes,
-                              })
-                            }
-                            className="w-full rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]"
-                          >
-                            {t("Save inventory update")}
-                          </button>
-                        </div>
+              <div className="space-y-6">
+                {inventoryDepartments.map(group => (
+                  <div key={group.department} className="rounded-[1.75rem] border border-[#e7ddd1] bg-[#f7f0e7] p-4 shadow-sm">
+                    <div className="flex flex-col gap-2 border-b border-[#e2d8ca] pb-4 md:flex-row md:items-end md:justify-between">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{group.department}</p>
+                        <h3 className="mt-2 text-2xl font-medium tracking-[-0.03em] text-[#2d2925]">{group.department === "Utensils & Cleaning" ? t("Packaging, cups, lids, utensils, and cleaning supplies") : t("Ingredient stock counts and reorder-sensitive items")}</h3>
                       </div>
+                      <p className="text-sm text-[#6b6258]">{group.items.length} {t("items ready to count")}</p>
                     </div>
-                  );
-                })}
+                    <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                      {group.items.map(item => {
+                        const current = inventoryUpdates[item.id] ?? {
+                          currentQuantity: String(item.currentQuantity ?? "0"),
+                          notes: String(item.notes ?? ""),
+                        };
+                        return (
+                          <div key={item.id} className="rounded-[1.5rem] border border-[#e7ddd1] bg-[#fbf7f1] p-5 shadow-sm">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{item.category}</p>
+                                <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">{item.itemName}</h3>
+                                <p className="mt-1 text-sm text-[#6b6258]">{t("Par level")}: {item.parLevel} {item.unitType}</p>
+                              </div>
+                              {item.category === "Packaging" ? (
+                                <span className="rounded-full border border-[#d9c8ad] bg-[#f5e7d3] px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-[#7b5d31]">{t("Packaging")}</span>
+                              ) : null}
+                            </div>
+                            <div className="mt-4 grid gap-4">
+                              <Field label={`${t("Current quantity")} (${item.unitType})`}>
+                                <input
+                                  className={inputClassName()}
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={current.currentQuantity}
+                                  onChange={event =>
+                                    setInventoryUpdates(state => ({
+                                      ...state,
+                                      [item.id]: { ...current, currentQuantity: event.target.value },
+                                    }))
+                                  }
+                                />
+                              </Field>
+                              <Field label={t("Notes")}>
+                                <textarea
+                                  className={textareaClassName()}
+                                  value={current.notes}
+                                  onChange={event =>
+                                    setInventoryUpdates(state => ({
+                                      ...state,
+                                      [item.id]: { ...current, notes: event.target.value },
+                                    }))
+                                  }
+                                />
+                              </Field>
+                              <div className="flex w-full">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    inventoryMutation.mutate({
+                                      id: item.id,
+                                      currentQuantity: Number(current.currentQuantity || 0),
+                                      notes: current.notes,
+                                    })
+                                  }
+                                  className="w-full rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]"
+                                >
+                                  {t("Save inventory update")}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </SectionCard>

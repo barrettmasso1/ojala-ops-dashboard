@@ -199,6 +199,43 @@ describe("operations router", () => {
     );
   });
 
+  it("lets employees submit inventory updates and notifies the owner with the saved quantity", async () => {
+    dbMocks.updateInventoryCount.mockResolvedValue({
+      id: 41,
+      itemName: "To-Go Bags",
+      currentQuantity: 18,
+      unitType: "units",
+    });
+
+    const caller = appRouter.createCaller(createContext("user"));
+    const result = await caller.forms.submitInventoryUpdate({
+      id: 41,
+      currentQuantity: 18,
+      notes: "Packaging restocked and counted by front counter",
+    });
+
+    expect(result).toEqual({
+      success: true,
+      item: {
+        id: 41,
+        itemName: "To-Go Bags",
+        currentQuantity: 18,
+        unitType: "units",
+      },
+    });
+    expect(dbMocks.updateInventoryCount).toHaveBeenCalledWith({
+      id: 41,
+      currentQuantity: "18.00",
+      notes: "Packaging restocked and counted by front counter",
+    });
+    expect(notificationMocks.notifyOwner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Inventory updated: To-Go Bags",
+        content: expect.stringContaining("updated To-Go Bags to 18 units"),
+      })
+    );
+  });
+
   it("allows only admin users to save checklist questions", async () => {
     dbMocks.saveChecklistQuestion.mockResolvedValue({
       id: 22,

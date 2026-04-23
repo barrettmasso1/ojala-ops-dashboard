@@ -85,12 +85,44 @@ export const endOfDayReports = mysqlTable("endOfDayReports", {
 
 export const inventoryItems = mysqlTable("inventoryItems", {
   id: int("id").autoincrement().primaryKey(),
-  category: varchar("category", { length: 32 }).notNull(),
+  department: varchar("department", { length: 48 }).notNull().default("Ingredients"),
+  category: varchar("category", { length: 48 }).notNull(),
   itemName: varchar("itemName", { length: 160 }).notNull(),
-  unitLabel: varchar("unitLabel", { length: 64 }).notNull(),
+  unitType: varchar("unitType", { length: 64 }).notNull().default("units"),
+  packSize: varchar("packSize", { length: 128 }).notNull().default(""),
+  costPerUnit: decimal("costPerUnit", { precision: 10, scale: 2 }).notNull().default("0.00"),
   currentQuantity: decimal("currentQuantity", { precision: 10, scale: 2 }).notNull().default("0.00"),
   parLevel: decimal("parLevel", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  reorderQuantity: decimal("reorderQuantity", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  supplier: varchar("supplier", { length: 160 }).notNull().default(""),
+  supplierContact: varchar("supplierContact", { length: 160 }).notNull().default(""),
+  lastCountDate: varchar("lastCountDate", { length: 10 }).notNull().default(""),
   notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const recipes = mysqlTable("recipes", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 160 }).notNull().unique(),
+  batchYieldOunces: decimal("batchYieldOunces", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  notes: text("notes"),
+  processSteps: text("processSteps"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const recipeIngredients = mysqlTable("recipeIngredients", {
+  id: int("id").autoincrement().primaryKey(),
+  recipeId: int("recipeId").notNull(),
+  inventoryItemId: int("inventoryItemId"),
+  ingredientName: varchar("ingredientName", { length: 160 }).notNull(),
+  quantity: decimal("quantity", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  unitType: varchar("unitType", { length: 64 }).notNull().default("units"),
+  costPerUnit: decimal("costPerUnit", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  totalCost: decimal("totalCost", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  sortOrder: int("sortOrder").notNull().default(0),
+  processSteps: text("processSteps"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -107,3 +139,7 @@ export type EndOfDayReport = typeof endOfDayReports.$inferSelect;
 export type InsertEndOfDayReport = typeof endOfDayReports.$inferInsert;
 export type InventoryItem = typeof inventoryItems.$inferSelect;
 export type InsertInventoryItem = typeof inventoryItems.$inferInsert;
+export type Recipe = typeof recipes.$inferSelect;
+export type InsertRecipe = typeof recipes.$inferInsert;
+export type RecipeIngredient = typeof recipeIngredients.$inferSelect;
+export type InsertRecipeIngredient = typeof recipeIngredients.$inferInsert;

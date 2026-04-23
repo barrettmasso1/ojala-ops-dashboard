@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDailySnapshot, buildRecentNotesFeed, buildWeekOverWeekSeries } from "./db";
+import { buildDailySnapshot, buildRecentNotesFeed, buildRecipeCostSummaries, buildWeekOverWeekSeries } from "./db";
 
 describe("db aggregation helpers", () => {
   it("builds a daily snapshot with sales totals, cup totals, and checklist completion", () => {
@@ -91,6 +91,31 @@ describe("db aggregation helpers", () => {
         delta: 0,
       },
     ]);
+  });
+
+  it("builds recipe cost summaries with inventory-linked costs, missing-cost handling, and cost per ounce", () => {
+    const recipes = buildRecipeCostSummaries(
+      [{ id: 1, name: "Vanilla", batchYieldOunces: "160", notes: "", processSteps: "Blend and freeze" }],
+      [
+        { id: 1, recipeId: 1, ingredientName: "Vanilla", quantity: "2", unitType: "cups", costPerUnit: "0.00", totalCost: "0.00", processSteps: "" },
+        { id: 2, recipeId: 1, ingredientName: "Sea Salt", quantity: "1", unitType: "tsp", costPerUnit: "0.00", totalCost: "0.00", processSteps: "" },
+      ],
+      [{ id: 10, itemName: "Vanilla", unitType: "cups", costPerUnit: "4.50", currentQuantity: "1", parLevel: "2", reorderQuantity: "3" }]
+    );
+
+    expect(recipes).toHaveLength(1);
+    expect(recipes[0].batchCost).toBe(9);
+    expect(recipes[0].costPerOunce).toBeCloseTo(0.05625, 5);
+    expect(recipes[0].missingCostCount).toBe(1);
+    expect(recipes[0].ingredients[0]).toMatchObject({
+      inventoryItemName: "Vanilla",
+      costSource: "inventory",
+      totalCost: 9,
+    });
+    expect(recipes[0].ingredients[1]).toMatchObject({
+      costSource: "missing",
+      totalCost: 0,
+    });
   });
 
   it("builds a recent-notes feed from low-item, waste, general, and closing notes in descending order", () => {

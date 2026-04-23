@@ -15,6 +15,7 @@ import {
   getWeekOverWeekSales,
   listChecklistQuestions,
   listInventoryItems,
+  listRecipesWithCosts,
   removeChecklistQuestion,
   saveChecklistQuestion,
   saveInventoryItem,
@@ -83,11 +84,18 @@ const endOfDayReportSchema = z.object({
 
 const inventoryItemSchema = z.object({
   id: z.number().int().positive().optional(),
-  category: z.enum(["Ingredients", "Supplies", "Utensils"]),
+  department: z.string().min(1),
+  category: z.string().min(1),
   itemName: z.string().min(1),
-  unitLabel: z.string().min(1),
+  unitType: z.string().min(1),
+  packSize: z.string().optional().default(""),
+  costPerUnit: z.number().min(0),
   currentQuantity: z.number().min(0),
   parLevel: z.number().min(0),
+  reorderQuantity: z.number().min(0),
+  supplier: z.string().optional().default(""),
+  supplierContact: z.string().optional().default(""),
+  lastCountDate: z.string().optional().default(""),
   notes: z.string().optional().default(""),
 });
 
@@ -133,7 +141,7 @@ export const appRouter = router({
 
       await notifyOwner({
         title: `Inventory updated: ${item.itemName}`,
-        content: `${ctx.user.name || "A team member"} updated ${item.itemName} to ${item.currentQuantity} ${item.unitLabel}.`,
+        content: `${ctx.user.name || "A team member"} updated ${item.itemName} to ${item.currentQuantity} ${item.unitType}.`,
       });
 
       return { success: true, item } as const;
@@ -251,6 +259,7 @@ export const appRouter = router({
     weekOverWeek: adminProcedure.query(async () => getWeekOverWeekSales()),
     inventoryAlerts: adminProcedure.query(async () => getInventoryAlerts()),
     inventoryItems: adminProcedure.query(async () => listInventoryItems()),
+    recipes: adminProcedure.query(async () => listRecipesWithCosts()),
     checklistQuestions: adminProcedure.input(z.object({ checklistType: checklistTypeSchema })).query(async ({ input }) => listChecklistQuestions(input.checklistType)),
     saveChecklistQuestion: adminProcedure.input(checklistQuestionSchema).mutation(async ({ input }) => {
       const question = await saveChecklistQuestion(input);
@@ -260,8 +269,13 @@ export const appRouter = router({
     saveInventoryItem: adminProcedure.input(inventoryItemSchema).mutation(async ({ input }) => {
       const item = await saveInventoryItem({
         ...input,
+        costPerUnit: input.costPerUnit.toFixed(2),
         currentQuantity: input.currentQuantity.toFixed(2),
         parLevel: input.parLevel.toFixed(2),
+        reorderQuantity: input.reorderQuantity.toFixed(2),
+        supplier: input.supplier ?? "",
+        supplierContact: input.supplierContact ?? "",
+        lastCountDate: input.lastCountDate ?? "",
         notes: input.notes ?? "",
       });
 

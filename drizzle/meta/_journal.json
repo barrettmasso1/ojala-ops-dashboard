@@ -36,6 +36,13 @@
       "when": 1776818205403,
       "tag": "0004_smart_slyde",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1776902888119,
+      "tag": "0005_far_warstar",
+      "breakpoints": true
     }
   ]
 }
