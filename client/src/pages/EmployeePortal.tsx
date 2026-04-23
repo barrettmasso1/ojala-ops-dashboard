@@ -1,5 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { type PortalLanguage, translateErrorMessage, translatePortalText } from "@/lib/employeePortalI18n";
+import { getPendingInventorySaves, type InventoryDraftState } from "@/lib/inventoryWorkflow";
 import { getOpeningNapkinsQuestion, groupOpeningQuestionsForPortal } from "@/lib/openingSetup";
 import { trpc } from "@/lib/trpc";
 import { ClipboardCheck, MoonStar, Package2, ReceiptText } from "lucide-react";
@@ -71,7 +72,7 @@ type EndOfDayForm = {
   generalNotes: string;
 };
 
-type InventoryUpdateState = Record<number, { currentQuantity: string; notes: string }>;
+type InventoryUpdateState = InventoryDraftState;
 
 function todayValue() {
   return new Date().toISOString().slice(0, 10);
@@ -314,10 +315,6 @@ export default function EmployeePortal() {
   });
 
   const inventoryMutation = trpc.forms.submitInventoryUpdate.useMutation({
-    onSuccess: async () => {
-      toast.success(t("Inventory updated."));
-      await Promise.all([inventoryItemsQuery.refetch(), utils.dashboard.inventoryAlerts.invalidate()]);
-    },
     onError: error => toast.error(translateErrorMessage(error.message, language)),
   });
 
@@ -342,6 +339,8 @@ export default function EmployeePortal() {
     }));
   }, [inventoryItems]);
 
+  const pendingInventoryUpdates = useMemo(() => getPendingInventorySaves(inventoryItems, inventoryUpdates), [inventoryItems, inventoryUpdates]);
+
   const openingNapkinsQuestion = useMemo(() => getOpeningNapkinsQuestion(openingQuestions), [openingQuestions]);
 
   const groupedOpeningQuestions = useMemo(
@@ -361,6 +360,30 @@ export default function EmployeePortal() {
       .map(value => Number(value || 0))
       .reduce((sum, value) => sum + value, 0);
   }, [endOfDayForm.cashTotal, endOfDayForm.cardTotal, endOfDayForm.zelleTotal, endOfDayForm.venmoTotal]);
+
+  async function handleSaveInventoryUpdates() {
+    if (pendingInventoryUpdates.length === 0) {
+      toast.success(t("No inventory changes to save."));
+      return;
+    }
+
+    try {
+      await Promise.all(
+        pendingInventoryUpdates.map(update =>
+          inventoryMutation.mutateAsync({
+            id: update.id,
+            currentQuantity: update.currentQuantity,
+            notes: "",
+          })
+        )
+      );
+      setInventoryUpdates({});
+      toast.success(t("Inventory updated."));
+      await Promise.all([inventoryItemsQuery.refetch(), utils.dashboard.inventoryAlerts.invalidate()]);
+    } catch {
+      // Mutation errors are surfaced via the shared onError handler above.
+    }
+  }
 
   if (loading) {
     return <div className="min-h-screen bg-[#f8f4ed]" />;
@@ -440,7 +463,6 @@ export default function EmployeePortal() {
                       {group.items.map(item => {
                         const current = inventoryUpdates[item.id] ?? {
                           currentQuantity: String(item.currentQuantity ?? "0"),
-                          notes: String(item.notes ?? ""),
                         };
                         return (
                           <div key={item.id} className="rounded-[1.5rem] border border-[#e7ddd1] bg-[#fbf7f1] p-5 shadow-sm">
@@ -465,38 +487,11 @@ export default function EmployeePortal() {
                                   onChange={event =>
                                     setInventoryUpdates(state => ({
                                       ...state,
-                                      [item.id]: { ...current, currentQuantity: event.target.value },
+                                      [item.id]: { currentQuantity: event.target.value },
                                     }))
                                   }
                                 />
                               </Field>
-                              <Field label={t("Notes")}>
-                                <textarea
-                                  className={textareaClassName()}
-                                  value={current.notes}
-                                  onChange={event =>
-                                    setInventoryUpdates(state => ({
-                                      ...state,
-                                      [item.id]: { ...current, notes: event.target.value },
-                                    }))
-                                  }
-                                />
-                              </Field>
-                              <div className="flex w-full">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    inventoryMutation.mutate({
-                                      id: item.id,
-                                      currentQuantity: Number(current.currentQuantity || 0),
-                                      notes: current.notes,
-                                    })
-                                  }
-                                  className="w-full rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]"
-                                >
-                                  {t("Save inventory update")}
-                                </button>
-                              </div>
                             </div>
                           </div>
                         );
@@ -504,6 +499,22 @@ export default function EmployeePortal() {
                     </div>
                   </div>
                 ))}
+                <div className="rounded-[1.75rem] border border-[#e7ddd1] bg-white/85 p-5 shadow-sm">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{t("Inventory save")}</p>
+                      <p className="mt-2 text-sm text-[#6b6258]">{pendingInventoryUpdates.length === 0 ? t("Update any quantities above, then save everything once at the bottom.") : `${pendingInventoryUpdates.length} ${t("inventory counts ready to save")}`}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleSaveInventoryUpdates}
+                      disabled={inventoryMutation.isPending}
+                      className="w-full rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60 md:w-auto md:min-w-[18rem]"
+                    >
+                      {inventoryMutation.isPending ? t("Saving inventory...") : t("Save all inventory updates")}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </SectionCard>

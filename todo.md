@@ -69,3 +69,5 @@
 - [x] Make recipe-to-inventory purchasing guidance clearer by surfacing recipe-linked low-cost or unmapped ingredients in the cookbook view
 - [x] Verify the employee inventory workflow and cookbook view in the live preview after the richer inventory rollout
 - [x] Add router-level regression coverage for successful employee inventory saves after the richer portal inventory workflow rewrite
+- [x] Evaluate whether per-item inventory notes are necessary in the staff workflow and remove them if they do not add enough operational value
+- [x] Evaluate whether per-item save buttons are necessary in the staff inventory workflow and replace them with a single bottom save action if that creates a cleaner experience without losing reliability
