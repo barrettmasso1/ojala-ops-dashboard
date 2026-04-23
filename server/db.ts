@@ -119,11 +119,20 @@ function normalizeUnit(value?: string) {
   return aliases[raw] ?? raw;
 }
 
+const recipeIngredientInventoryAliases: Record<string, string> = {
+  "cacao powder": "cacao",
+  "lemon juice": "lemon",
+  "lemon zest": "lemon",
+  "strawberry blended": "strawberry",
+  "vanilla extract": "vanilla",
+};
+
 function findInventoryMatchByName<T extends { id?: number; itemName: string; unitType?: string; costPerUnit?: string | number }>(name: string, items: T[]) {
   const normalized = normalizeKey(name);
+  const aliasTarget = recipeIngredientInventoryAliases[normalized];
+
   return items.find(item => normalizeKey(item.itemName) === normalized)
-    ?? items.find(item => normalizeKey(item.itemName).includes(normalized))
-    ?? items.find(item => normalized.includes(normalizeKey(item.itemName)));
+    ?? (aliasTarget ? items.find(item => normalizeKey(item.itemName) === aliasTarget) : undefined);
 }
 
 async function ensureInventorySeeded() {
@@ -778,12 +787,19 @@ export function buildRecipeCostSummaries(
         const recipeUnit = normalizeUnit(item.unitType);
         const inventoryUnit = normalizeUnit(matchedInventoryItem?.unitType);
         const canUseInventoryCost = Boolean(matchedInventoryItem) && recipeUnit !== "" && recipeUnit === inventoryUnit;
-        const resolvedCostPerUnit = canUseInventoryCost
-          ? toNumber(matchedInventoryItem?.costPerUnit)
-          : toNumber(item.costPerUnit);
+        const inventoryCostPerUnit = canUseInventoryCost ? toNumber(matchedInventoryItem?.costPerUnit) : 0;
+        const recipeCostPerUnit = toNumber(item.costPerUnit);
+        const resolvedCostPerUnit = inventoryCostPerUnit > 0
+          ? inventoryCostPerUnit
+          : recipeCostPerUnit;
         const calculatedTotalCost = resolvedCostPerUnit > 0
           ? toNumber(item.quantity) * resolvedCostPerUnit
           : toNumber(item.totalCost);
+        const costSource = inventoryCostPerUnit > 0
+          ? "inventory"
+          : recipeCostPerUnit > 0
+            ? "recipe"
+            : "missing";
 
         return {
           id: item.id,
@@ -795,7 +811,7 @@ export function buildRecipeCostSummaries(
           matchedInventoryUnit: matchedInventoryItem?.unitType ?? null,
           costPerUnit: resolvedCostPerUnit,
           totalCost: calculatedTotalCost,
-          costSource: canUseInventoryCost ? "inventory" : toNumber(item.costPerUnit) > 0 ? "recipe" : "missing",
+          costSource,
           processSteps: item.processSteps ?? "",
         };
       });

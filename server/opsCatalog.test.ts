@@ -19,12 +19,67 @@ describe("ops catalog seed data", () => {
     expect(departments.has("Utensils & Cleaning")).toBe(true);
   });
 
-  it("includes cookbook rows for the core gelato flavors", () => {
-    const recipeNames = new Set(DEFAULT_RECIPE_ITEMS.map(item => item.recipeName));
+  it("seeds all 15 visible workbook recipe names", () => {
+    const recipeNames = Array.from(new Set(DEFAULT_RECIPE_ITEMS.map(item => item.recipeName))).sort();
 
-    expect(recipeNames.has("Vanilla")).toBe(true);
-    expect(recipeNames.has("Chocolate")).toBe(true);
-    expect(recipeNames.has("Strawberry")).toBe(true);
-    expect(recipeNames.has("Pistachio")).toBe(true);
+    expect(recipeNames).toHaveLength(15);
+    expect(recipeNames).toEqual([
+      "Avocado",
+      "Choco Mint",
+      "Chocolate",
+      "Cinnamon",
+      "Coffee",
+      "Cookies & Cream",
+      "Lemon",
+      "Orange Cacao",
+      "Peanut Butter",
+      "Pistachio",
+      "Strawberry",
+      "Sweet Potato",
+      "Vanilla",
+      "Watermelon & Lime",
+      "Wine",
+    ]);
+  });
+
+  it("preserves representative workbook ingredient rows, measurements, and seeded base costs", () => {
+    expect(DEFAULT_RECIPE_ITEMS).toContainEqual(expect.objectContaining({
+      recipeName: "Watermelon & Lime",
+      ingredientName: "Watermelon",
+      quantity: "8.5",
+      unitType: "kilos",
+    }));
+    expect(DEFAULT_RECIPE_ITEMS).toContainEqual(expect.objectContaining({
+      recipeName: "Watermelon & Lime",
+      ingredientName: "Lime",
+      quantity: "18",
+      unitType: "limes",
+    }));
+    expect(DEFAULT_RECIPE_ITEMS).toContainEqual(expect.objectContaining({
+      recipeName: "Orange Cacao",
+      ingredientName: "Orange Juice",
+      quantity: "1",
+      unitType: "liters",
+    }));
+    expect(DEFAULT_RECIPE_ITEMS).toContainEqual(expect.objectContaining({
+      recipeName: "Orange Cacao",
+      ingredientName: "Orange Zest",
+      quantity: "80",
+      unitType: "g",
+    }));
+    expect(DEFAULT_RECIPE_ITEMS).toContainEqual(expect.objectContaining({
+      recipeName: "Wine",
+      ingredientName: "Wine",
+      quantity: "800",
+      unitType: "ml",
+    }));
+    expect(DEFAULT_RECIPE_ITEMS).toContainEqual(expect.objectContaining({
+      recipeName: "Choco Mint",
+      ingredientName: "Base",
+      quantity: "1",
+      unitType: "bag",
+      costPerUnit: "350.00",
+      totalCost: "350.00",
+    }));
   });
 });

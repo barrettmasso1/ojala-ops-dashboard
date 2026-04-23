@@ -78,3 +78,11 @@
 - [x] Make the shared Save inventory and gelato updates button span the full available width in the employee portal inventory section
 - [x] Fix the shared inventory and gelato save button container so the button truly fills the full available width with no remaining horizontal gap
 - [x] Resolve the current server router transform error and revalidate the employee portal after the full-width button fix
+- [x] Build a recipe book view that shows each flavor with its ingredient list, measurements, and units from the provided workbook
+- [x] Show current ingredient cost values in the recipe book wherever pricing has already been provided
+- [x] Add recipe-level placeholders for total yield and cost per ounce until the remaining yield and cost inputs are available
+- [x] Structure the recipe book so future yield and full ingredient-cost updates can automatically support cost-per-ounce calculations
+- [x] Verify the recipe seed covers every flavor and ingredient row from the provided workbook and add regression coverage for recipe count plus representative workbook rows
+- [x] Audit and fix recipe ingredient cost mapping so already-priced ingredients display the correct cost values in the recipe book
+- [x] Add explicit regression coverage for missing-yield placeholders and automatic cost-per-ounce calculation when yield data is available
+- [x] Confirm and document that future yield and ingredient-cost updates will flow automatically into recipe cost-per-ounce calculations

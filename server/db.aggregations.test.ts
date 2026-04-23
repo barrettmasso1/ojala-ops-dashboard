@@ -93,29 +93,85 @@ describe("db aggregation helpers", () => {
     ]);
   });
 
-  it("builds recipe cost summaries with inventory-linked costs, missing-cost handling, and cost per ounce", () => {
+  it("builds recipe cost summaries with inventory matches, recipe-cost fallback, missing-cost handling, and cost per ounce", () => {
     const recipes = buildRecipeCostSummaries(
       [{ id: 1, name: "Vanilla", batchYieldOunces: "160", notes: "", processSteps: "Blend and freeze" }],
       [
-        { id: 1, recipeId: 1, ingredientName: "Vanilla", quantity: "2", unitType: "cups", costPerUnit: "0.00", totalCost: "0.00", processSteps: "" },
-        { id: 2, recipeId: 1, ingredientName: "Sea Salt", quantity: "1", unitType: "tsp", costPerUnit: "0.00", totalCost: "0.00", processSteps: "" },
+        { id: 1, recipeId: 1, ingredientName: "Vanilla extract", quantity: "2", unitType: "cups", costPerUnit: "0.00", totalCost: "0.00", processSteps: "" },
+        { id: 2, recipeId: 1, ingredientName: "Base", quantity: "1", unitType: "bag", costPerUnit: "350.00", totalCost: "350.00", processSteps: "" },
+        { id: 3, recipeId: 1, ingredientName: "Water", quantity: "3", unitType: "liters", costPerUnit: "0.00", totalCost: "0.00", processSteps: "" },
+        { id: 4, recipeId: 1, ingredientName: "Sea Salt", quantity: "1", unitType: "tsp", costPerUnit: "0.00", totalCost: "0.00", processSteps: "" },
       ],
-      [{ id: 10, itemName: "Vanilla", unitType: "cups", costPerUnit: "4.50", currentQuantity: "1", parLevel: "2", reorderQuantity: "3" }]
+      [
+        { id: 10, itemName: "Vanilla", unitType: "cups", costPerUnit: "4.50", currentQuantity: "1", parLevel: "2", reorderQuantity: "3" },
+        { id: 11, itemName: "Base", unitType: "bags", costPerUnit: "0.00", currentQuantity: "1", parLevel: "2", reorderQuantity: "3" },
+        { id: 12, itemName: "Watermelon", unitType: "liters", costPerUnit: "2.00", currentQuantity: "1", parLevel: "2", reorderQuantity: "3" },
+      ]
     );
 
     expect(recipes).toHaveLength(1);
-    expect(recipes[0].batchCost).toBe(9);
-    expect(recipes[0].costPerOunce).toBeCloseTo(0.05625, 5);
-    expect(recipes[0].missingCostCount).toBe(1);
+    expect(recipes[0].batchCost).toBe(359);
+    expect(recipes[0].costPerOunce).toBeCloseTo(2.24375, 5);
+    expect(recipes[0].missingCostCount).toBe(2);
     expect(recipes[0].ingredients[0]).toMatchObject({
       inventoryItemName: "Vanilla",
       costSource: "inventory",
       totalCost: 9,
     });
     expect(recipes[0].ingredients[1]).toMatchObject({
+      inventoryItemName: "Base",
+      costSource: "recipe",
+      costPerUnit: 350,
+      totalCost: 350,
+    });
+    expect(recipes[0].ingredients[2]).toMatchObject({
+      inventoryItemName: null,
       costSource: "missing",
       totalCost: 0,
     });
+    expect(recipes[0].ingredients[3]).toMatchObject({
+      costSource: "missing",
+      totalCost: 0,
+    });
+  });
+
+  it("keeps cost per ounce pending until yield is provided", () => {
+    const recipes = buildRecipeCostSummaries(
+      [{ id: 1, name: "Chocolate", batchYieldOunces: null, notes: "", processSteps: "" }],
+      [
+        { id: 1, recipeId: 1, ingredientName: "Base", quantity: "1", unitType: "bag", costPerUnit: "350.00", totalCost: "350.00", processSteps: "" },
+      ],
+      []
+    );
+
+    expect(recipes[0]).toMatchObject({
+      batchYieldOunces: 0,
+      batchCost: 350,
+      costPerOunce: null,
+      missingCostCount: 0,
+    });
+    expect(recipes[0].ingredients[0]).toMatchObject({
+      costSource: "recipe",
+      costPerUnit: 350,
+      totalCost: 350,
+    });
+  });
+
+  it("automatically calculates cost per ounce when yield data is supplied later", () => {
+    const recipes = buildRecipeCostSummaries(
+      [{ id: 1, name: "Chocolate", batchYieldOunces: "140", notes: "", processSteps: "" }],
+      [
+        { id: 1, recipeId: 1, ingredientName: "Base", quantity: "1", unitType: "bag", costPerUnit: "350.00", totalCost: "350.00", processSteps: "" },
+      ],
+      []
+    );
+
+    expect(recipes[0]).toMatchObject({
+      batchYieldOunces: 140,
+      batchCost: 350,
+      missingCostCount: 0,
+    });
+    expect(recipes[0].costPerOunce).toBeCloseTo(2.5, 5);
   });
 
   it("builds a recent-notes feed from low-item, waste, general, and closing notes in descending order", () => {

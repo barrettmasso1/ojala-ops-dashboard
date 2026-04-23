@@ -571,14 +571,14 @@ export default function ManagerDashboard() {
           </SurfaceCard>
 
           <SurfaceCard>
-            <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Recipe map and cookbook</p>
-            <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Flavor costing and ingredient visibility</h2>
-            <p className="mt-3 max-w-3xl text-sm leading-7 text-[#6b6258]">Each recipe lists the ingredient quantities currently captured from the workbook, highlights missing cost mappings, and estimates batch cost and cost per ounce when the batch yield is known.</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Recipe book</p>
+            <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Flavor formulas, ingredient costs, and yield placeholders</h2>
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-[#6b6258]">This cookbook organizes every flavor from the provided workbook with its ingredients, quantities, unit of measurement, current cost information, and placeholders for yield and cost per ounce until those final numbers are available.</p>
             <div className="mt-6 grid gap-4 sm:grid-cols-3">
               {[
                 { label: "Recipes loaded", value: recipes.length },
+                { label: "Recipes pending yield", value: recipes.filter(recipe => recipe.batchYieldOunces <= 0).length },
                 { label: "Ingredients with missing costs", value: recipes.reduce((sum, recipe) => sum + recipe.missingCostCount, 0) },
-                { label: "Inventory items priced", value: inventoryItems.filter(item => item.costPerUnit > 0).length },
               ].map(item => (
                 <div key={item.label} className="rounded-2xl border border-[#e5ddd0] bg-[#fbf7f0] p-4 shadow-sm">
                   <p className="text-xs uppercase tracking-[0.22em] text-[#8b9088]">{item.label}</p>
@@ -599,74 +599,85 @@ export default function ManagerDashboard() {
                   <article key={recipe.id} className="rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6] p-5 shadow-sm">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                       <div>
-                        <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">Recipe</p>
+                        <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">Flavor recipe</p>
                         <h3 className="mt-2 text-2xl font-medium tracking-[-0.03em] text-[#24332f]">{recipe.name}</h3>
-                        <p className="mt-2 text-sm text-[#69726c]">Batch cost: <span className="font-medium text-[#24332f]">${recipe.batchCost.toFixed(2)}</span></p>
-                        <p className="mt-1 text-sm text-[#69726c]">Cost per ounce: <span className="font-medium text-[#24332f]">{recipe.costPerOunce == null ? "Add batch yield to calculate" : `$${recipe.costPerOunce.toFixed(2)}/oz`}</span></p>
+                        <p className="mt-2 text-sm text-[#69726c]">Known ingredient cost total: <span className="font-medium text-[#24332f]">${recipe.batchCost.toFixed(2)}</span></p>
+                        <p className="mt-1 text-sm text-[#69726c]">Cost per ounce: <span className="font-medium text-[#24332f]">{recipe.costPerOunce == null ? "Pending yield input" : `$${recipe.costPerOunce.toFixed(2)}/oz`}</span></p>
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        <div className="rounded-full border border-[#e4dccf] bg-white/90 px-4 py-2 text-xs uppercase tracking-[0.18em] text-[#52665f]">
-                          Yield: {recipe.batchYieldOunces > 0 ? `${recipe.batchYieldOunces} oz` : "Pending"}
+                      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                        <div className="rounded-2xl border border-[#e4dccf] bg-white/90 px-4 py-3 text-sm text-[#52665f]">
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Yield</p>
+                          <p className="mt-2 font-medium text-[#24332f]">{recipe.batchYieldOunces > 0 ? `${recipe.batchYieldOunces} oz` : "Pending"}</p>
                         </div>
-                        <div className="rounded-full border border-[#eadfcf] bg-[#f5e7d3] px-4 py-2 text-xs uppercase tracking-[0.18em] text-[#805e2f]">
-                          Missing costs: {recipe.missingCostCount}
+                        <div className="rounded-2xl border border-[#eadfcf] bg-[#f5e7d3] px-4 py-3 text-sm text-[#805e2f]">
+                          <p className="text-[11px] uppercase tracking-[0.18em]">Missing costs</p>
+                          <p className="mt-2 font-medium">{recipe.missingCostCount}</p>
                         </div>
-                        <div className="rounded-full border border-[#e4dccf] bg-white/90 px-4 py-2 text-xs uppercase tracking-[0.18em] text-[#52665f]">
-                          Linked reorder items: {recipe.ingredients.filter(ingredient => {
+                        <div className="rounded-2xl border border-[#e4dccf] bg-white/90 px-4 py-3 text-sm text-[#52665f]">
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Ingredients</p>
+                          <p className="mt-2 font-medium text-[#24332f]">{recipe.ingredients.length}</p>
+                        </div>
+                        <div className="rounded-2xl border border-[#e4dccf] bg-white/90 px-4 py-3 text-sm text-[#52665f]">
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Reorder-linked items</p>
+                          <p className="mt-2 font-medium text-[#24332f]">{recipe.ingredients.filter(ingredient => {
                             const matchedItem = inventoryItems.find(item => item.id === ingredient.inventoryItemId || item.itemName === ingredient.inventoryItemName);
                             return Boolean(matchedItem?.reorderNeeded);
-                          }).length}
+                          }).length}</p>
                         </div>
                       </div>
                     </div>
 
                     <div className="mt-5 overflow-x-auto rounded-2xl border border-[#e8dfd3] bg-white/80">
-                      <table className="w-full min-w-[720px] text-left text-sm">
+                      <table className="w-full min-w-[920px] text-left text-sm">
                         <thead className="bg-[#f4ede2] text-[#60706b]">
                           <tr>
                             <th className="px-4 py-3 font-medium">Ingredient</th>
-                            <th className="px-4 py-3 font-medium">Quantity</th>
+                            <th className="px-4 py-3 font-medium">Units</th>
+                            <th className="px-4 py-3 font-medium">Unit of measurement</th>
                             <th className="px-4 py-3 font-medium">Cost source</th>
-                            <th className="px-4 py-3 font-medium">Cost / unit</th>
-                            <th className="px-4 py-3 font-medium">Line cost</th>
-                            <th className="px-4 py-3 font-medium">Purchasing status</th>
+                            <th className="px-4 py-3 font-medium">Cost per ingredient unit</th>
+                            <th className="px-4 py-3 font-medium">Ingredient cost</th>
+                            <th className="px-4 py-3 font-medium">Status</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
                           {recipe.ingredients.map(ingredient => {
                             const matchedItem = inventoryItems.find(item => item.id === ingredient.inventoryItemId || item.itemName === ingredient.inventoryItemName);
                             const purchasingStatus = ingredient.costSource === "missing"
-                              ? "Add cost"
+                              ? "Need cost"
                               : matchedItem?.reorderNeeded
                                 ? "Needs reorder"
                                 : matchedItem
-                                  ? "Covered"
-                                  : "Unmapped";
+                                  ? "Cost linked"
+                                  : "Recipe only";
 
                             return (
-                            <tr key={ingredient.id}>
-                              <td className="px-4 py-3">
-                                <div>
-                                  <p className="font-medium">{ingredient.ingredientName}</p>
-                                  <p className="mt-1 text-xs text-[#7a827d]">{ingredient.inventoryItemName ? `Matched to ${ingredient.inventoryItemName}` : "No inventory cost match yet"}</p>
-                                </div>
-                              </td>
-                              <td className="px-4 py-3">{ingredient.quantity} {ingredient.unitType}</td>
-                              <td className="px-4 py-3 capitalize">{ingredient.costSource}</td>
-                              <td className="px-4 py-3">${ingredient.costPerUnit.toFixed(2)}</td>
-                              <td className="px-4 py-3">${ingredient.totalCost.toFixed(2)}</td>
-                              <td className="px-4 py-3">
-                                <span className={`rounded-full px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] ${
-                                  purchasingStatus === "Needs reorder"
-                                    ? "bg-[#f5e7d3] text-[#805e2f]"
-                                    : purchasingStatus === "Add cost" || purchasingStatus === "Unmapped"
-                                      ? "bg-[#efe4dc] text-[#8b5a47]"
-                                      : "bg-[#e8f0ec] text-[#4d655d]"
-                                }`}>
-                                  {purchasingStatus}
-                                </span>
-                              </td>
-                            </tr>
+                              <tr key={ingredient.id}>
+                                <td className="px-4 py-3 align-top">
+                                  <div>
+                                    <p className="font-medium">{ingredient.ingredientName}</p>
+                                    <p className="mt-1 text-xs text-[#7a827d]">{ingredient.inventoryItemName ? `Inventory match: ${ingredient.inventoryItemName}` : "No inventory match yet"}</p>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 align-top">{ingredient.quantity}</td>
+                                <td className="px-4 py-3 align-top">{ingredient.unitType || "—"}</td>
+                                <td className="px-4 py-3 align-top capitalize">{ingredient.costSource}</td>
+                                <td className="px-4 py-3 align-top">${ingredient.costPerUnit.toFixed(2)}</td>
+                                <td className="px-4 py-3 align-top">${ingredient.totalCost.toFixed(2)}</td>
+                                <td className="px-4 py-3 align-top">
+                                  <span className={`rounded-full px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] ${
+                                    purchasingStatus === "Needs reorder"
+                                      ? "bg-[#f5e7d3] text-[#805e2f]"
+                                      : purchasingStatus === "Need cost"
+                                        ? "bg-[#efe4dc] text-[#8b5a47]"
+                                        : purchasingStatus === "Recipe only"
+                                          ? "bg-[#f1ebe2] text-[#7a6553]"
+                                          : "bg-[#e8f0ec] text-[#4d655d]"
+                                  }`}>
+                                    {purchasingStatus}
+                                  </span>
+                                </td>
+                              </tr>
                             );
                           })}
                         </tbody>
