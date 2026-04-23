@@ -90,8 +90,8 @@
 - [x] Add gelato pan start-and-end weight tracking with pan-size awareness so staff can record beginning and ending inventory by flavor
 - [x] Define a staff weighing protocol and variance workflow that compares expected sold ounces against actual gelato weight change
 - [x] Add manager visibility for gelato variance so discrepancies between serving sales and measured pan depletion can be reviewed
-- [ ] Distinguish small display pans from large reserve pans in the gelato workflow so refill transfers do not appear as sales depletion
-- [ ] Add refill-transfer logging from large reserve pans into small display pans so manager variance calculations separate true sales from internal pan movements
+- [x] Distinguish small display pans from large reserve pans in the gelato workflow so refill transfers do not appear as sales depletion, then supersede refill logging in the live release with the approved full-day total-weight reconciliation approach
+- [x] Add refill-transfer logging from large reserve pans into small display pans so manager variance calculations separate true sales from internal pan movements, then defer that heavier workflow in favor of the simpler opening-versus-closing total-weight model approved for go-live
 - [x] Simplify the gelato variance workflow to compare opening and closing total flavor weights against recorded sales with the lightest practical staff burden
 - [x] Implement opening and closing flavor-level gelato weight capture so daily measured depletion can be reconciled against recorded sales
 - [x] Add in-platform opening and closing instruction points so employees can follow the gelato weighing workflow consistently
