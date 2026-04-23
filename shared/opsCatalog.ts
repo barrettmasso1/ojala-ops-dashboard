@@ -26,6 +26,23 @@ export type RecipeSeedItem = {
   processSteps: string;
 };
 
+export const READY_MADE_GELATO_FLAVORS = [
+  "Vanilla",
+  "Chocolate",
+  "Cinnamon",
+  "Peanut Butter",
+  "Coffee",
+  "Ginger",
+  "Lemon",
+  "Mint Chip",
+  "Cookies and Cream",
+  "Passion Fruit",
+  "Pistachio",
+  "Strawberry",
+  "Sweet Potato",
+  "Watermelon",
+] as const;
+
 export const DEFAULT_INVENTORY_ITEMS: InventorySeedItem[] = [
   { department: "Ingredients", category: "Base", itemName: "Almond Base", unitType: "bags", packSize: "1.4kg bag", costPerUnit: "350.00", currentInventory: "0", parLevel: "5", reorderQuantity: "5", supplier: "", supplierContact: "", notes: "" },
   { department: "Ingredients", category: "Base", itemName: "Coco Base", unitType: "bags", packSize: "1.4kg bag", costPerUnit: "350.00", currentInventory: "0", parLevel: "3", reorderQuantity: "3", supplier: "", supplierContact: "", notes: "" },

@@ -9,7 +9,10 @@ describe("employee portal translations", () => {
 
   it("translates known interface copy into Spanish", () => {
     expect(translatePortalText("Inventory Input", "es")).toBe("Ingreso de inventario");
-    expect(translatePortalText("Save all inventory updates", "es")).toBe("Guardar todas las actualizaciones de inventario");
+    expect(translatePortalText("Save inventory and gelato updates", "es")).toBe("Guardar actualizaciones de inventario y gelato");
+    expect(translatePortalText("Ready-Made Gelato", "es")).toBe("Gelato listo");
+    expect(translatePortalText("Weight in kg", "es")).toBe("Peso en kg");
+    expect(translatePortalText("Mint Chip", "es")).toBe("Menta con chispas");
     expect(translatePortalText("Submit Opening Checklist", "es")).toBe("Enviar lista de apertura");
     expect(translatePortalText("Napkins stocked", "es")).toBe("Servilletas abastecidas");
   });

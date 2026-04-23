@@ -71,3 +71,7 @@
 - [x] Add router-level regression coverage for successful employee inventory saves after the richer portal inventory workflow rewrite
 - [x] Evaluate whether per-item inventory notes are necessary in the staff workflow and remove them if they do not add enough operational value
 - [x] Evaluate whether per-item save buttons are necessary in the staff inventory workflow and replace them with a single bottom save action if that creates a cleaner experience without losing reliability
+- [x] Remove the inventory save helper text from the employee portal inventory section so the workflow stays visually cleaner
+- [x] Add a ready-made gelato section to the employee portal inventory form with daily weight-in-kg inputs for each requested flavor
+- [x] Persist ready-made gelato daily weights by business date so later sales-versus-stock variance checks can use the recorded flavor counts
+- [x] Add regression coverage for saving ready-made gelato weights through the employee portal API

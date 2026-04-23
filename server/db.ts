@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   checklistQuestions,
@@ -10,14 +10,16 @@ import {
   InsertOpeningChecklist,
   InsertRecipe,
   InsertRecipeIngredient,
+  InsertReadyMadeGelatoWeight,
   InsertUser,
   inventoryItems,
   openingChecklists,
+  readyMadeGelatoWeights,
   recipeIngredients,
   recipes,
   users,
 } from "../drizzle/schema";
-import { DEFAULT_INVENTORY_ITEMS, DEFAULT_RECIPE_ITEMS } from "../shared/opsCatalog";
+import { DEFAULT_INVENTORY_ITEMS, DEFAULT_RECIPE_ITEMS, READY_MADE_GELATO_FLAVORS } from "../shared/opsCatalog";
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -683,6 +685,84 @@ export async function updateInventoryCount(input: {
 
   const updated = await db.select().from(inventoryItems).where(eq(inventoryItems.id, input.id)).limit(1);
   return updated[0];
+}
+
+export async function listReadyMadeGelatoWeights(businessDate?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const normalizedDate = normalizeDate(businessDate);
+  const rows = await db
+    .select()
+    .from(readyMadeGelatoWeights)
+    .where(eq(readyMadeGelatoWeights.businessDate, normalizedDate))
+    .orderBy(readyMadeGelatoWeights.flavor);
+
+  const rowByFlavor = new Map(rows.map(row => [row.flavor, row]));
+
+  return READY_MADE_GELATO_FLAVORS.map(flavor => {
+    const row = rowByFlavor.get(flavor);
+    return {
+      id: row?.id ?? null,
+      businessDate: normalizedDate,
+      flavor,
+      weightKg: toNumber(row?.weightKg),
+      submittedByUserId: row?.submittedByUserId ?? null,
+      createdAt: row?.createdAt ?? null,
+      updatedAt: row?.updatedAt ?? null,
+    };
+  });
+}
+
+export async function saveReadyMadeGelatoWeights(input: {
+  businessDate?: string;
+  submittedByUserId: number;
+  entries: Array<{ flavor: string; weightKg: string }>;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const normalizedDate = normalizeDate(input.businessDate);
+  const savedRows: Array<{ id: number; businessDate: string; flavor: string; weightKg: number }> = [];
+
+  for (const flavor of READY_MADE_GELATO_FLAVORS) {
+    const entry = input.entries.find(item => item.flavor === flavor);
+    if (!entry) continue;
+
+    const values: InsertReadyMadeGelatoWeight = {
+      businessDate: normalizedDate,
+      flavor,
+      weightKg: entry.weightKg,
+      submittedByUserId: input.submittedByUserId,
+    };
+
+    const existing = await db
+      .select()
+      .from(readyMadeGelatoWeights)
+      .where(and(eq(readyMadeGelatoWeights.businessDate, normalizedDate), eq(readyMadeGelatoWeights.flavor, flavor)))
+      .limit(1);
+
+    if (existing[0]) {
+      await db.update(readyMadeGelatoWeights).set(values).where(eq(readyMadeGelatoWeights.id, existing[0].id));
+      savedRows.push({
+        id: existing[0].id,
+        businessDate: normalizedDate,
+        flavor,
+        weightKg: toNumber(entry.weightKg),
+      });
+      continue;
+    }
+
+    const result = await db.insert(readyMadeGelatoWeights).values(values);
+    savedRows.push({
+      id: Number(result[0]?.insertId ?? 0),
+      businessDate: normalizedDate,
+      flavor,
+      weightKg: toNumber(entry.weightKg),
+    });
+  }
+
+  return savedRows;
 }
 
 export function buildRecipeCostSummaries(

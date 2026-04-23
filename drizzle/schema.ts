@@ -102,6 +102,16 @@ export const inventoryItems = mysqlTable("inventoryItems", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+export const readyMadeGelatoWeights = mysqlTable("readyMadeGelatoWeights", {
+  id: int("id").autoincrement().primaryKey(),
+  businessDate: varchar("businessDate", { length: 10 }).notNull(),
+  flavor: varchar("flavor", { length: 160 }).notNull(),
+  weightKg: decimal("weightKg", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  submittedByUserId: int("submittedByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export const recipes = mysqlTable("recipes", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 160 }).notNull().unique(),
@@ -139,6 +149,8 @@ export type EndOfDayReport = typeof endOfDayReports.$inferSelect;
 export type InsertEndOfDayReport = typeof endOfDayReports.$inferInsert;
 export type InventoryItem = typeof inventoryItems.$inferSelect;
 export type InsertInventoryItem = typeof inventoryItems.$inferInsert;
+export type ReadyMadeGelatoWeight = typeof readyMadeGelatoWeights.$inferSelect;
+export type InsertReadyMadeGelatoWeight = typeof readyMadeGelatoWeights.$inferInsert;
 export type Recipe = typeof recipes.$inferSelect;
 export type InsertRecipe = typeof recipes.$inferInsert;
 export type RecipeIngredient = typeof recipeIngredients.$inferSelect;

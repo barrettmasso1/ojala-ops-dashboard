@@ -12,9 +12,11 @@ const dbMocks = vi.hoisted(() => ({
   getWeekOverWeekSales: vi.fn(),
   listChecklistQuestions: vi.fn(),
   listInventoryItems: vi.fn(),
+  listReadyMadeGelatoWeights: vi.fn(),
   removeChecklistQuestion: vi.fn(),
   saveChecklistQuestion: vi.fn(),
   saveInventoryItem: vi.fn(),
+  saveReadyMadeGelatoWeights: vi.fn(),
   updateInventoryCount: vi.fn(),
 }));
 
@@ -232,6 +234,44 @@ describe("operations router", () => {
       expect.objectContaining({
         title: "Inventory updated: To-Go Bags",
         content: expect.stringContaining("updated To-Go Bags to 18 units"),
+      })
+    );
+  });
+
+  it("lets employees save ready-made gelato weights for the business date", async () => {
+    dbMocks.saveReadyMadeGelatoWeights.mockResolvedValue([
+      { id: 1, businessDate: "2026-04-22", flavor: "Vanilla", weightKg: 4.25 },
+      { id: 2, businessDate: "2026-04-22", flavor: "Chocolate", weightKg: 3.5 },
+    ]);
+
+    const caller = appRouter.createCaller(createContext("user"));
+    const result = await caller.forms.submitReadyMadeGelato({
+      businessDate: "2026-04-22",
+      entries: [
+        { flavor: "Vanilla", weightKg: 4.25 },
+        { flavor: "Chocolate", weightKg: 3.5 },
+      ],
+    });
+
+    expect(result).toEqual({
+      success: true,
+      records: [
+        { id: 1, businessDate: "2026-04-22", flavor: "Vanilla", weightKg: 4.25 },
+        { id: 2, businessDate: "2026-04-22", flavor: "Chocolate", weightKg: 3.5 },
+      ],
+    });
+    expect(dbMocks.saveReadyMadeGelatoWeights).toHaveBeenCalledWith({
+      businessDate: "2026-04-22",
+      submittedByUserId: 1,
+      entries: [
+        { flavor: "Vanilla", weightKg: "4.25" },
+        { flavor: "Chocolate", weightKg: "3.50" },
+      ],
+    });
+    expect(notificationMocks.notifyOwner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Ready-made gelato updated: 2026-04-22",
+        content: expect.stringContaining("updated 2 ready-made gelato weights"),
       })
     );
   });

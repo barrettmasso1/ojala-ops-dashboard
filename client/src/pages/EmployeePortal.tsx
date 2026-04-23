@@ -4,8 +4,9 @@ import { getPendingInventorySaves, type InventoryDraftState } from "@/lib/invent
 import { getOpeningNapkinsQuestion, groupOpeningQuestionsForPortal } from "@/lib/openingSetup";
 import { trpc } from "@/lib/trpc";
 import { ClipboardCheck, MoonStar, Package2, ReceiptText } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { READY_MADE_GELATO_FLAVORS } from "../../../shared/opsCatalog";
 
 type YesNo = "Yes" | "No";
 
@@ -73,6 +74,12 @@ type EndOfDayForm = {
 };
 
 type InventoryUpdateState = InventoryDraftState;
+type ReadyMadeGelatoWeightsState = Record<string, string>;
+
+type ReadyMadeGelatoState = {
+  businessDate: string;
+  weights: ReadyMadeGelatoWeightsState;
+};
 
 function todayValue() {
   return new Date().toISOString().slice(0, 10);
@@ -126,6 +133,11 @@ const initialEndOfDayForm = (): EndOfDayForm => ({
   wasteNotes: "",
   lowItemNotes: "",
   generalNotes: "",
+});
+
+const initialReadyMadeGelatoState = (businessDate = todayValue()): ReadyMadeGelatoState => ({
+  businessDate,
+  weights: Object.fromEntries(READY_MADE_GELATO_FLAVORS.map(flavor => [flavor, "0"])) as ReadyMadeGelatoWeightsState,
 });
 
 const openingStockFields: Array<{ key: keyof OpeningStockCounts; label: string; group: string }> = [
@@ -275,10 +287,12 @@ export default function EmployeePortal() {
   const [openingAnswers, setOpeningAnswers] = useState<ChecklistAnswerState>({});
   const [closingAnswers, setClosingAnswers] = useState<ChecklistAnswerState>({});
   const [inventoryUpdates, setInventoryUpdates] = useState<InventoryUpdateState>({});
+  const [readyMadeGelato, setReadyMadeGelato] = useState<ReadyMadeGelatoState>(() => initialReadyMadeGelatoState());
 
   const openingQuestionsQuery = trpc.forms.checklistQuestions.useQuery({ checklistType: "opening" });
   const closingQuestionsQuery = trpc.forms.checklistQuestions.useQuery({ checklistType: "closing" });
   const inventoryItemsQuery = trpc.forms.inventoryItems.useQuery();
+  const readyMadeGelatoQuery = trpc.forms.readyMadeGelatoWeights.useQuery({ businessDate: readyMadeGelato.businessDate });
 
   const openingMutation = trpc.forms.submitOpening.useMutation({
     onSuccess: async () => {
@@ -318,6 +332,10 @@ export default function EmployeePortal() {
     onError: error => toast.error(translateErrorMessage(error.message, language)),
   });
 
+  const readyMadeGelatoMutation = trpc.forms.submitReadyMadeGelato.useMutation({
+    onError: error => toast.error(translateErrorMessage(error.message, language)),
+  });
+
   const introName = useMemo(() => user?.name?.split(" ")[0] ?? t("team"), [user?.name, language]);
 
   const openingQuestions = openingQuestionsQuery.data ?? [];
@@ -341,6 +359,24 @@ export default function EmployeePortal() {
 
   const pendingInventoryUpdates = useMemo(() => getPendingInventorySaves(inventoryItems, inventoryUpdates), [inventoryItems, inventoryUpdates]);
 
+  useEffect(() => {
+    if (!readyMadeGelatoQuery.data) return;
+    setReadyMadeGelato(current => ({
+      ...current,
+      weights: Object.fromEntries(readyMadeGelatoQuery.data.map(item => [item.flavor, String(item.weightKg ?? 0)])) as ReadyMadeGelatoWeightsState,
+    }));
+  }, [readyMadeGelatoQuery.data]);
+
+  const pendingReadyMadeGelatoUpdates = useMemo(() => {
+    const existingWeights = new Map((readyMadeGelatoQuery.data ?? []).map(item => [item.flavor, Number(item.weightKg ?? 0)]));
+    return READY_MADE_GELATO_FLAVORS
+      .map(flavor => ({
+        flavor,
+        weightKg: Number(readyMadeGelato.weights[flavor] || 0),
+      }))
+      .filter(item => item.weightKg !== (existingWeights.get(item.flavor) ?? 0));
+  }, [readyMadeGelato.weights, readyMadeGelatoQuery.data]);
+
   const openingNapkinsQuestion = useMemo(() => getOpeningNapkinsQuestion(openingQuestions), [openingQuestions]);
 
   const groupedOpeningQuestions = useMemo(
@@ -362,24 +398,34 @@ export default function EmployeePortal() {
   }, [endOfDayForm.cashTotal, endOfDayForm.cardTotal, endOfDayForm.zelleTotal, endOfDayForm.venmoTotal]);
 
   async function handleSaveInventoryUpdates() {
-    if (pendingInventoryUpdates.length === 0) {
-      toast.success(t("No inventory changes to save."));
+    if (pendingInventoryUpdates.length === 0 && pendingReadyMadeGelatoUpdates.length === 0) {
+      toast.success(t("No inventory or gelato changes to save."));
       return;
     }
 
     try {
-      await Promise.all(
-        pendingInventoryUpdates.map(update =>
+      await Promise.all([
+        ...pendingInventoryUpdates.map(update =>
           inventoryMutation.mutateAsync({
             id: update.id,
             currentQuantity: update.currentQuantity,
             notes: "",
           })
-        )
-      );
+        ),
+        pendingReadyMadeGelatoUpdates.length > 0
+          ? readyMadeGelatoMutation.mutateAsync({
+              businessDate: readyMadeGelato.businessDate,
+              entries: pendingReadyMadeGelatoUpdates,
+            })
+          : Promise.resolve({ success: true } as const),
+      ]);
       setInventoryUpdates({});
-      toast.success(t("Inventory updated."));
-      await Promise.all([inventoryItemsQuery.refetch(), utils.dashboard.inventoryAlerts.invalidate()]);
+      toast.success(t("Inventory and ready-made gelato updated."));
+      await Promise.all([
+        inventoryItemsQuery.refetch(),
+        readyMadeGelatoQuery.refetch(),
+        utils.dashboard.inventoryAlerts.invalidate(),
+      ]);
     } catch {
       // Mutation errors are surfaced via the shared onError handler above.
     }
@@ -499,19 +545,74 @@ export default function EmployeePortal() {
                     </div>
                   </div>
                 ))}
+                <div className="rounded-[1.75rem] border border-[#e7ddd1] bg-[#f7f0e7] p-4 shadow-sm">
+                  <div className="border-b border-[#e2d8ca] pb-4">
+                    <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{t("Daily ready-made gelato count")}</p>
+                    <h3 className="mt-2 text-2xl font-medium tracking-[-0.03em] text-[#2d2925]">{t("Ready-Made Gelato")}</h3>
+                    <p className="mt-2 text-sm text-[#6b6258]">{t("Record each flavor's pan weight in kilograms so daily production can be compared against sales later.")}</p>
+                  </div>
+                  {readyMadeGelatoQuery.isLoading ? (
+                    <p className="mt-4 text-sm text-[#6b6258]">{t("Loading ready-made gelato…")}</p>
+                  ) : (
+                    <div className="mt-4 grid gap-4">
+                      <Field label={t("Business Date")}>
+                        <input
+                          className={inputClassName()}
+                          type="date"
+                          value={readyMadeGelato.businessDate}
+                          onChange={event =>
+                            setReadyMadeGelato({
+                              businessDate: event.target.value,
+                              weights: Object.fromEntries(READY_MADE_GELATO_FLAVORS.map(flavor => [flavor, "0"])) as ReadyMadeGelatoWeightsState,
+                            })
+                          }
+                        />
+                      </Field>
+                      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                        {READY_MADE_GELATO_FLAVORS.map(flavor => (
+                          <div key={flavor} className="rounded-[1.5rem] border border-[#e7ddd1] bg-[#fbf7f1] p-5 shadow-sm">
+                            <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{t("Ready-Made Gelato")}</p>
+                            <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">{t(flavor)}</h3>
+                            <div className="mt-4">
+                              <Field label={t("Weight in kg")}>
+                                <input
+                                  className={inputClassName()}
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={readyMadeGelato.weights[flavor] ?? "0"}
+                                  onChange={event =>
+                                    setReadyMadeGelato(current => ({
+                                      ...current,
+                                      weights: {
+                                        ...current.weights,
+                                        [flavor]: event.target.value,
+                                      },
+                                    }))
+                                  }
+                                />
+                              </Field>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <div className="rounded-[1.75rem] border border-[#e7ddd1] bg-white/85 p-5 shadow-sm">
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{t("Inventory save")}</p>
-                      <p className="mt-2 text-sm text-[#6b6258]">{pendingInventoryUpdates.length === 0 ? t("Update any quantities above, then save everything once at the bottom.") : `${pendingInventoryUpdates.length} ${t("inventory counts ready to save")}`}</p>
+                    <div className="text-sm text-[#6b6258]">
+                      {pendingInventoryUpdates.length + pendingReadyMadeGelatoUpdates.length > 0
+                        ? `${pendingInventoryUpdates.length + pendingReadyMadeGelatoUpdates.length} ${t("updates ready to save")}`
+                        : ""}
                     </div>
                     <button
                       type="button"
                       onClick={handleSaveInventoryUpdates}
-                      disabled={inventoryMutation.isPending}
-                      className="w-full rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60 md:w-auto md:min-w-[18rem]"
+                      disabled={inventoryMutation.isPending || readyMadeGelatoMutation.isPending}
+                      className="w-full rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60 md:w-auto md:min-w-[20rem]"
                     >
-                      {inventoryMutation.isPending ? t("Saving inventory...") : t("Save all inventory updates")}
+                      {inventoryMutation.isPending || readyMadeGelatoMutation.isPending ? t("Saving inventory and gelato...") : t("Save inventory and gelato updates")}
                     </button>
                   </div>
                 </div>

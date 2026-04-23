@@ -15,10 +15,12 @@ import {
   getWeekOverWeekSales,
   listChecklistQuestions,
   listInventoryItems,
+  listReadyMadeGelatoWeights,
   listRecipesWithCosts,
   removeChecklistQuestion,
   saveChecklistQuestion,
   saveInventoryItem,
+  saveReadyMadeGelatoWeights,
   updateInventoryCount,
 } from "./db";
 
@@ -105,6 +107,16 @@ const inventoryUpdateSchema = z.object({
   notes: z.string().optional().default(""),
 });
 
+const readyMadeGelatoEntrySchema = z.object({
+  flavor: z.string().min(1),
+  weightKg: z.number().min(0),
+});
+
+const readyMadeGelatoSchema = z.object({
+  businessDate: z.string().optional(),
+  entries: z.array(readyMadeGelatoEntrySchema).min(1),
+});
+
 const checklistTypeSchema = z.enum(["opening", "closing"]);
 
 const checklistQuestionSchema = z.object({
@@ -132,6 +144,7 @@ export const appRouter = router({
   forms: router({
     checklistQuestions: protectedProcedure.input(z.object({ checklistType: checklistTypeSchema })).query(async ({ input }) => listChecklistQuestions(input.checklistType)),
     inventoryItems: protectedProcedure.query(async () => listInventoryItems()),
+    readyMadeGelatoWeights: protectedProcedure.input(z.object({ businessDate: z.string().optional() }).optional()).query(async ({ input }) => listReadyMadeGelatoWeights(input?.businessDate)),
     submitInventoryUpdate: protectedProcedure.input(inventoryUpdateSchema).mutation(async ({ ctx, input }) => {
       const item = await updateInventoryCount({
         id: input.id,
@@ -145,6 +158,23 @@ export const appRouter = router({
       });
 
       return { success: true, item } as const;
+    }),
+    submitReadyMadeGelato: protectedProcedure.input(readyMadeGelatoSchema).mutation(async ({ ctx, input }) => {
+      const records = await saveReadyMadeGelatoWeights({
+        businessDate: input.businessDate,
+        submittedByUserId: ctx.user.id,
+        entries: input.entries.map(entry => ({
+          flavor: entry.flavor,
+          weightKg: entry.weightKg.toFixed(2),
+        })),
+      });
+
+      await notifyOwner({
+        title: `Ready-made gelato updated: ${input.businessDate || new Date().toISOString().slice(0, 10)}`,
+        content: `${ctx.user.name || "A team member"} updated ${records.length} ready-made gelato weights for ${input.businessDate || new Date().toISOString().slice(0, 10)}.`,
+      });
+
+      return { success: true, records } as const;
     }),
     submitOpening: protectedProcedure.input(openingChecklistSchema).mutation(async ({ ctx, input }) => {
       const answersBySection = input.checklistAnswers.reduce<Record<string, Array<string>>>((acc, answer) => {
