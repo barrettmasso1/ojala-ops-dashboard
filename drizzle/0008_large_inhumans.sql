@@ -1,0 +1,2 @@
+ALTER TABLE `readyMadeGelatoWeights` RENAME COLUMN `grossWeightKg` TO `smallGrossWeightKg`;--> statement-breakpoint
+ALTER TABLE `readyMadeGelatoWeights` ADD `largeGrossWeightKg` decimal(10,2) DEFAULT '0.00' NOT NULL;

@@ -238,40 +238,66 @@ describe("operations router", () => {
     );
   });
 
-  it("lets employees save ready-made gelato weights for the business date", async () => {
+  it("lets employees save ready-made gelato opening measurements for the business date", async () => {
     dbMocks.saveReadyMadeGelatoWeights.mockResolvedValue([
-      { id: 1, businessDate: "2026-04-22", flavor: "Vanilla", weightKg: 4.25 },
-      { id: 2, businessDate: "2026-04-22", flavor: "Chocolate", weightKg: 3.5 },
+      {
+        id: 1,
+        businessDate: "2026-04-22",
+        flavor: "Vanilla",
+        shiftType: "opening",
+        smallPanCount: 1,
+        smallGrossWeightKg: 1.9,
+        largePanCount: 1,
+        largeGrossWeightKg: 4.3,
+        netWeightKg: 5.51,
+        totalWeightOunces: 194.5,
+        totalVolumeOunces: 272,
+      },
+      {
+        id: 2,
+        businessDate: "2026-04-22",
+        flavor: "Chocolate",
+        shiftType: "opening",
+        smallPanCount: 1,
+        smallGrossWeightKg: 1.8,
+        largePanCount: 0,
+        largeGrossWeightKg: 0,
+        netWeightKg: 1.51,
+        totalWeightOunces: 53.26,
+        totalVolumeOunces: 104.79,
+      },
     ]);
 
     const caller = appRouter.createCaller(createContext("user"));
     const result = await caller.forms.submitReadyMadeGelato({
       businessDate: "2026-04-22",
+      shiftType: "opening",
       entries: [
-        { flavor: "Vanilla", weightKg: 4.25 },
-        { flavor: "Chocolate", weightKg: 3.5 },
+        { flavor: "Vanilla", smallPanCount: 1, smallGrossWeightKg: 1.9, largePanCount: 1, largeGrossWeightKg: 4.3 },
+        { flavor: "Chocolate", smallPanCount: 1, smallGrossWeightKg: 1.8, largePanCount: 0, largeGrossWeightKg: 0 },
       ],
     });
 
     expect(result).toEqual({
       success: true,
       records: [
-        { id: 1, businessDate: "2026-04-22", flavor: "Vanilla", weightKg: 4.25 },
-        { id: 2, businessDate: "2026-04-22", flavor: "Chocolate", weightKg: 3.5 },
+        expect.objectContaining({ flavor: "Vanilla", shiftType: "opening", totalVolumeOunces: 272 }),
+        expect.objectContaining({ flavor: "Chocolate", shiftType: "opening", totalVolumeOunces: 104.79 }),
       ],
     });
     expect(dbMocks.saveReadyMadeGelatoWeights).toHaveBeenCalledWith({
       businessDate: "2026-04-22",
+      shiftType: "opening",
       submittedByUserId: 1,
       entries: [
-        { flavor: "Vanilla", weightKg: "4.25" },
-        { flavor: "Chocolate", weightKg: "3.50" },
+        { flavor: "Vanilla", smallPanCount: 1, smallGrossWeightKg: "1.90", largePanCount: 1, largeGrossWeightKg: "4.30" },
+        { flavor: "Chocolate", smallPanCount: 1, smallGrossWeightKg: "1.80", largePanCount: 0, largeGrossWeightKg: "0.00" },
       ],
     });
     expect(notificationMocks.notifyOwner).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Ready-made gelato updated: 2026-04-22",
-        content: expect.stringContaining("updated 2 ready-made gelato weights"),
+        title: "Ready-made gelato opening saved: 2026-04-22",
+        content: expect.stringContaining("saved 2 opening gelato measurements"),
       })
     );
   });

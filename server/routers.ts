@@ -107,13 +107,19 @@ const inventoryUpdateSchema = z.object({
   notes: z.string().optional().default(""),
 });
 
+const readyMadeGelatoShiftTypeSchema = z.enum(["opening", "closing"]);
+
 const readyMadeGelatoEntrySchema = z.object({
   flavor: z.string().min(1),
-  weightKg: z.number().min(0),
+  smallPanCount: z.number().int().min(0),
+  smallGrossWeightKg: z.number().min(0),
+  largePanCount: z.number().int().min(0),
+  largeGrossWeightKg: z.number().min(0),
 });
 
 const readyMadeGelatoSchema = z.object({
   businessDate: z.string().optional(),
+  shiftType: readyMadeGelatoShiftTypeSchema,
   entries: z.array(readyMadeGelatoEntrySchema).min(1),
 });
 
@@ -162,16 +168,20 @@ export const appRouter = router({
     submitReadyMadeGelato: protectedProcedure.input(readyMadeGelatoSchema).mutation(async ({ ctx, input }) => {
       const records = await saveReadyMadeGelatoWeights({
         businessDate: input.businessDate,
+        shiftType: input.shiftType,
         submittedByUserId: ctx.user.id,
         entries: input.entries.map(entry => ({
           flavor: entry.flavor,
-          weightKg: entry.weightKg.toFixed(2),
+          smallPanCount: entry.smallPanCount,
+          smallGrossWeightKg: entry.smallGrossWeightKg.toFixed(2),
+          largePanCount: entry.largePanCount,
+          largeGrossWeightKg: entry.largeGrossWeightKg.toFixed(2),
         })),
       });
 
       await notifyOwner({
-        title: `Ready-made gelato updated: ${input.businessDate || new Date().toISOString().slice(0, 10)}`,
-        content: `${ctx.user.name || "A team member"} updated ${records.length} ready-made gelato weights for ${input.businessDate || new Date().toISOString().slice(0, 10)}.`,
+        title: `Ready-made gelato ${input.shiftType} saved: ${input.businessDate || new Date().toISOString().slice(0, 10)}`,
+        content: `${ctx.user.name || "A team member"} saved ${records.length} ${input.shiftType} gelato measurements for ${input.businessDate || new Date().toISOString().slice(0, 10)}.`,
       });
 
       return { success: true, records } as const;

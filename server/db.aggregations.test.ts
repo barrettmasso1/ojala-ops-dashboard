@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildDailySnapshot, buildRecentNotesFeed, buildRecipeCostSummaries, buildWeekOverWeekSeries } from "./db";
 
 describe("db aggregation helpers", () => {
-  it("builds a daily snapshot with sales totals, cup totals, and checklist completion", () => {
+  it("builds a daily snapshot with sales totals, cup totals, gelato reconciliation, and checklist completion", () => {
     const snapshot = buildDailySnapshot(
       [
         {
@@ -55,6 +55,28 @@ describe("db aggregation helpers", () => {
           createdAt: new Date("2026-04-21T23:15:00Z"),
         },
       ],
+      [
+        {
+          id: 1,
+          businessDate: "2026-04-21",
+          flavor: "Vanilla",
+          shiftType: "opening" as const,
+          smallPanCount: 1,
+          smallGrossWeightKg: "1.90",
+          largePanCount: 1,
+          largeGrossWeightKg: "4.30",
+        },
+        {
+          id: 2,
+          businessDate: "2026-04-21",
+          flavor: "Vanilla",
+          shiftType: "closing" as const,
+          smallPanCount: 1,
+          smallGrossWeightKg: "1.61",
+          largePanCount: 1,
+          largeGrossWeightKg: "4.00",
+        },
+      ],
       "2026-04-21"
     );
 
@@ -66,8 +88,67 @@ describe("db aggregation helpers", () => {
       venmo: 55,
     });
     expect(snapshot.cups).toEqual({ "4oz": 15, "8oz": 19, Pint: 6, Liter: 2 });
+    expect(snapshot.soldVolumeOunces).toBe(372);
+    expect(snapshot.gelato.openingVolumeOunces).toBeCloseTo(272, 0);
+    expect(snapshot.gelato.closingVolumeOunces).toBeCloseTo(239.57, 2);
+    expect(snapshot.gelato.actualDistributedVolumeOunces).toBeCloseTo(32.43, 2);
+    expect(snapshot.gelato.varianceVolumeOunces).toBeCloseTo(-339.57, 2);
+    expect(snapshot.gelato.discrepancyStatus).toBe("major");
+    expect(snapshot.gelato.discrepancyLabel).toBe("Major discrepancy");
+    expect(snapshot.gelato.flavors.find(item => item.flavor === "Vanilla")).toMatchObject({
+      usedVolumeOunces: expect.closeTo(32.43, 2),
+    });
     expect(snapshot.checklistCompletion).toEqual({ opening: 1, closing: 1 });
     expect(snapshot.latestReportStaff).toBe("Sofia");
+  });
+
+  it("classifies small gelato reconciliation gaps as sample or minor discrepancies", () => {
+    const snapshot = buildDailySnapshot(
+      [],
+      [],
+      [
+        {
+          businessDate: "2026-04-21",
+          staffName: "Marco",
+          cups4oz: 0,
+          cups8oz: 1,
+          cupsPint: 0,
+          cupsLiter: 0,
+          cashTotal: "0.00",
+          cardTotal: "0.00",
+          zelleTotal: "0.00",
+          venmoTotal: "0.00",
+          createdAt: new Date("2026-04-21T23:15:00Z"),
+        },
+      ],
+      [
+        {
+          businessDate: "2026-04-21",
+          flavor: "Chocolate",
+          shiftType: "opening" as const,
+          smallPanCount: 1,
+          smallGrossWeightKg: "1.90",
+          largePanCount: 0,
+          largeGrossWeightKg: "0.00",
+        },
+        {
+          businessDate: "2026-04-21",
+          flavor: "Chocolate",
+          shiftType: "closing" as const,
+          smallPanCount: 1,
+          smallGrossWeightKg: "1.85",
+          largePanCount: 0,
+          largeGrossWeightKg: "0.00",
+        },
+      ],
+      "2026-04-21"
+    );
+
+    expect(snapshot.soldVolumeOunces).toBe(8);
+    expect(snapshot.gelato.actualDistributedVolumeOunces).toBeCloseTo(3.47, 2);
+    expect(snapshot.gelato.varianceVolumeOunces).toBeCloseTo(-4.53, 2);
+    expect(snapshot.gelato.discrepancyStatus).toBe("minor");
+    expect(snapshot.gelato.discrepancyLabel).toBe("Sample / minor discrepancy");
   });
 
   it("builds week-over-week sales series with previous week and delta values", () => {
@@ -138,9 +219,7 @@ describe("db aggregation helpers", () => {
   it("keeps cost per ounce pending until yield is provided", () => {
     const recipes = buildRecipeCostSummaries(
       [{ id: 1, name: "Chocolate", batchYieldOunces: null, notes: "", processSteps: "" }],
-      [
-        { id: 1, recipeId: 1, ingredientName: "Base", quantity: "1", unitType: "bag", costPerUnit: "350.00", totalCost: "350.00", processSteps: "" },
-      ],
+      [{ id: 1, recipeId: 1, ingredientName: "Base", quantity: "1", unitType: "bag", costPerUnit: "350.00", totalCost: "350.00", processSteps: "" }],
       []
     );
 
@@ -160,9 +239,7 @@ describe("db aggregation helpers", () => {
   it("automatically calculates cost per ounce when yield data is supplied later", () => {
     const recipes = buildRecipeCostSummaries(
       [{ id: 1, name: "Chocolate", batchYieldOunces: "140", notes: "", processSteps: "" }],
-      [
-        { id: 1, recipeId: 1, ingredientName: "Base", quantity: "1", unitType: "bag", costPerUnit: "350.00", totalCost: "350.00", processSteps: "" },
-      ],
+      [{ id: 1, recipeId: 1, ingredientName: "Base", quantity: "1", unitType: "bag", costPerUnit: "350.00", totalCost: "350.00", processSteps: "" }],
       []
     );
 

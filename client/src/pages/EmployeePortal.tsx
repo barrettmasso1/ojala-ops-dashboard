@@ -74,11 +74,23 @@ type EndOfDayForm = {
 };
 
 type InventoryUpdateState = InventoryDraftState;
-type ReadyMadeGelatoWeightsState = Record<string, string>;
+type ReadyMadeGelatoShiftKey = "opening" | "closing";
+
+type ReadyMadeGelatoShiftState = {
+  smallPanCount: string;
+  smallGrossWeightKg: string;
+  largePanCount: string;
+  largeGrossWeightKg: string;
+};
+
+type ReadyMadeGelatoFlavorState = {
+  opening: ReadyMadeGelatoShiftState;
+  closing: ReadyMadeGelatoShiftState;
+};
 
 type ReadyMadeGelatoState = {
   businessDate: string;
-  weights: ReadyMadeGelatoWeightsState;
+  flavors: Record<string, ReadyMadeGelatoFlavorState>;
 };
 
 function todayValue() {
@@ -135,9 +147,24 @@ const initialEndOfDayForm = (): EndOfDayForm => ({
   generalNotes: "",
 });
 
+const initialReadyMadeGelatoShiftState = (): ReadyMadeGelatoShiftState => ({
+  smallPanCount: "0",
+  smallGrossWeightKg: "0",
+  largePanCount: "0",
+  largeGrossWeightKg: "0",
+});
+
 const initialReadyMadeGelatoState = (businessDate = todayValue()): ReadyMadeGelatoState => ({
   businessDate,
-  weights: Object.fromEntries(READY_MADE_GELATO_FLAVORS.map(flavor => [flavor, "0"])) as ReadyMadeGelatoWeightsState,
+  flavors: Object.fromEntries(
+    READY_MADE_GELATO_FLAVORS.map(flavor => [
+      flavor,
+      {
+        opening: initialReadyMadeGelatoShiftState(),
+        closing: initialReadyMadeGelatoShiftState(),
+      },
+    ])
+  ) as Record<string, ReadyMadeGelatoFlavorState>,
 });
 
 const openingStockFields: Array<{ key: keyof OpeningStockCounts; label: string; group: string }> = [
@@ -363,19 +390,52 @@ export default function EmployeePortal() {
     if (!readyMadeGelatoQuery.data) return;
     setReadyMadeGelato(current => ({
       ...current,
-      weights: Object.fromEntries(readyMadeGelatoQuery.data.map(item => [item.flavor, String(item.weightKg ?? 0)])) as ReadyMadeGelatoWeightsState,
+      flavors: Object.fromEntries(
+        readyMadeGelatoQuery.data.map(item => [
+          item.flavor,
+          {
+            opening: {
+              smallPanCount: String(item.opening.smallPanCount ?? 0),
+              smallGrossWeightKg: String(item.opening.smallGrossWeightKg ?? 0),
+              largePanCount: String(item.opening.largePanCount ?? 0),
+              largeGrossWeightKg: String(item.opening.largeGrossWeightKg ?? 0),
+            },
+            closing: {
+              smallPanCount: String(item.closing.smallPanCount ?? 0),
+              smallGrossWeightKg: String(item.closing.smallGrossWeightKg ?? 0),
+              largePanCount: String(item.closing.largePanCount ?? 0),
+              largeGrossWeightKg: String(item.closing.largeGrossWeightKg ?? 0),
+            },
+          },
+        ])
+      ) as Record<string, ReadyMadeGelatoFlavorState>,
     }));
   }, [readyMadeGelatoQuery.data]);
 
   const pendingReadyMadeGelatoUpdates = useMemo(() => {
-    const existingWeights = new Map((readyMadeGelatoQuery.data ?? []).map(item => [item.flavor, Number(item.weightKg ?? 0)]));
-    return READY_MADE_GELATO_FLAVORS
-      .map(flavor => ({
-        flavor,
-        weightKg: Number(readyMadeGelato.weights[flavor] || 0),
-      }))
-      .filter(item => item.weightKg !== (existingWeights.get(item.flavor) ?? 0));
-  }, [readyMadeGelato.weights, readyMadeGelatoQuery.data]);
+    return (["opening", "closing"] as const).flatMap(shiftType => {
+      return READY_MADE_GELATO_FLAVORS.map(flavor => {
+        const currentEntry = readyMadeGelato.flavors[flavor]?.[shiftType] ?? initialReadyMadeGelatoShiftState();
+        const existingEntry = readyMadeGelatoQuery.data?.find(item => item.flavor === flavor)?.[shiftType];
+        const candidate = {
+          shiftType,
+          flavor,
+          smallPanCount: Number(currentEntry.smallPanCount || 0),
+          smallGrossWeightKg: Number(currentEntry.smallGrossWeightKg || 0),
+          largePanCount: Number(currentEntry.largePanCount || 0),
+          largeGrossWeightKg: Number(currentEntry.largeGrossWeightKg || 0),
+        };
+
+        const unchanged =
+          candidate.smallPanCount === Number(existingEntry?.smallPanCount ?? 0) &&
+          candidate.smallGrossWeightKg === Number(existingEntry?.smallGrossWeightKg ?? 0) &&
+          candidate.largePanCount === Number(existingEntry?.largePanCount ?? 0) &&
+          candidate.largeGrossWeightKg === Number(existingEntry?.largeGrossWeightKg ?? 0);
+
+        return unchanged ? null : candidate;
+      }).filter(Boolean);
+    });
+  }, [readyMadeGelato.flavors, readyMadeGelatoQuery.data]);
 
   const openingNapkinsQuestion = useMemo(() => getOpeningNapkinsQuestion(openingQuestions), [openingQuestions]);
 
@@ -412,13 +472,26 @@ export default function EmployeePortal() {
             notes: "",
           })
         ),
-        pendingReadyMadeGelatoUpdates.length > 0
-          ? readyMadeGelatoMutation.mutateAsync({
-              businessDate: readyMadeGelato.businessDate,
-              entries: pendingReadyMadeGelatoUpdates,
-            })
-          : Promise.resolve({ success: true } as const),
-      ]);
+        ...(["opening", "closing"] as const).map(shiftType => {
+          const entries = pendingReadyMadeGelatoUpdates
+            .filter(item => item?.shiftType === shiftType)
+            .map(item => ({
+              flavor: item!.flavor,
+              smallPanCount: item!.smallPanCount,
+              smallGrossWeightKg: item!.smallGrossWeightKg,
+              largePanCount: item!.largePanCount,
+              largeGrossWeightKg: item!.largeGrossWeightKg,
+            }));
+
+          return entries.length > 0
+            ? readyMadeGelatoMutation.mutateAsync({
+                businessDate: readyMadeGelato.businessDate,
+                shiftType,
+                entries,
+              })
+            : Promise.resolve({ success: true } as const);
+        }),
+     ]);
       setInventoryUpdates({});
       toast.success(t("Inventory and ready-made gelato updated."));
       await Promise.all([
@@ -549,53 +622,148 @@ export default function EmployeePortal() {
                   <div className="border-b border-[#e2d8ca] pb-4">
                     <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{t("Daily ready-made gelato count")}</p>
                     <h3 className="mt-2 text-2xl font-medium tracking-[-0.03em] text-[#2d2925]">{t("Ready-Made Gelato")}</h3>
-                    <p className="mt-2 text-sm text-[#6b6258]">{t("Record each flavor's pan weight in kilograms so daily production can be compared against sales later.")}</p>
+                    <p className="mt-2 text-sm text-[#6b6258]">Use opening and closing pan counts plus gross scale weights so Ojalá can convert measured gelato into equivalent volume ounces and compare that against the sold cup volume from the nightly report.</p>
                   </div>
                   {readyMadeGelatoQuery.isLoading ? (
                     <p className="mt-4 text-sm text-[#6b6258]">{t("Loading ready-made gelato…")}</p>
                   ) : (
-                    <div className="mt-4 grid gap-4">
+                    <div className="mt-4 grid gap-6">
                       <Field label={t("Business Date")}>
                         <input
                           className={inputClassName()}
                           type="date"
                           value={readyMadeGelato.businessDate}
-                          onChange={event =>
-                            setReadyMadeGelato({
-                              businessDate: event.target.value,
-                              weights: Object.fromEntries(READY_MADE_GELATO_FLAVORS.map(flavor => [flavor, "0"])) as ReadyMadeGelatoWeightsState,
-                            })
-                          }
+                          onChange={event => setReadyMadeGelato(current => ({ ...current, businessDate: event.target.value }))}
                         />
                       </Field>
-                      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-                        {READY_MADE_GELATO_FLAVORS.map(flavor => (
-                          <div key={flavor} className="rounded-[1.5rem] border border-[#e7ddd1] bg-[#fbf7f1] p-5 shadow-sm">
-                            <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{t("Ready-Made Gelato")}</p>
-                            <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">{t(flavor)}</h3>
-                            <div className="mt-4">
-                              <Field label={t("Weight in kg")}>
-                                <input
-                                  className={inputClassName()}
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  value={readyMadeGelato.weights[flavor] ?? "0"}
-                                  onChange={event =>
-                                    setReadyMadeGelato(current => ({
-                                      ...current,
-                                      weights: {
-                                        ...current.weights,
-                                        [flavor]: event.target.value,
-                                      },
-                                    }))
-                                  }
-                                />
-                              </Field>
-                            </div>
+                      {([
+                        {
+                          shiftType: "opening" as const,
+                          title: "Opening weigh-in",
+                          description: "Before opening, count every small and large pan for each flavor and enter the combined gross scale weight for each pan size.",
+                        },
+                        {
+                          shiftType: "closing" as const,
+                          title: "Closing weigh-in",
+                          description: "At closing, repeat the same count and gross-weight check so the system can calculate total distributed volume ounces for the day.",
+                        },
+                      ] as const).map(section => (
+                        <div key={section.shiftType} className="rounded-[1.5rem] border border-[#e2d8ca] bg-[#fbf7f1] p-5 shadow-sm">
+                          <div className="border-b border-[#e6dccf] pb-4">
+                            <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{section.title}</p>
+                            <p className="mt-2 text-sm text-[#6b6258]">{section.description}</p>
                           </div>
-                        ))}
-                      </div>
+                          <div className="mt-4 grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                            {READY_MADE_GELATO_FLAVORS.map(flavor => {
+                              const entry = readyMadeGelato.flavors[flavor]?.[section.shiftType] ?? initialReadyMadeGelatoShiftState();
+                              return (
+                                <div key={`${section.shiftType}-${flavor}`} className="rounded-[1.5rem] border border-[#e7ddd1] bg-white p-5 shadow-sm">
+                                  <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{section.title}</p>
+                                  <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">{t(flavor)}</h3>
+                                  <div className="mt-4 grid gap-4">
+                                    <Field label="Small pan count">
+                                      <input
+                                        className={inputClassName()}
+                                        type="number"
+                                        min="0"
+                                        step="1"
+                                        value={entry.smallPanCount}
+                                        onChange={event =>
+                                          setReadyMadeGelato(current => ({
+                                            ...current,
+                                            flavors: {
+                                              ...current.flavors,
+                                              [flavor]: {
+                                                ...current.flavors[flavor],
+                                                [section.shiftType]: {
+                                                  ...current.flavors[flavor][section.shiftType],
+                                                  smallPanCount: event.target.value,
+                                                },
+                                              },
+                                            },
+                                          }))
+                                        }
+                                      />
+                                    </Field>
+                                    <Field label="Small pan gross weight (kg)">
+                                      <input
+                                        className={inputClassName()}
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={entry.smallGrossWeightKg}
+                                        onChange={event =>
+                                          setReadyMadeGelato(current => ({
+                                            ...current,
+                                            flavors: {
+                                              ...current.flavors,
+                                              [flavor]: {
+                                                ...current.flavors[flavor],
+                                                [section.shiftType]: {
+                                                  ...current.flavors[flavor][section.shiftType],
+                                                  smallGrossWeightKg: event.target.value,
+                                                },
+                                              },
+                                            },
+                                          }))
+                                        }
+                                      />
+                                    </Field>
+                                    <Field label="Large pan count">
+                                      <input
+                                        className={inputClassName()}
+                                        type="number"
+                                        min="0"
+                                        step="1"
+                                        value={entry.largePanCount}
+                                        onChange={event =>
+                                          setReadyMadeGelato(current => ({
+                                            ...current,
+                                            flavors: {
+                                              ...current.flavors,
+                                              [flavor]: {
+                                                ...current.flavors[flavor],
+                                                [section.shiftType]: {
+                                                  ...current.flavors[flavor][section.shiftType],
+                                                  largePanCount: event.target.value,
+                                                },
+                                              },
+                                            },
+                                          }))
+                                        }
+                                      />
+                                    </Field>
+                                    <Field label="Large pan gross weight (kg)">
+                                      <input
+                                        className={inputClassName()}
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={entry.largeGrossWeightKg}
+                                        onChange={event =>
+                                          setReadyMadeGelato(current => ({
+                                            ...current,
+                                            flavors: {
+                                              ...current.flavors,
+                                              [flavor]: {
+                                                ...current.flavors[flavor],
+                                                [section.shiftType]: {
+                                                  ...current.flavors[flavor][section.shiftType],
+                                                  largeGrossWeightKg: event.target.value,
+                                                },
+                                              },
+                                            },
+                                          }))
+                                        }
+                                      />
+                                    </Field>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>

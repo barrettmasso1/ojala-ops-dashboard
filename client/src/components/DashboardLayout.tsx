@@ -21,21 +21,26 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { BarChart3, ClipboardList, LogOut, PanelLeft, ShieldCheck } from "lucide-react";
+import { BarChart3, BookOpen, ClipboardList, LogOut, PanelLeft, ShieldCheck } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { Button } from "./ui/button";
 
-const menuItems: Array<{
+export const menuItems: Array<{
   icon: typeof BarChart3;
   label: string;
   path: string;
   roles: Array<"admin" | "user">;
 }> = [
   { icon: BarChart3, label: "Dashboard", path: "/dashboard", roles: ["admin"] },
+  { icon: BookOpen, label: "Cookbook", path: "/cookbook", roles: ["admin"] },
   { icon: ClipboardList, label: "Employee Portal", path: "/portal", roles: ["admin", "user"] },
 ];
+
+export function getVisibleMenuItemsForRole(role: "admin" | "user") {
+  return menuItems.filter(item => item.roles.includes(role));
+}
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 292;
@@ -105,7 +110,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const visibleMenuItems = menuItems.filter(item => item.roles.includes((user?.role ?? "user") as "admin" | "user"));
+  const visibleMenuItems = getVisibleMenuItemsForRole((user?.role ?? "user") as "admin" | "user");
   const activeMenuItem = visibleMenuItems.find(item => location.startsWith(item.path));
   const isMobile = useIsMobile();
 

@@ -50,6 +50,20 @@
       "when": 1776906110243,
       "tag": "0006_round_luminals",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1776971060248,
+      "tag": "0007_chief_nocturne",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1776972403280,
+      "tag": "0008_large_inhumans",
+      "breakpoints": true
     }
   ]
 }

@@ -35,6 +35,127 @@ function normalizeDate(date?: string) {
   return new Date().toISOString().slice(0, 10);
 }
 
+const KG_TO_WEIGHT_OUNCES = 35.27396195;
+const SMALL_PAN_EMPTY_KG = 0.286;
+const LARGE_PAN_EMPTY_KG = 0.4;
+const SMALL_PAN_FULL_WEIGHT_OUNCES = (1.9 - SMALL_PAN_EMPTY_KG) * KG_TO_WEIGHT_OUNCES;
+const LARGE_PAN_FULL_WEIGHT_OUNCES = (4.3 - LARGE_PAN_EMPTY_KG) * KG_TO_WEIGHT_OUNCES;
+const SMALL_PAN_FULL_VOLUME_OUNCES = 112;
+const LARGE_PAN_FULL_VOLUME_OUNCES = 160;
+const MINOR_GELATO_DISCREPANCY_VOLUME_OUNCES = 8;
+
+type ReadyMadeShiftType = "opening" | "closing";
+
+type ReadyMadeMeasurementRow = {
+  id?: number;
+  businessDate?: string;
+  flavor?: string;
+  shiftType?: ReadyMadeShiftType;
+  smallPanCount?: number | string | null;
+  smallGrossWeightKg?: number | string | null;
+  largePanCount?: number | string | null;
+  largeGrossWeightKg?: number | string | null;
+  weightKg?: number | string | null;
+  submittedByUserId?: number | null;
+  createdAt?: Date | null;
+  updatedAt?: Date | null;
+};
+
+function roundTo(value: number, decimals = 2) {
+  return Number(value.toFixed(decimals));
+}
+
+function convertKgToWeightOunces(weightKg: number) {
+  return weightKg * KG_TO_WEIGHT_OUNCES;
+}
+
+function convertSalesToVolumeOunces(cups: { cups4oz: number; cups8oz: number; cupsPint: number; cupsLiter: number }) {
+  return cups.cups4oz * 4 + cups.cups8oz * 8 + cups.cupsPint * 16 + cups.cupsLiter * 32;
+}
+
+function calculateReadyMadeMeasurement(row?: ReadyMadeMeasurementRow, defaultShiftType: ReadyMadeShiftType = "opening") {
+  const smallPanCount = Math.max(0, Math.trunc(toNumber(row?.smallPanCount)));
+  const largePanCount = Math.max(0, Math.trunc(toNumber(row?.largePanCount)));
+  const smallGrossWeightKg = Math.max(0, toNumber(row?.smallGrossWeightKg));
+  const largeGrossWeightKg = Math.max(0, toNumber(row?.largeGrossWeightKg));
+  const smallNetWeightKg = Math.max(0, smallGrossWeightKg - smallPanCount * SMALL_PAN_EMPTY_KG);
+  const largeNetWeightKg = Math.max(0, largeGrossWeightKg - largePanCount * LARGE_PAN_EMPTY_KG);
+  const totalNetWeightKg = roundTo(smallNetWeightKg + largeNetWeightKg);
+  const smallWeightOunces = convertKgToWeightOunces(smallNetWeightKg);
+  const largeWeightOunces = convertKgToWeightOunces(largeNetWeightKg);
+  const totalWeightOunces = roundTo(smallWeightOunces + largeWeightOunces);
+  const totalVolumeOunces = roundTo(
+    smallWeightOunces * (SMALL_PAN_FULL_VOLUME_OUNCES / SMALL_PAN_FULL_WEIGHT_OUNCES) +
+      largeWeightOunces * (LARGE_PAN_FULL_VOLUME_OUNCES / LARGE_PAN_FULL_WEIGHT_OUNCES)
+  );
+
+  return {
+    id: row?.id ?? null,
+    businessDate: row?.businessDate ?? normalizeDate(),
+    flavor: row?.flavor ?? "",
+    shiftType: row?.shiftType ?? defaultShiftType,
+    smallPanCount,
+    smallGrossWeightKg: roundTo(smallGrossWeightKg),
+    largePanCount,
+    largeGrossWeightKg: roundTo(largeGrossWeightKg),
+    smallNetWeightKg: roundTo(smallNetWeightKg),
+    largeNetWeightKg: roundTo(largeNetWeightKg),
+    netWeightKg: totalNetWeightKg,
+    totalWeightOunces,
+    totalVolumeOunces,
+    submittedByUserId: row?.submittedByUserId ?? null,
+    createdAt: row?.createdAt ?? null,
+    updatedAt: row?.updatedAt ?? null,
+  };
+}
+
+function classifyGelatoDiscrepancy(varianceVolumeOunces: number) {
+  const absoluteVariance = Math.abs(varianceVolumeOunces);
+  if (absoluteVariance < 0.5) {
+    return { status: "aligned" as const, label: "Aligned" };
+  }
+
+  if (absoluteVariance <= MINOR_GELATO_DISCREPANCY_VOLUME_OUNCES) {
+    return { status: "minor" as const, label: "Sample / minor discrepancy" };
+  }
+
+  return { status: "major" as const, label: "Major discrepancy" };
+}
+
+function buildReadyMadeGelatoReconciliation(rows: ReadyMadeMeasurementRow[], soldVolumeOunces: number) {
+  const rowByFlavorShift = new Map(rows.map(row => [`${row.flavor}:${row.shiftType}`, row]));
+  const flavors = READY_MADE_GELATO_FLAVORS.map(flavor => {
+    const opening = calculateReadyMadeMeasurement(rowByFlavorShift.get(`${flavor}:opening`), "opening");
+    const closing = calculateReadyMadeMeasurement(rowByFlavorShift.get(`${flavor}:closing`), "closing");
+    const usedVolumeOunces = roundTo(opening.totalVolumeOunces - closing.totalVolumeOunces);
+
+    return {
+      flavor,
+      opening,
+      closing,
+      usedVolumeOunces,
+    };
+  });
+
+  const openingVolumeOunces = roundTo(flavors.reduce((sum, flavor) => sum + flavor.opening.totalVolumeOunces, 0));
+  const closingVolumeOunces = roundTo(flavors.reduce((sum, flavor) => sum + flavor.closing.totalVolumeOunces, 0));
+  const actualDistributedVolumeOunces = roundTo(openingVolumeOunces - closingVolumeOunces);
+  const varianceVolumeOunces = roundTo(actualDistributedVolumeOunces - soldVolumeOunces);
+  const discrepancy = classifyGelatoDiscrepancy(varianceVolumeOunces);
+
+  return {
+    flavors,
+    openingVolumeOunces,
+    closingVolumeOunces,
+    actualDistributedVolumeOunces,
+    soldVolumeOunces: roundTo(soldVolumeOunces),
+    varianceVolumeOunces,
+    discrepancyStatus: discrepancy.status,
+    discrepancyLabel: discrepancy.label,
+    minorDiscrepancyThresholdOunces: MINOR_GELATO_DISCREPANCY_VOLUME_OUNCES,
+  };
+}
+
 function getWeekStart(dateString: string) {
   const date = new Date(`${dateString}T00:00:00Z`);
   const day = date.getUTCDay();
@@ -272,6 +393,7 @@ export function buildDailySnapshot(
     venmoTotal: unknown;
     createdAt?: Date;
   }>,
+  gelatoRows: ReadyMadeMeasurementRow[],
   businessDate: string
 ) {
   const sales = reports.reduce(
@@ -300,6 +422,8 @@ export function buildDailySnapshot(
     }
   );
 
+  const soldVolumeOunces = convertSalesToVolumeOunces(sales);
+  const gelato = buildReadyMadeGelatoReconciliation(gelatoRows, soldVolumeOunces);
   const openingCompletionRate = openingEntries.length
     ? openingEntries.reduce((sum, entry) => sum + calculateOpeningCompletion(entry), 0) / openingEntries.length
     : 0;
@@ -315,12 +439,14 @@ export function buildDailySnapshot(
     openingSubmissionCount: openingEntries.length,
     closingSubmissionCount: closingEntries.length,
     sales,
+    soldVolumeOunces,
     cups: {
       "4oz": sales.cups4oz,
       "8oz": sales.cups8oz,
       Pint: sales.cupsPint,
       Liter: sales.cupsLiter,
     },
+    gelato,
     checklistCompletion: {
       opening: openingCompletionRate,
       closing: closingCompletionRate,
@@ -705,70 +831,83 @@ export async function listReadyMadeGelatoWeights(businessDate?: string) {
     .select()
     .from(readyMadeGelatoWeights)
     .where(eq(readyMadeGelatoWeights.businessDate, normalizedDate))
-    .orderBy(readyMadeGelatoWeights.flavor);
+    .orderBy(readyMadeGelatoWeights.flavor, readyMadeGelatoWeights.shiftType);
 
-  const rowByFlavor = new Map(rows.map(row => [row.flavor, row]));
+  const rowByFlavorShift = new Map(rows.map(row => [`${row.flavor}:${row.shiftType}`, row]));
 
-  return READY_MADE_GELATO_FLAVORS.map(flavor => {
-    const row = rowByFlavor.get(flavor);
-    return {
-      id: row?.id ?? null,
-      businessDate: normalizedDate,
-      flavor,
-      weightKg: toNumber(row?.weightKg),
-      submittedByUserId: row?.submittedByUserId ?? null,
-      createdAt: row?.createdAt ?? null,
-      updatedAt: row?.updatedAt ?? null,
-    };
-  });
+  return READY_MADE_GELATO_FLAVORS.map(flavor => ({
+    businessDate: normalizedDate,
+    flavor,
+    opening: calculateReadyMadeMeasurement(rowByFlavorShift.get(`${flavor}:opening`), "opening"),
+    closing: calculateReadyMadeMeasurement(rowByFlavorShift.get(`${flavor}:closing`), "closing"),
+  }));
 }
 
 export async function saveReadyMadeGelatoWeights(input: {
   businessDate?: string;
+  shiftType: ReadyMadeShiftType;
   submittedByUserId: number;
-  entries: Array<{ flavor: string; weightKg: string }>;
+  entries: Array<{
+    flavor: string;
+    smallPanCount: number;
+    smallGrossWeightKg: string;
+    largePanCount: number;
+    largeGrossWeightKg: string;
+  }>;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const normalizedDate = normalizeDate(input.businessDate);
-  const savedRows: Array<{ id: number; businessDate: string; flavor: string; weightKg: number }> = [];
+  const savedRows: Array<ReturnType<typeof calculateReadyMadeMeasurement>> = [];
 
   for (const flavor of READY_MADE_GELATO_FLAVORS) {
     const entry = input.entries.find(item => item.flavor === flavor);
     if (!entry) continue;
 
+    const calculated = calculateReadyMadeMeasurement({
+      businessDate: normalizedDate,
+      flavor,
+      shiftType: input.shiftType,
+      smallPanCount: entry.smallPanCount,
+      smallGrossWeightKg: entry.smallGrossWeightKg,
+      largePanCount: entry.largePanCount,
+      largeGrossWeightKg: entry.largeGrossWeightKg,
+      submittedByUserId: input.submittedByUserId,
+    }, input.shiftType);
+
     const values: InsertReadyMadeGelatoWeight = {
       businessDate: normalizedDate,
       flavor,
-      weightKg: entry.weightKg,
+      shiftType: input.shiftType,
+      smallPanCount: calculated.smallPanCount,
+      smallGrossWeightKg: calculated.smallGrossWeightKg.toFixed(2),
+      largePanCount: calculated.largePanCount,
+      largeGrossWeightKg: calculated.largeGrossWeightKg.toFixed(2),
+      weightKg: calculated.netWeightKg.toFixed(2),
       submittedByUserId: input.submittedByUserId,
     };
 
     const existing = await db
       .select()
       .from(readyMadeGelatoWeights)
-      .where(and(eq(readyMadeGelatoWeights.businessDate, normalizedDate), eq(readyMadeGelatoWeights.flavor, flavor)))
+      .where(
+        and(
+          eq(readyMadeGelatoWeights.businessDate, normalizedDate),
+          eq(readyMadeGelatoWeights.flavor, flavor),
+          eq(readyMadeGelatoWeights.shiftType, input.shiftType)
+        )
+      )
       .limit(1);
 
     if (existing[0]) {
       await db.update(readyMadeGelatoWeights).set(values).where(eq(readyMadeGelatoWeights.id, existing[0].id));
-      savedRows.push({
-        id: existing[0].id,
-        businessDate: normalizedDate,
-        flavor,
-        weightKg: toNumber(entry.weightKg),
-      });
+      savedRows.push({ ...calculated, id: existing[0].id });
       continue;
     }
 
     const result = await db.insert(readyMadeGelatoWeights).values(values);
-    savedRows.push({
-      id: Number(result[0]?.insertId ?? 0),
-      businessDate: normalizedDate,
-      flavor,
-      weightKg: toNumber(entry.weightKg),
-    });
+    savedRows.push({ ...calculated, id: Number(result[0]?.insertId ?? 0) });
   }
 
   return savedRows;
@@ -854,13 +993,14 @@ export async function getDailyOperationsSnapshot(businessDate?: string) {
   if (!db) throw new Error("Database not available");
 
   const normalizedDate = normalizeDate(businessDate);
-  const [openingEntries, closingEntries, reports] = await Promise.all([
+  const [openingEntries, closingEntries, reports, gelatoRows] = await Promise.all([
     db.select().from(openingChecklists).where(eq(openingChecklists.businessDate, normalizedDate)).orderBy(desc(openingChecklists.createdAt)),
     db.select().from(closingChecklists).where(eq(closingChecklists.businessDate, normalizedDate)).orderBy(desc(closingChecklists.createdAt)),
     db.select().from(endOfDayReports).where(eq(endOfDayReports.businessDate, normalizedDate)).orderBy(desc(endOfDayReports.createdAt)),
+    db.select().from(readyMadeGelatoWeights).where(eq(readyMadeGelatoWeights.businessDate, normalizedDate)).orderBy(readyMadeGelatoWeights.flavor, readyMadeGelatoWeights.shiftType),
   ]);
 
-  return buildDailySnapshot(openingEntries, closingEntries, reports, normalizedDate);
+  return buildDailySnapshot(openingEntries, closingEntries, reports, gelatoRows, normalizedDate);
 }
 
 export async function getSalesTrend(days = 28) {

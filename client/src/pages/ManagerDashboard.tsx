@@ -12,7 +12,7 @@ import {
   Trash2,
   TrendingUp,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -101,7 +101,7 @@ function inventoryFieldClassName() {
 
 export default function ManagerDashboard() {
   const { user, loading } = useAuth({ redirectOnUnauthenticated: true });
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const utils = trpc.useUtils();
   const [selectedDate, setSelectedDate] = useState(todayValue());
   const [inventoryForm, setInventoryForm] = useState({
@@ -129,7 +129,9 @@ export default function ManagerDashboard() {
     detailTrigger: "No" as "Yes" | "No" | "Never",
     displayOrder: "1",
   });
+  const recipeBookRef = useRef<HTMLElement | null>(null);
   const isAdmin = user?.role === "admin";
+  const isCookbookRoute = location.startsWith("/cookbook");
 
   useEffect(() => {
     if (!loading && user && !isAdmin) {
@@ -149,6 +151,16 @@ export default function ManagerDashboard() {
   const openingChecklistQuery = trpc.dashboard.checklistQuestions.useQuery({ checklistType: "opening" }, { enabled: isAdmin, refetchOnWindowFocus: false });
   const closingChecklistQuery = trpc.dashboard.checklistQuestions.useQuery({ checklistType: "closing" }, { enabled: isAdmin, refetchOnWindowFocus: false });
   const notesQuery = trpc.dashboard.recentNotes.useQuery({ limit: 10 }, { enabled: isAdmin, refetchOnWindowFocus: false });
+
+  useEffect(() => {
+    if (!isCookbookRoute) return;
+
+    const timeout = window.setTimeout(() => {
+      recipeBookRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 120);
+
+    return () => window.clearTimeout(timeout);
+  }, [isCookbookRoute, recipesQuery.data]);
 
   const saveInventoryMutation = trpc.dashboard.saveInventoryItem.useMutation({
     onSuccess: async () => {
@@ -280,7 +292,7 @@ export default function ManagerDashboard() {
                     <StatePanel title="Unable to load the selected-day snapshot" description="The daily report data could not be loaded right now. Try another date or refresh shortly." tone="error" />
                   </div>
                 ) : (
-                  <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                  <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                     <div className="rounded-2xl bg-white/80 p-4 shadow-sm">
                       <p className="text-sm text-[#7c847d]">Total sales</p>
                       <p className="mt-2 font-serif text-3xl text-[#1f2b27]">{formatCurrency(daily?.sales.total ?? 0)}</p>
@@ -290,12 +302,21 @@ export default function ManagerDashboard() {
                       <p className="mt-2 font-serif text-3xl text-[#1f2b27]">{totalCups}</p>
                     </div>
                     <div className="rounded-2xl bg-white/80 p-4 shadow-sm">
+                      <p className="text-sm text-[#7c847d]">Sold volume ounces</p>
+                      <p className="mt-2 font-serif text-3xl text-[#1f2b27]">{daily?.soldVolumeOunces?.toFixed?.(2) ?? "0.00"}</p>
+                    </div>
+                    <div className="rounded-2xl bg-white/80 p-4 shadow-sm">
                       <p className="text-sm text-[#7c847d]">Opening completion</p>
                       <p className="mt-2 font-serif text-3xl text-[#1f2b27]">{formatPercent(daily?.checklistCompletion.opening ?? 0)}</p>
                     </div>
                     <div className="rounded-2xl bg-white/80 p-4 shadow-sm">
                       <p className="text-sm text-[#7c847d]">Closing completion</p>
                       <p className="mt-2 font-serif text-3xl text-[#1f2b27]">{formatPercent(daily?.checklistCompletion.closing ?? 0)}</p>
+                    </div>
+                    <div className="rounded-2xl bg-white/80 p-4 shadow-sm">
+                      <p className="text-sm text-[#7c847d]">Gelato discrepancy</p>
+                      <p className="mt-2 font-serif text-3xl text-[#1f2b27]">{daily?.gelato?.varianceVolumeOunces?.toFixed?.(2) ?? "0.00"}</p>
+                      <p className="mt-2 text-xs uppercase tracking-[0.18em] text-[#7b847e]">{daily?.gelato?.discrepancyLabel ?? "Waiting for measurements"}</p>
                     </div>
                   </div>
                 )}
@@ -370,6 +391,48 @@ export default function ManagerDashboard() {
                           <td className="px-4 py-3">Checklist completion</td>
                           <td className="px-4 py-3">Opening {formatPercent(daily.checklistCompletion.opening)} / Closing {formatPercent(daily.checklistCompletion.closing)}</td>
                         </tr>
+                        <tr>
+                          <td className="px-4 py-3">Opening gelato volume ounces</td>
+                          <td className="px-4 py-3">{daily.gelato.openingVolumeOunces.toFixed(2)}</td>
+                        </tr>
+                        <tr>
+                          <td className="px-4 py-3">Closing gelato volume ounces</td>
+                          <td className="px-4 py-3">{daily.gelato.closingVolumeOunces.toFixed(2)}</td>
+                        </tr>
+                        <tr>
+                          <td className="px-4 py-3">Measured distributed volume ounces</td>
+                          <td className="px-4 py-3">{daily.gelato.actualDistributedVolumeOunces.toFixed(2)}</td>
+                        </tr>
+                        <tr>
+                          <td className="px-4 py-3">Sold volume ounces</td>
+                          <td className="px-4 py-3">{daily.gelato.soldVolumeOunces.toFixed(2)}</td>
+                        </tr>
+                        <tr>
+                          <td className="px-4 py-3">Discrepancy review</td>
+                          <td className="px-4 py-3">{daily.gelato.discrepancyLabel} (threshold {daily.gelato.minorDiscrepancyThresholdOunces.toFixed(2)} oz)</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="mt-6 overflow-hidden rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6]">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-[#f4ede2] text-[#60706b]">
+                        <tr>
+                          <th className="px-4 py-3 font-medium">Flavor</th>
+                          <th className="px-4 py-3 font-medium">Opening vol oz</th>
+                          <th className="px-4 py-3 font-medium">Closing vol oz</th>
+                          <th className="px-4 py-3 font-medium">Measured distributed vol oz</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
+                        {daily.gelato.flavors.map(item => (
+                          <tr key={item.flavor}>
+                            <td className="px-4 py-3">{item.flavor}</td>
+                            <td className="px-4 py-3">{item.opening.totalVolumeOunces.toFixed(2)}</td>
+                            <td className="px-4 py-3">{item.closing.totalVolumeOunces.toFixed(2)}</td>
+                            <td className="px-4 py-3">{item.usedVolumeOunces.toFixed(2)}</td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
@@ -571,7 +634,8 @@ export default function ManagerDashboard() {
           </SurfaceCard>
 
           <SurfaceCard>
-            <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Recipe book</p>
+            <section id="recipe-book-section" ref={recipeBookRef}>
+              <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Recipe book</p>
             <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Flavor formulas, ingredient costs, and yield placeholders</h2>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-[#6b6258]">This cookbook organizes every flavor from the provided workbook with its ingredients, quantities, unit of measurement, current cost information, and placeholders for yield and cost per ounce until those final numbers are available.</p>
             <div className="mt-6 grid gap-4 sm:grid-cols-3">
@@ -687,6 +751,7 @@ export default function ManagerDashboard() {
                 ))
               )}
             </div>
+            </section>
           </SurfaceCard>
         </div>
 

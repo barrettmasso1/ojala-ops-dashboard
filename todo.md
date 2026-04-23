@@ -86,3 +86,15 @@
 - [x] Audit and fix recipe ingredient cost mapping so already-priced ingredients display the correct cost values in the recipe book
 - [x] Add explicit regression coverage for missing-yield placeholders and automatic cost-per-ounce calculation when yield data is available
 - [x] Confirm and document that future yield and ingredient-cost updates will flow automatically into recipe cost-per-ounce calculations
+- [x] Add a top-level cookbook tab so managers can reach the recipe book directly from the main navigation
+- [x] Add gelato pan start-and-end weight tracking with pan-size awareness so staff can record beginning and ending inventory by flavor
+- [x] Define a staff weighing protocol and variance workflow that compares expected sold ounces against actual gelato weight change
+- [x] Add manager visibility for gelato variance so discrepancies between serving sales and measured pan depletion can be reviewed
+- [ ] Distinguish small display pans from large reserve pans in the gelato workflow so refill transfers do not appear as sales depletion
+- [ ] Add refill-transfer logging from large reserve pans into small display pans so manager variance calculations separate true sales from internal pan movements
+- [x] Simplify the gelato variance workflow to compare opening and closing total flavor weights against recorded sales with the lightest practical staff burden
+- [x] Implement opening and closing flavor-level gelato weight capture so daily measured depletion can be reconciled against recorded sales
+- [x] Add in-platform opening and closing instruction points so employees can follow the gelato weighing workflow consistently
+- [x] Convert measured gelato weight into equivalent serving volume ounces so opening inventory, ending inventory, and sold cup volumes reconcile in the same unit system
+- [x] Use separate small-pan and large-pan calibration rules when converting measured gelato weight to equivalent serving volume ounces
+- [x] Classify nightly gelato reconciliation differences as sample/minor discrepancy or major discrepancy in the manager dashboard
