@@ -15,7 +15,7 @@ export default function StaffLogin() {
     onSuccess: async () => {
       await refresh();
       toast.success("Staff access granted.");
-      setLocation("/portal");
+      setLocation("/portal/opening");
     },
     onError: () => {
       toast.error("The staff password was not correct.");
@@ -24,7 +24,7 @@ export default function StaffLogin() {
 
   useEffect(() => {
     if (loading || !user) return;
-    setLocation(user.role === "admin" ? "/dashboard" : "/portal");
+    setLocation(user.role === "admin" ? "/dashboard" : "/portal/opening");
   }, [loading, setLocation, user]);
 
   return (
@@ -34,10 +34,10 @@ export default function StaffLogin() {
           <section className="border-b border-[#e8ddd0] px-6 py-10 md:px-10 lg:border-b-0 lg:border-r lg:py-14">
             <p className="text-[11px] uppercase tracking-[0.34em] text-[#7d756b]">OJALÁ GELATO</p>
             <h1 className="mt-5 text-4xl font-light tracking-[-0.06em] text-[#2b2622] md:text-5xl">
-              Staff portal access for opening, closing, inventory, and nightly reporting.
+Staff portal access for the opening and closing forms.
             </h1>
             <p className="mt-6 max-w-2xl text-base leading-8 text-[#625b53] md:text-lg">
-              Employees can sign in here with the shared shop password on iPad or phone, complete same-day forms quickly, and keep the manager dashboard separate.
+Employees can sign in here with the shared shop password on iPad or phone, move directly into the opening form, and keep the manager dashboard separate.
             </p>
             <div className="mt-8 grid gap-4">
               <article className="rounded-[1.6rem] border border-[#e7ddd1] bg-[#faf6ef] p-5 shadow-sm">
@@ -82,7 +82,7 @@ export default function StaffLogin() {
               <p className="text-[11px] uppercase tracking-[0.34em] text-[#7d756b]">Employee entry</p>
               <h2 className="mt-4 text-3xl font-light tracking-[-0.05em] text-[#2d2925]">Enter the shared staff password</h2>
               <p className="mt-4 text-sm leading-7 text-[#655d55]">
-                After sign-in, the portal opens directly to the employee workflow with the current business date already prepared.
+After sign-in, the portal opens directly to the opening form with the current business date already prepared.
               </p>
 
               <form
@@ -108,7 +108,7 @@ export default function StaffLogin() {
                   disabled={staffLoginMutation.isPending || password.trim().length === 0}
                   className="inline-flex items-center justify-center gap-2 rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {staffLoginMutation.isPending ? "Opening portal..." : "Open staff portal"}
+                  {staffLoginMutation.isPending ? "Opening form..." : "Open opening form"}
                   <ArrowRight className="h-4 w-4" />
                 </button>
               </form>

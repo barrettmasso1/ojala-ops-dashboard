@@ -1,11 +1,11 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { type PortalLanguage, translateErrorMessage, translatePortalText } from "@/lib/employeePortalI18n";
-import { getPendingInventorySaves, type InventoryDraftState } from "@/lib/inventoryWorkflow";
 import { getOpeningNapkinsQuestion, groupOpeningQuestionsForPortal } from "@/lib/openingSetup";
 import { trpc } from "@/lib/trpc";
-import { ClipboardCheck, MoonStar, Package2, ReceiptText } from "lucide-react";
+import { ArrowRight, ClipboardCheck, House, MoonStar, Package2, ReceiptText, SunMedium } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { Link, useLocation } from "wouter";
 import { READY_MADE_GELATO_FLAVORS } from "../../../shared/opsCatalog";
 
 type YesNo = "Yes" | "No";
@@ -40,7 +40,6 @@ type OpeningForm = {
   staffName: string;
   startingCash: string;
   cashCountedAndCorrect: YesNo;
-  storeReadyToOpen: YesNo;
   stockCounts: OpeningStockCounts;
   notes: string;
 };
@@ -51,11 +50,6 @@ type ClosingForm = {
   cashCounted: string;
   cashMatchesSystem: YesNo;
   notes: string;
-};
-
-type EndOfDayForm = {
-  businessDate: string;
-  staffName: string;
   cups4ozHere: string;
   cups4ozToGo: string;
   cups8ozHere: string;
@@ -73,7 +67,6 @@ type EndOfDayForm = {
   generalNotes: string;
 };
 
-type InventoryUpdateState = InventoryDraftState;
 type ReadyMadeGelatoShiftKey = "opening" | "closing";
 
 type ReadyMadeGelatoShiftState = {
@@ -93,20 +86,33 @@ type ReadyMadeGelatoState = {
   flavors: Record<string, ReadyMadeGelatoFlavorState>;
 };
 
+type PairedInputConfig = {
+  label: string;
+  stockKey?: keyof OpeningStockCounts;
+  itemName?: string;
+};
+
 function todayValue() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function displayNumberValue(value: number | string | null | undefined) {
+  if (value === null || value === undefined) return "";
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric === 0) return "";
+  return String(value);
+}
+
 const initialOpeningStockCounts = (): OpeningStockCounts => ({
-  cups4oz: "0",
-  cups8oz: "0",
-  cupsPint: "0",
-  cupsLiter: "0",
-  lids4oz: "0",
-  lids8oz: "0",
-  lidsPint: "0",
-  lidsLiter: "0",
-  spoons: "0",
+  cups4oz: "",
+  cups8oz: "",
+  cupsPint: "",
+  cupsLiter: "",
+  lids4oz: "",
+  lids8oz: "",
+  lidsPint: "",
+  lidsLiter: "",
+  spoons: "",
 });
 
 const initialOpeningForm = (): OpeningForm => ({
@@ -114,7 +120,6 @@ const initialOpeningForm = (): OpeningForm => ({
   staffName: "",
   startingCash: "",
   cashCountedAndCorrect: "No",
-  storeReadyToOpen: "No",
   stockCounts: initialOpeningStockCounts(),
   notes: "",
 });
@@ -125,33 +130,28 @@ const initialClosingForm = (): ClosingForm => ({
   cashCounted: "",
   cashMatchesSystem: "No",
   notes: "",
-});
-
-const initialEndOfDayForm = (): EndOfDayForm => ({
-  businessDate: todayValue(),
-  staffName: "",
-  cups4ozHere: "0",
-  cups4ozToGo: "0",
-  cups8ozHere: "0",
-  cups8ozToGo: "0",
-  cupsPintHere: "0",
-  cupsPintToGo: "0",
-  cupsLiterHere: "0",
-  cupsLiterToGo: "0",
-  cashTotal: "0",
-  cardTotal: "0",
-  zelleTotal: "0",
-  venmoTotal: "0",
+  cups4ozHere: "",
+  cups4ozToGo: "",
+  cups8ozHere: "",
+  cups8ozToGo: "",
+  cupsPintHere: "",
+  cupsPintToGo: "",
+  cupsLiterHere: "",
+  cupsLiterToGo: "",
+  cashTotal: "",
+  cardTotal: "",
+  zelleTotal: "",
+  venmoTotal: "",
   wasteNotes: "",
   lowItemNotes: "",
   generalNotes: "",
 });
 
 const initialReadyMadeGelatoShiftState = (): ReadyMadeGelatoShiftState => ({
-  smallPanCount: "0",
-  smallGrossWeightKg: "0",
-  largePanCount: "0",
-  largeGrossWeightKg: "0",
+  smallPanCount: "",
+  smallGrossWeightKg: "",
+  largePanCount: "",
+  largeGrossWeightKg: "",
 });
 
 const initialReadyMadeGelatoState = (businessDate = todayValue()): ReadyMadeGelatoState => ({
@@ -163,26 +163,41 @@ const initialReadyMadeGelatoState = (businessDate = todayValue()): ReadyMadeGela
         opening: initialReadyMadeGelatoShiftState(),
         closing: initialReadyMadeGelatoShiftState(),
       },
-    ])
+    ]),
   ) as Record<string, ReadyMadeGelatoFlavorState>,
 });
 
-const openingStockFields: Array<{ key: keyof OpeningStockCounts; label: string; group: string }> = [
-  { key: "cups4oz", label: "Cups 4oz", group: "Cup counts" },
-  { key: "cups8oz", label: "Cups 8oz", group: "Cup counts" },
-  { key: "cupsPint", label: "Cups Pint", group: "Cup counts" },
-  { key: "cupsLiter", label: "Cups Liter", group: "Cup counts" },
-  { key: "lids4oz", label: "Lids 4oz", group: "Lid counts" },
-  { key: "lids8oz", label: "Lids 8oz", group: "Lid counts" },
-  { key: "lidsPint", label: "Lids Pint", group: "Lid counts" },
-  { key: "lidsLiter", label: "Lids Liter", group: "Lid counts" },
-  { key: "spoons", label: "Spoons stocked", group: "Utensils" },
+const serviceInventoryPairs: Array<{ left: PairedInputConfig; right?: PairedInputConfig }> = [
+  {
+    left: { label: "4oz Cups", stockKey: "cups4oz", itemName: "4oz To-Go Cups" },
+    right: { label: "4oz Lids", stockKey: "lids4oz", itemName: "4oz To-Go Lids" },
+  },
+  {
+    left: { label: "8oz Cups", stockKey: "cups8oz", itemName: "8oz To-Go Cups" },
+    right: { label: "8oz Lids", stockKey: "lids8oz", itemName: "8oz To-Go Lids" },
+  },
+  {
+    left: { label: "16oz Cups", stockKey: "cupsPint", itemName: "16oz To-Go Cups" },
+    right: { label: "16oz Lids", stockKey: "lidsPint", itemName: "16oz To-Go Lids" },
+  },
+  {
+    left: { label: "32oz Cups", stockKey: "cupsLiter", itemName: "32oz To-Go Cups" },
+    right: { label: "32oz Lids", stockKey: "lidsLiter", itemName: "32oz To-Go Lids" },
+  },
+  {
+    left: { label: "Bamboo Spoons", stockKey: "spoons", itemName: "Bamboo To-Go Spoons" },
+    right: { label: "Edible Spoons", itemName: "Edible Spoons" },
+  },
+  {
+    left: { label: "Dine-In Spoons", itemName: "Dine-In Metal Spoons" },
+    right: { label: "To-Go Bags", itemName: "To-Go Bags" },
+  },
 ];
 
 const endOfDayCupRows: Array<{
   label: string;
-  hereKey: keyof EndOfDayForm;
-  toGoKey: keyof EndOfDayForm;
+  hereKey: keyof ClosingForm;
+  toGoKey: keyof ClosingForm;
 }> = [
   { label: "4oz", hereKey: "cups4ozHere", toGoKey: "cups4ozToGo" },
   { label: "8oz", hereKey: "cups8ozHere", toGoKey: "cups8ozToGo" },
@@ -190,26 +205,36 @@ const endOfDayCupRows: Array<{
   { label: "Liter", hereKey: "cupsLiterHere", toGoKey: "cupsLiterToGo" },
 ];
 
+function inputClassName() {
+  return "h-12 rounded-2xl border border-[#dbd2c5] bg-[#fcfaf6] px-4 text-sm text-[#2f2a26] shadow-sm outline-none transition focus:border-[#5b5045] focus:ring-4 focus:ring-[#5b5045]/10";
+}
+
+function smallInputClassName() {
+  return "h-10 w-full rounded-xl border border-[#dbd2c5] bg-[#fcfaf6] px-3 text-sm text-[#2f2a26] shadow-sm outline-none transition focus:border-[#5b5045] focus:ring-4 focus:ring-[#5b5045]/10";
+}
+
+function textareaClassName() {
+  return "min-h-[120px] rounded-2xl border border-[#dbd2c5] bg-[#fcfaf6] px-4 py-3 text-sm text-[#2f2a26] shadow-sm outline-none transition focus:border-[#5b5045] focus:ring-4 focus:ring-[#5b5045]/10";
+}
+
 function SectionCard({
-  id,
   icon,
   title,
   description,
   children,
 }: {
-  id?: string;
   icon: React.ReactNode;
   title: string;
-  description: string;
+  description?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className="rounded-[2rem] border border-white/70 bg-white/82 p-6 shadow-[0_24px_70px_rgba(88,83,72,0.10)] backdrop-blur md:p-8">
+    <section className="rounded-[2rem] border border-white/70 bg-white/82 p-6 shadow-[0_24px_70px_rgba(88,83,72,0.10)] backdrop-blur md:p-8">
       <div className="mb-6 flex items-start gap-4">
         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#ece4d7] text-[#5d544a]">{icon}</div>
         <div>
           <h2 className="text-2xl font-medium tracking-[-0.04em] text-[#2d2925]">{title}</h2>
-          {description ? <p className="mt-2 max-w-2xl text-sm leading-7 text-[#6b6258]">{description}</p> : null}
+          {description ? <p className="mt-2 max-w-3xl text-sm leading-7 text-[#6b6258]">{description}</p> : null}
         </div>
       </div>
       {children}
@@ -227,16 +252,39 @@ function Field({ label, children, hint }: { label: string; children: React.React
   );
 }
 
-function inputClassName() {
-  return "h-12 rounded-2xl border border-[#dbd2c5] bg-[#fcfaf6] px-4 text-sm text-[#2f2a26] shadow-sm outline-none transition focus:border-[#5b5045] focus:ring-4 focus:ring-[#5b5045]/10";
-}
-
-function smallInputClassName() {
-  return "h-10 w-full rounded-xl border border-[#dbd2c5] bg-[#fcfaf6] px-3 text-sm text-[#2f2a26] shadow-sm outline-none transition focus:border-[#5b5045] focus:ring-4 focus:ring-[#5b5045]/10";
-}
-
-function textareaClassName() {
-  return "min-h-[120px] rounded-2xl border border-[#dbd2c5] bg-[#fcfaf6] px-4 py-3 text-sm text-[#2f2a26] shadow-sm outline-none transition focus:border-[#5b5045] focus:ring-4 focus:ring-[#5b5045]/10";
+function ToggleField({
+  label,
+  value,
+  onChange,
+  language,
+}: {
+  label: string;
+  value: YesNo;
+  onChange: (next: YesNo) => void;
+  language: PortalLanguage;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-sm font-medium text-[#2f2a26]">{label}</span>
+      <div className="flex gap-2">
+        {(["Yes", "No"] as const).map(option => {
+          const active = value === option;
+          return (
+            <button
+              key={option}
+              type="button"
+              onClick={() => onChange(option)}
+              className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                active ? "bg-[#2f2a26] text-white" : "border border-[#ddd4c8] bg-white text-[#2f2a26] hover:bg-[#f5eee5]"
+              }`}
+            >
+              {translatePortalText(option, language)}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function ChecklistQuestionRow({
@@ -302,19 +350,21 @@ function buildAnswersPayload(questions: ChecklistQuestion[], answers: ChecklistA
   }));
 }
 
-export default function EmployeePortal() {
+export default function EmployeePortal(props: any) {
+  const { defaultView } = props as { defaultView?: "hub" | "opening" | "closing" };
   const { user, loading } = useAuth({ redirectOnUnauthenticated: true, redirectPath: "/staff-login" });
   const utils = trpc.useUtils();
+  const [location] = useLocation();
   const [language, setLanguage] = useState<PortalLanguage>("en");
   const t = (text: string) => translatePortalText(text, language);
   const currentBusinessDate = todayValue();
+  const portalView = defaultView ?? (location.endsWith("/closing") ? "closing" : location.endsWith("/opening") ? "opening" : "hub");
 
   const [openingForm, setOpeningForm] = useState<OpeningForm>(initialOpeningForm);
   const [closingForm, setClosingForm] = useState<ClosingForm>(initialClosingForm);
-  const [endOfDayForm, setEndOfDayForm] = useState<EndOfDayForm>(initialEndOfDayForm);
   const [openingAnswers, setOpeningAnswers] = useState<ChecklistAnswerState>({});
   const [closingAnswers, setClosingAnswers] = useState<ChecklistAnswerState>({});
-  const [inventoryUpdates, setInventoryUpdates] = useState<InventoryUpdateState>({});
+  const [serviceInventoryCounts, setServiceInventoryCounts] = useState<Record<number, string>>({});
   const [readyMadeGelato, setReadyMadeGelato] = useState<ReadyMadeGelatoState>(() => initialReadyMadeGelatoState());
   const [otherFlavorName, setOtherFlavorName] = useState("");
 
@@ -324,69 +374,33 @@ export default function EmployeePortal() {
   const readyMadeGelatoQuery = trpc.forms.readyMadeGelatoWeights.useQuery({ businessDate: currentBusinessDate });
 
   const openingMutation = trpc.forms.submitOpening.useMutation({
-    onSuccess: async () => {
-      toast.success(t("Opening Checklist submitted."));
-      setOpeningForm(initialOpeningForm());
-      setOpeningAnswers({});
-      await Promise.all([utils.dashboard.daily.invalidate(), utils.dashboard.recentNotes.invalidate()]);
-    },
     onError: error => toast.error(translateErrorMessage(error.message, language)),
   });
-
   const closingMutation = trpc.forms.submitClosing.useMutation({
-    onSuccess: async () => {
-      toast.success(t("Closing Checklist submitted."));
-      setClosingForm(initialClosingForm());
-      setClosingAnswers({});
-      await Promise.all([utils.dashboard.daily.invalidate(), utils.dashboard.recentNotes.invalidate()]);
-    },
     onError: error => toast.error(translateErrorMessage(error.message, language)),
   });
-
   const endOfDayMutation = trpc.forms.submitEndOfDay.useMutation({
-    onSuccess: async () => {
-      toast.success(t("End-of-Day Report submitted."));
-      setEndOfDayForm(initialEndOfDayForm());
-      await Promise.all([
-        utils.dashboard.daily.invalidate(),
-        utils.dashboard.salesTrend.invalidate(),
-        utils.dashboard.weekOverWeek.invalidate(),
-        utils.dashboard.recentNotes.invalidate(),
-      ]);
-    },
     onError: error => toast.error(translateErrorMessage(error.message, language)),
   });
-
   const inventoryMutation = trpc.forms.submitInventoryUpdate.useMutation({
     onError: error => toast.error(translateErrorMessage(error.message, language)),
   });
-
   const readyMadeGelatoMutation = trpc.forms.submitReadyMadeGelato.useMutation({
     onError: error => toast.error(translateErrorMessage(error.message, language)),
   });
 
-  const introName = useMemo(() => user?.name?.split(" ")[0] ?? t("team"), [user?.name, language]);
-
   const openingQuestions = openingQuestionsQuery.data ?? [];
   const closingQuestions = closingQuestionsQuery.data ?? [];
   const inventoryItems = inventoryItemsQuery.data ?? [];
-  const inventoryDepartments = useMemo(() => {
-    const grouped = new Map<string, typeof inventoryItems>();
-    for (const item of inventoryItems) {
-      const items = grouped.get(item.department) ?? [];
-      items.push(item);
-      grouped.set(item.department, items);
-    }
-    return Array.from(grouped.entries()).map(([department, items]) => ({
-      department,
-      items: [...items].sort((a, b) => {
-        if (a.category === b.category) return a.itemName.localeCompare(b.itemName);
-        return a.category.localeCompare(b.category);
-      }),
-    }));
-  }, [inventoryItems]);
+  const serviceInventoryItems = useMemo(
+    () => inventoryItems.filter(item => item.department !== "Ingredients").sort((a, b) => a.itemName.localeCompare(b.itemName)),
+    [inventoryItems],
+  );
 
-  const pendingInventoryUpdates = useMemo(() => getPendingInventorySaves(inventoryItems, inventoryUpdates), [inventoryItems, inventoryUpdates]);
+  const inventoryByName = useMemo(
+    () => new Map(serviceInventoryItems.map(item => [item.itemName, item])),
+    [serviceInventoryItems],
+  );
 
   const readyMadeGelatoFlavorNames = useMemo(() => {
     const seeded = READY_MADE_GELATO_FLAVORS.filter(flavor => flavor in readyMadeGelato.flavors);
@@ -396,61 +410,11 @@ export default function EmployeePortal() {
     return [...seeded, ...custom];
   }, [readyMadeGelato.flavors]);
 
-  useEffect(() => {
-    if (!readyMadeGelatoQuery.data) return;
-    setReadyMadeGelato(current => ({
-      ...current,
-      flavors: {
-        ...current.flavors,
-        ...(Object.fromEntries(
-          readyMadeGelatoQuery.data.map(item => [
-            item.flavor,
-            {
-              opening: {
-                smallPanCount: String(item.opening.smallPanCount ?? 0),
-                smallGrossWeightKg: String(item.opening.smallGrossWeightKg ?? 0),
-                largePanCount: String(item.opening.largePanCount ?? 0),
-                largeGrossWeightKg: String(item.opening.largeGrossWeightKg ?? 0),
-              },
-              closing: {
-                smallPanCount: String(item.closing.smallPanCount ?? 0),
-                smallGrossWeightKg: String(item.closing.smallGrossWeightKg ?? 0),
-                largePanCount: String(item.closing.largePanCount ?? 0),
-                largeGrossWeightKg: String(item.closing.largeGrossWeightKg ?? 0),
-              },
-            },
-          ])
-        ) as Record<string, ReadyMadeGelatoFlavorState>),
-      },
-    }));
-  }, [readyMadeGelatoQuery.data]);
-
-  const pendingReadyMadeGelatoUpdates = useMemo(() => {
-    return (["opening", "closing"] as const).flatMap(shiftType => {
-      return readyMadeGelatoFlavorNames.map(flavor => {
-        const currentEntry = readyMadeGelato.flavors[flavor]?.[shiftType] ?? initialReadyMadeGelatoShiftState();
-        const existingEntry = readyMadeGelatoQuery.data?.find(item => item.flavor === flavor)?.[shiftType];
-        const candidate = {
-          shiftType,
-          flavor,
-          smallPanCount: Number(currentEntry.smallPanCount || 0),
-          smallGrossWeightKg: Number(currentEntry.smallGrossWeightKg || 0),
-          largePanCount: Number(currentEntry.largePanCount || 0),
-          largeGrossWeightKg: Number(currentEntry.largeGrossWeightKg || 0),
-        };
-
-        const unchanged =
-          candidate.smallPanCount === Number(existingEntry?.smallPanCount ?? 0) &&
-          candidate.smallGrossWeightKg === Number(existingEntry?.smallGrossWeightKg ?? 0) &&
-          candidate.largePanCount === Number(existingEntry?.largePanCount ?? 0) &&
-          candidate.largeGrossWeightKg === Number(existingEntry?.largeGrossWeightKg ?? 0);
-
-        return unchanged ? null : candidate;
-      }).filter(Boolean);
-    });
-  }, [readyMadeGelato.flavors, readyMadeGelatoFlavorNames, readyMadeGelatoQuery.data]);
-
   const openingNapkinsQuestion = useMemo(() => getOpeningNapkinsQuestion(openingQuestions), [openingQuestions]);
+  const storeReadyQuestion = useMemo(
+    () => openingQuestions.find(question => question.prompt === "Store ready to open"),
+    [openingQuestions],
+  );
 
   const groupedOpeningQuestions = useMemo(
     () => groupOpeningQuestionsForPortal(openingQuestions, openingNapkinsQuestion?.id),
@@ -465,55 +429,220 @@ export default function EmployeePortal() {
   }, [closingQuestions]);
 
   const totalSales = useMemo(() => {
-    return [endOfDayForm.cashTotal, endOfDayForm.cardTotal, endOfDayForm.zelleTotal, endOfDayForm.venmoTotal]
+    return [closingForm.cashTotal, closingForm.cardTotal, closingForm.zelleTotal, closingForm.venmoTotal]
       .map(value => Number(value || 0))
       .reduce((sum, value) => sum + value, 0);
-  }, [endOfDayForm.cashTotal, endOfDayForm.cardTotal, endOfDayForm.zelleTotal, endOfDayForm.venmoTotal]);
+  }, [closingForm.cashTotal, closingForm.cardTotal, closingForm.zelleTotal, closingForm.venmoTotal]);
 
-  async function handleSaveInventoryUpdates() {
-    if (pendingInventoryUpdates.length === 0 && pendingReadyMadeGelatoUpdates.length === 0) {
-      toast.success(t("No inventory or gelato changes to save."));
-      return;
+  useEffect(() => {
+    setOpeningForm(current => ({ ...current, businessDate: currentBusinessDate }));
+    setClosingForm(current => ({ ...current, businessDate: currentBusinessDate }));
+    setReadyMadeGelato(current => ({ ...current, businessDate: currentBusinessDate }));
+  }, [currentBusinessDate]);
+
+  useEffect(() => {
+    if (serviceInventoryItems.length === 0) return;
+    setServiceInventoryCounts(
+      Object.fromEntries(serviceInventoryItems.map(item => [item.id, displayNumberValue(item.currentQuantity)])),
+    );
+  }, [serviceInventoryItems]);
+
+  useEffect(() => {
+    if (!readyMadeGelatoQuery.data) return;
+    setReadyMadeGelato(current => ({
+      ...current,
+      businessDate: currentBusinessDate,
+      flavors: {
+        ...current.flavors,
+        ...(Object.fromEntries(
+          readyMadeGelatoQuery.data.map(item => [
+            item.flavor,
+            {
+              opening: {
+                smallPanCount: displayNumberValue(item.opening.smallPanCount),
+                smallGrossWeightKg: displayNumberValue(item.opening.smallGrossWeightKg),
+                largePanCount: displayNumberValue(item.opening.largePanCount),
+                largeGrossWeightKg: displayNumberValue(item.opening.largeGrossWeightKg),
+              },
+              closing: {
+                smallPanCount: displayNumberValue(item.closing.smallPanCount),
+                smallGrossWeightKg: displayNumberValue(item.closing.smallGrossWeightKg),
+                largePanCount: displayNumberValue(item.closing.largePanCount),
+                largeGrossWeightKg: displayNumberValue(item.closing.largeGrossWeightKg),
+              },
+            },
+          ]),
+        ) as Record<string, ReadyMadeGelatoFlavorState>),
+      },
+    }));
+  }, [currentBusinessDate, readyMadeGelatoQuery.data]);
+
+  function updateGelatoField(shiftType: ReadyMadeGelatoShiftKey, flavor: string, field: keyof ReadyMadeGelatoShiftState, value: string) {
+    setReadyMadeGelato(current => ({
+      ...current,
+      flavors: {
+        ...current.flavors,
+        [flavor]: {
+          ...(current.flavors[flavor] ?? {
+            opening: initialReadyMadeGelatoShiftState(),
+            closing: initialReadyMadeGelatoShiftState(),
+          }),
+          [shiftType]: {
+            ...(current.flavors[flavor]?.[shiftType] ?? initialReadyMadeGelatoShiftState()),
+            [field]: value,
+          },
+        },
+      },
+    }));
+  }
+
+  function updateServiceInventory(itemId: number, value: string) {
+    setServiceInventoryCounts(current => ({ ...current, [itemId]: value }));
+  }
+
+  function buildReadyMadeEntries(shiftType: ReadyMadeGelatoShiftKey) {
+    return readyMadeGelatoFlavorNames.map(flavor => {
+      const entry = readyMadeGelato.flavors[flavor]?.[shiftType] ?? initialReadyMadeGelatoShiftState();
+      return {
+        flavor,
+        smallPanCount: Number(entry.smallPanCount || 0),
+        smallGrossWeightKg: Number(entry.smallGrossWeightKg || 0),
+        largePanCount: Number(entry.largePanCount || 0),
+        largeGrossWeightKg: Number(entry.largeGrossWeightKg || 0),
+      };
+    });
+  }
+
+  function buildOpeningInventoryPayloads() {
+    const payloads = new Map<number, { id: number; currentQuantity: number; notes: string }>();
+
+    for (const pair of serviceInventoryPairs) {
+      for (const config of [pair.left, pair.right].filter(Boolean) as PairedInputConfig[]) {
+        if (!config.itemName) continue;
+        const item = inventoryByName.get(config.itemName);
+        if (!item) continue;
+        const rawValue = config.stockKey ? openingForm.stockCounts[config.stockKey] : serviceInventoryCounts[item.id] ?? "";
+        payloads.set(item.id, {
+          id: item.id,
+          currentQuantity: Number(rawValue || 0),
+          notes: "",
+        });
+      }
     }
 
-    try {
-      await Promise.all([
-        ...pendingInventoryUpdates.map(update =>
-          inventoryMutation.mutateAsync({
-            id: update.id,
-            currentQuantity: update.currentQuantity,
-            notes: "",
-          })
-        ),
-        ...(["opening", "closing"] as const).map(shiftType => {
-          const entries = pendingReadyMadeGelatoUpdates
-            .filter(item => item?.shiftType === shiftType)
-            .map(item => ({
-              flavor: item!.flavor,
-              smallPanCount: item!.smallPanCount,
-              smallGrossWeightKg: item!.smallGrossWeightKg,
-              largePanCount: item!.largePanCount,
-              largeGrossWeightKg: item!.largeGrossWeightKg,
-            }));
+    return Array.from(payloads.values());
+  }
 
-          return entries.length > 0
-            ? readyMadeGelatoMutation.mutateAsync({
-                businessDate: currentBusinessDate,
-                shiftType,
-                entries,
-              })
-            : Promise.resolve({ success: true } as const);
-        }),
-     ]);
-      setInventoryUpdates({});
-      toast.success(t("Inventory and ready-made gelato updated."));
+  function buildClosingInventoryPayloads() {
+    return serviceInventoryItems.map(item => ({
+      id: item.id,
+      currentQuantity: Number(serviceInventoryCounts[item.id] || 0),
+      notes: "",
+    }));
+  }
+
+  async function refreshAfterSubmission() {
+    await Promise.all([
+      inventoryItemsQuery.refetch(),
+      readyMadeGelatoQuery.refetch(),
+      utils.dashboard.daily.invalidate(),
+      utils.dashboard.salesTrend.invalidate(),
+      utils.dashboard.weekOverWeek.invalidate(),
+      utils.dashboard.recentNotes.invalidate(),
+      utils.dashboard.inventoryAlerts.invalidate(),
+    ]);
+  }
+
+  async function handleOpeningSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    try {
+      await openingMutation.mutateAsync({
+        businessDate: currentBusinessDate,
+        staffName: openingForm.staffName,
+        startingCash: Number(openingForm.startingCash || 0),
+        cashCountedAndCorrect: openingForm.cashCountedAndCorrect,
+        storeReadyToOpen: openingAnswers[storeReadyQuestion?.id ?? -1]?.answer ?? "No",
+        stockCounts: {
+          cups4oz: Number(openingForm.stockCounts.cups4oz || 0),
+          cups8oz: Number(openingForm.stockCounts.cups8oz || 0),
+          cupsPint: Number(openingForm.stockCounts.cupsPint || 0),
+          cupsLiter: Number(openingForm.stockCounts.cupsLiter || 0),
+          lids4oz: Number(openingForm.stockCounts.lids4oz || 0),
+          lids8oz: Number(openingForm.stockCounts.lids8oz || 0),
+          lidsPint: Number(openingForm.stockCounts.lidsPint || 0),
+          lidsLiter: Number(openingForm.stockCounts.lidsLiter || 0),
+          spoons: Number(openingForm.stockCounts.spoons || 0),
+        },
+        notes: openingForm.notes,
+        checklistAnswers: buildAnswersPayload(openingQuestions, openingAnswers),
+      });
+
       await Promise.all([
-        inventoryItemsQuery.refetch(),
-        readyMadeGelatoQuery.refetch(),
-        utils.dashboard.inventoryAlerts.invalidate(),
+        readyMadeGelatoMutation.mutateAsync({
+          businessDate: currentBusinessDate,
+          shiftType: "opening",
+          entries: buildReadyMadeEntries("opening"),
+        }),
+        ...buildOpeningInventoryPayloads().map(payload => inventoryMutation.mutateAsync(payload)),
       ]);
+
+      toast.success(t("Opening form submitted."));
+      setOpeningForm(initialOpeningForm());
+      setOpeningAnswers({});
+      await refreshAfterSubmission();
     } catch {
-      // Mutation errors are surfaced via the shared onError handler above.
+      // Shared mutation handlers surface the error toast.
+    }
+  }
+
+  async function handleClosingSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    try {
+      await closingMutation.mutateAsync({
+        businessDate: currentBusinessDate,
+        staffName: closingForm.staffName,
+        cashCounted: Number(closingForm.cashCounted || 0),
+        cashMatchesSystem: closingForm.cashMatchesSystem,
+        notes: closingForm.notes,
+        checklistAnswers: buildAnswersPayload(closingQuestions, closingAnswers),
+      });
+
+      await Promise.all([
+        readyMadeGelatoMutation.mutateAsync({
+          businessDate: currentBusinessDate,
+          shiftType: "closing",
+          entries: buildReadyMadeEntries("closing"),
+        }),
+        ...buildClosingInventoryPayloads().map(payload => inventoryMutation.mutateAsync(payload)),
+        endOfDayMutation.mutateAsync({
+          businessDate: currentBusinessDate,
+          staffName: closingForm.staffName,
+          cups4ozHere: Number(closingForm.cups4ozHere || 0),
+          cups4ozToGo: Number(closingForm.cups4ozToGo || 0),
+          cups8ozHere: Number(closingForm.cups8ozHere || 0),
+          cups8ozToGo: Number(closingForm.cups8ozToGo || 0),
+          cupsPintHere: Number(closingForm.cupsPintHere || 0),
+          cupsPintToGo: Number(closingForm.cupsPintToGo || 0),
+          cupsLiterHere: Number(closingForm.cupsLiterHere || 0),
+          cupsLiterToGo: Number(closingForm.cupsLiterToGo || 0),
+          cashTotal: Number(closingForm.cashTotal || 0),
+          cardTotal: Number(closingForm.cardTotal || 0),
+          zelleTotal: Number(closingForm.zelleTotal || 0),
+          venmoTotal: Number(closingForm.venmoTotal || 0),
+          wasteNotes: closingForm.wasteNotes,
+          lowItemNotes: closingForm.lowItemNotes,
+          generalNotes: closingForm.generalNotes,
+        }),
+      ]);
+
+      toast.success(t("Closing form submitted."));
+      setClosingForm(initialClosingForm());
+      setClosingAnswers({});
+      await refreshAfterSubmission();
+    } catch {
+      // Shared mutation handlers surface the error toast.
     }
   }
 
@@ -521,13 +650,93 @@ export default function EmployeePortal() {
     return <div className="min-h-screen bg-[#f8f4ed]" />;
   }
 
+  const navLinks = [
+    { href: "/portal", label: t("Portal Home"), active: portalView === "hub" },
+    { href: "/portal/opening", label: t("Opening Form"), active: portalView === "opening" },
+    { href: "/portal/closing", label: t("Closing Form"), active: portalView === "closing" },
+  ];
+
+  const portalTitle = portalView === "opening" ? t("Opening Form") : portalView === "closing" ? t("Closing Form") : t("Staff portal");
+  const portalDescription =
+    portalView === "opening"
+      ? t("Record drawer cash, readiness checks, gelato opening weights, and front counter stock in one short form.")
+      : portalView === "closing"
+        ? t("Record closing weights, stock counts, checklist completion, sales, and payment totals in one final form.")
+        : t("Choose the opening or closing workflow to keep staff submissions short on iPad and phone.");
+
+  function renderInventoryInput(config?: PairedInputConfig, mode: "opening" | "closing" = "opening") {
+    if (!config) {
+      return <div className="hidden md:block" />;
+    }
+
+    if (mode === "opening" && config.stockKey) {
+      return (
+        <Field label={t(config.label)}>
+          <input
+            className={smallInputClassName()}
+            type="number"
+            min="0"
+            step="1"
+            value={openingForm.stockCounts[config.stockKey]}
+            onChange={event =>
+              setOpeningForm(current => ({
+                ...current,
+                stockCounts: { ...current.stockCounts, [config.stockKey!]: event.target.value },
+              }))
+            }
+          />
+        </Field>
+      );
+    }
+
+    const item = config.itemName ? inventoryByName.get(config.itemName) : undefined;
+    if (!item) {
+      return <div className="hidden md:block" />;
+    }
+
+    return (
+      <Field label={t(config.label)} hint={`${t("Par level")}: ${item.parLevel}`}>
+        <input
+          className={smallInputClassName()}
+          type="number"
+          min="0"
+          step="1"
+          value={serviceInventoryCounts[item.id] ?? ""}
+          onChange={event => updateServiceInventory(item.id, event.target.value)}
+        />
+      </Field>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(86,111,104,0.10),_transparent_26%),linear-gradient(180deg,_#fbf8f2_0%,_#f4eee4_46%,_#f8f4ec_100%)] pb-16">
       <div className="container pt-8 md:pt-12">
         <div className="overflow-hidden rounded-[2rem] border border-white/70 bg-white/70 shadow-[0_28px_80px_rgba(88,83,72,0.12)] backdrop-blur">
-          <div className="p-8 lg:p-10">
-            <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
-              <p className="text-[11px] uppercase tracking-[0.34em] text-[#7d756b]">{t("Staff portal")}</p>
+          <div className="border-b border-[#eadfce] p-6 md:p-8">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+              <div className="max-w-3xl">
+                <p className="text-[11px] uppercase tracking-[0.34em] text-[#7d756b]">{t("Staff portal")}</p>
+                <h1 className="mt-3 text-3xl font-light tracking-[-0.05em] text-[#2d2925] md:text-4xl">{portalTitle}</h1>
+                <p className="mt-4 text-sm leading-7 text-[#625b53] md:text-base">{portalDescription}</p>
+                <div className="mt-5 flex flex-wrap gap-3">
+                  {navLinks.map(link => (
+                    <Link
+                      key={link.href}
+                      href={link.href}
+                      className={`inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm font-medium transition ${
+                        link.active ? "bg-[#2f2a26] text-white" : "border border-[#ddd4c8] bg-white/88 text-[#2f2a26] hover:bg-white"
+                      }`}
+                    >
+                      {link.label}
+                    </Link>
+                  ))}
+                  <Link href="/" className="inline-flex items-center gap-2 rounded-full border border-[#ddd4c8] bg-white/88 px-5 py-3 text-sm font-medium text-[#2f2a26] transition hover:bg-white">
+                    <House className="h-4 w-4" />
+                    {t("Back home")}
+                  </Link>
+                </div>
+              </div>
+
               <div className="rounded-[1.5rem] border border-[#e5ddd0] bg-[#f9f4ec] p-3 shadow-sm">
                 <p className="text-[11px] uppercase tracking-[0.28em] text-[#7d756b]">{t("Language")}</p>
                 <div className="mt-3 flex gap-2">
@@ -552,591 +761,356 @@ export default function EmployeePortal() {
                 </div>
               </div>
             </div>
-            <div className="mt-8 grid gap-4 md:grid-cols-4">
-              {[
-                { label: "Inventory", value: "Quick stock updates", href: "#inventory" },
-                { label: "Daily Report", value: "Sales and notes", href: "#end-of-day" },
-                { label: "Closing", value: "Lock in final checks", href: "#closing" },
-                { label: "Opening", value: "Start ready", href: "#opening" },
-              ].map(item => (
-                <a key={item.label} href={item.href} className="rounded-2xl border border-white/80 bg-[#fbf7f0] p-4 shadow-sm transition hover:bg-white">
-                  <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">{t("Direct link")}</p>
-                  <p className="mt-2 font-medium text-[#253630]">{t(item.label)}</p>
-                  <p className="mt-2 text-sm text-[#67706a]">{t(item.value)}</p>
-                </a>
-              ))}
-            </div>
           </div>
-        </div>
 
-        <div className="mt-8 grid gap-8">
-          <SectionCard
-            id="inventory"
-            icon={<Package2 className="h-5 w-5" />}
-            title={t("Inventory Input")}
-            description={t("Employees can quickly update counted quantities without entering the manager dashboard.")}
-          >
-            {inventoryItemsQuery.isLoading ? (
-              <p className="text-sm text-[#6b6258]">{t("Loading inventory items…")}</p>
-            ) : inventoryItems.length === 0 ? (
-              <p className="text-sm text-[#6b6258]">{t("No inventory items have been set up yet by management.")}</p>
-            ) : (
-              <div className="space-y-6">
-                {inventoryDepartments.map(group => (
-                  <div key={group.department} className="rounded-[1.75rem] border border-[#e7ddd1] bg-[#f7f0e7] p-4 shadow-sm">
-                    <div className="flex flex-col gap-2 border-b border-[#e2d8ca] pb-4 md:flex-row md:items-end md:justify-between">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{group.department}</p>
-                        <h3 className="mt-2 text-2xl font-medium tracking-[-0.03em] text-[#2d2925]">{group.department === "Utensils & Cleaning" ? t("Packaging, cups, lids, utensils, and cleaning supplies") : t("Ingredient stock counts and reorder-sensitive items")}</h3>
-                      </div>
-                      <p className="text-sm text-[#6b6258]">{group.items.length} {t("items ready to count")}</p>
+          <div className="p-6 md:p-8">
+            {portalView === "hub" ? (
+              <div className="grid gap-5 lg:grid-cols-2">
+                <SectionCard
+                  icon={<SunMedium className="h-5 w-5" />}
+                  title={t("Opening Form")}
+                  description={t("Record drawer cash, cleanliness checks, gelato opening weights, and cups or spoon counts before service starts.")}
+                >
+                  <div className="space-y-4">
+                    <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] p-5">
+                      <p className="text-[11px] uppercase tracking-[0.28em] text-[#7d756b]">{t("Includes")}</p>
+                      <p className="mt-3 text-sm leading-7 text-[#625b53]">
+                        {t("Starting cash, readiness checklist, ready-made gelato opening weights, and side-by-side front counter stock counts.")}
+                      </p>
                     </div>
-                    <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                      {group.items.map(item => {
-                        const current = inventoryUpdates[item.id] ?? {
-                          currentQuantity: String(item.currentQuantity ?? "0"),
-                        };
-                        return (
-                          <div key={item.id} className="rounded-[1.5rem] border border-[#e7ddd1] bg-[#fbf7f1] p-5 shadow-sm">
-                            <div className="flex flex-wrap items-start justify-between gap-3">
-                              <div>
-                                <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{item.category}</p>
-                                <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">{item.itemName}</h3>
-                                <p className="mt-1 text-sm text-[#6b6258]">{t("Par level")}: {item.parLevel} {item.unitType}</p>
-                              </div>
-                              {item.category === "Packaging" ? (
-                                <span className="rounded-full border border-[#d9c8ad] bg-[#f5e7d3] px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-[#7b5d31]">{t("Packaging")}</span>
-                              ) : null}
-                            </div>
-                            <div className="mt-4 grid gap-4">
-                              <Field label={`${t("Current quantity")} (${item.unitType})`}>
-                                <input
-                                  className={inputClassName()}
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  value={current.currentQuantity}
-                                  onChange={event =>
-                                    setInventoryUpdates(state => ({
-                                      ...state,
-                                      [item.id]: { currentQuantity: event.target.value },
-                                    }))
-                                  }
-                                />
-                              </Field>
-                            </div>
-                          </div>
-                        );
-                      })}
+                    <Link href="/portal/opening" className="inline-flex items-center gap-2 rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]">
+                      {t("Open Opening Form")}
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </div>
+                </SectionCard>
+
+                <SectionCard
+                  icon={<MoonStar className="h-5 w-5" />}
+                  title={t("Closing Form")}
+                  description={t("Finish the shift with closing weights, closing counts, checklist completion, sales totals, and payment totals in one place.")}
+                >
+                  <div className="space-y-4">
+                    <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] p-5">
+                      <p className="text-[11px] uppercase tracking-[0.28em] text-[#7d756b]">{t("Includes")}</p>
+                      <p className="mt-3 text-sm leading-7 text-[#625b53]">
+                        {t("Gelato closing weights, utensil counts, cash review, closing checklist, cup sales by size, and payment totals.")}
+                      </p>
+                    </div>
+                    <Link href="/portal/closing" className="inline-flex items-center gap-2 rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]">
+                      {t("Open Closing Form")}
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </div>
+                </SectionCard>
+              </div>
+            ) : null}
+
+            {portalView === "opening" ? (
+              <form className="grid gap-6" onSubmit={handleOpeningSubmit}>
+                <SectionCard
+                  icon={<ClipboardCheck className="h-5 w-5" />}
+                  title={t("Opening Form")}
+                  description={t("One opening form for drawer cash, readiness checks, gelato opening weights, and front counter stock.")}
+                >
+                  <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+                    <Field label={t("Business Date")}>
+                      <div className="flex h-12 items-center rounded-2xl border border-[#d7cec0] bg-white px-4 text-sm font-medium text-[#2d2925]">{currentBusinessDate}</div>
+                    </Field>
+                    <Field label={t("Staff Name")}>
+                      <input
+                        className={inputClassName()}
+                        value={openingForm.staffName}
+                        onChange={event => setOpeningForm(current => ({ ...current, staffName: event.target.value }))}
+                      />
+                    </Field>
+                    <Field label={t("Starting cash amount")}>
+                      <input
+                        className={inputClassName()}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={openingForm.startingCash}
+                        onChange={event => setOpeningForm(current => ({ ...current, startingCash: event.target.value }))}
+                      />
+                    </Field>
+                    <ToggleField
+                      label={t("Cash counted and correct")}
+                      value={openingForm.cashCountedAndCorrect}
+                      onChange={next => setOpeningForm(current => ({ ...current, cashCountedAndCorrect: next }))}
+                      language={language}
+                    />
+                  </div>
+                </SectionCard>
+
+                <SectionCard
+                  icon={<Package2 className="h-5 w-5" />}
+                  title={t("Ready-Made Gelato")}
+                  description={t("Record opening counts and gross pan weights with the small and large pan fields on the same row.")}
+                >
+                  <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                    <div>
+                      <p className="text-sm leading-7 text-[#625b53]">{t("Use gross pan weight in kilograms. Leave unused pan fields blank instead of clearing a zero.")}</p>
+                    </div>
+                    <div className="flex w-full flex-col gap-2 md:max-w-sm md:flex-row">
+                      <input
+                        className={inputClassName()}
+                        value={otherFlavorName}
+                        onChange={event => setOtherFlavorName(event.target.value)}
+                        placeholder={t("Add custom flavor")}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextFlavor = otherFlavorName.trim();
+                          if (!nextFlavor || readyMadeGelato.flavors[nextFlavor]) return;
+                          setReadyMadeGelato(current => ({
+                            ...current,
+                            flavors: {
+                              ...current.flavors,
+                              [nextFlavor]: {
+                                opening: initialReadyMadeGelatoShiftState(),
+                                closing: initialReadyMadeGelatoShiftState(),
+                              },
+                            },
+                          }));
+                          setOtherFlavorName("");
+                        }}
+                        className="rounded-full border border-[#ddd4c8] bg-white px-5 py-3 text-sm font-medium text-[#2f2a26] transition hover:bg-[#f5eee5]"
+                      >
+                        {t("Add flavor")}
+                      </button>
                     </div>
                   </div>
-                ))}
-                <div className="rounded-[1.75rem] border border-[#e7ddd1] bg-[#f7f0e7] p-4 shadow-sm">
-                  <div className="border-b border-[#e2d8ca] pb-4">
-                    <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{t("Daily ready-made gelato count")}</p>
-                    <h3 className="mt-2 text-2xl font-medium tracking-[-0.03em] text-[#2d2925]">{t("Ready-Made Gelato")}</h3>
-                    <p className="mt-2 text-sm text-[#6b6258]">Use opening and closing pan counts plus gross scale weights so Ojalá can convert measured gelato into equivalent volume ounces and compare that against the sold cup volume from the nightly report.</p>
-                  </div>
-                  {readyMadeGelatoQuery.isLoading ? (
-                    <p className="mt-4 text-sm text-[#6b6258]">{t("Loading ready-made gelato…")}</p>
-                  ) : (
-                    <div className="mt-4 grid gap-6">
-                      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-                        <Field label={t("Business Date")}>
-                          <div className="flex h-12 items-center rounded-2xl border border-[#d7cec0] bg-white px-4 text-sm font-medium text-[#2d2925]">
-                            {currentBusinessDate}
+                  <div className="mt-6 grid gap-4 xl:grid-cols-2">
+                    {readyMadeGelatoFlavorNames.map(flavor => {
+                      const shift = readyMadeGelato.flavors[flavor]?.opening ?? initialReadyMadeGelatoShiftState();
+                      return (
+                        <div key={flavor} className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] p-4 shadow-sm">
+                          <div className="mb-3 flex items-center justify-between gap-3">
+                            <h3 className="text-lg font-medium tracking-[-0.03em] text-[#2d2925]">{t(flavor)}</h3>
+                            <span className="text-[11px] uppercase tracking-[0.26em] text-[#8a8176]">{t("Opening weights")}</span>
                           </div>
-                        </Field>
-                        <div className="rounded-[1.5rem] border border-[#e7ddd1] bg-white p-4 shadow-sm">
-                          <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{t("Other flavor / flavor of the day")}</p>
-                          <p className="mt-2 text-sm text-[#6b6258]">{t("Add temporary flavors here so opening and closing weigh-ins can include anything not already listed in the cookbook.")}</p>
-                          <div className="mt-4 flex flex-col gap-3 md:flex-row">
-                            <input
-                              className={inputClassName()}
-                              type="text"
-                              value={otherFlavorName}
-                              onChange={event => setOtherFlavorName(event.target.value)}
-                              placeholder={t("Example: Flavor of the Day")}
-                            />
-                            <button
-                              type="button"
-                              className="rounded-full border border-[#d7cec0] bg-[#f9f4ec] px-5 py-3 text-sm font-medium text-[#31423d] transition hover:bg-white"
-                              onClick={() => {
-                                const flavor = otherFlavorName.trim();
-                                if (!flavor) return;
-                                if (readyMadeGelato.flavors[flavor]) {
-                                  toast.success(t("That flavor is already on today's weigh-in list."));
-                                  setOtherFlavorName("");
-                                  return;
-                                }
-                                setReadyMadeGelato(current => ({
-                                  ...current,
-                                  flavors: {
-                                    ...current.flavors,
-                                    [flavor]: {
-                                      opening: initialReadyMadeGelatoShiftState(),
-                                      closing: initialReadyMadeGelatoShiftState(),
-                                    },
-                                  },
-                                }));
-                                setOtherFlavorName("");
-                              }}
-                            >
-                              {t("Add flavor")}
-                            </button>
+                          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]">
+                            <Field label={t("Small Pans")}>
+                              <input className={smallInputClassName()} type="number" min="0" step="1" value={shift.smallPanCount} onChange={event => updateGelatoField("opening", flavor, "smallPanCount", event.target.value)} />
+                            </Field>
+                            <Field label={t("Small Gross Weight kg")}>
+                              <input className={smallInputClassName()} type="number" min="0" step="0.01" value={shift.smallGrossWeightKg} onChange={event => updateGelatoField("opening", flavor, "smallGrossWeightKg", event.target.value)} />
+                            </Field>
+                            <Field label={t("Large Pans")}>
+                              <input className={smallInputClassName()} type="number" min="0" step="1" value={shift.largePanCount} onChange={event => updateGelatoField("opening", flavor, "largePanCount", event.target.value)} />
+                            </Field>
+                            <Field label={t("Large Gross Weight kg")}>
+                              <input className={smallInputClassName()} type="number" min="0" step="0.01" value={shift.largeGrossWeightKg} onChange={event => updateGelatoField("opening", flavor, "largeGrossWeightKg", event.target.value)} />
+                            </Field>
                           </div>
                         </div>
+                      );
+                    })}
+                  </div>
+                </SectionCard>
+
+                <SectionCard
+                  icon={<Package2 className="h-5 w-5" />}
+                  title={t("Front Counter Stock")}
+                  description={t("Keep cups, lids, spoons, and bags side by side so the form stays short on iPad and phone.")}
+                >
+                  <div className="space-y-4">
+                    {serviceInventoryPairs.map(pair => (
+                      <div key={pair.left.label} className="grid gap-4 md:grid-cols-2">
+                        {renderInventoryInput(pair.left, "opening")}
+                        {renderInventoryInput(pair.right, "opening")}
                       </div>
-                      {([
-                        {
-                          shiftType: "opening" as const,
-                          title: "Opening weigh-in",
-                          description: "Before opening, count every small and large pan for each flavor and enter the combined gross scale weight for each pan size.",
-                        },
-                        {
-                          shiftType: "closing" as const,
-                          title: "Closing weigh-in",
-                          description: "At closing, repeat the same count and gross-weight check so the system can calculate total distributed volume ounces for the day.",
-                        },
-                      ] as const).map(section => (
-                        <div key={section.shiftType} className="rounded-[1.5rem] border border-[#e2d8ca] bg-[#fbf7f1] p-5 shadow-sm">
-                          <div className="border-b border-[#e6dccf] pb-4">
-                            <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{section.title}</p>
-                            <p className="mt-2 text-sm text-[#6b6258]">{section.description}</p>
+                    ))}
+                  </div>
+                </SectionCard>
+
+                <SectionCard
+                  icon={<ClipboardCheck className="h-5 w-5" />}
+                  title={t("Opening Checklist")}
+                  description={t("Confirm the shop is clean, stocked, and ready to open before service begins.")}
+                >
+                  {openingQuestionsQuery.isLoading ? <p className="text-sm text-[#625b53]">{t("Loading opening questions…")}</p> : null}
+                  <div className="space-y-6">
+                    {Object.entries(groupedOpeningQuestions).map(([sectionTitle, questions]) => (
+                      <div key={sectionTitle} className="rounded-[1.6rem] border border-[#eadfce] bg-[#fcfaf6] p-5">
+                        <h3 className="text-lg font-medium tracking-[-0.03em] text-[#2d2925]">{t(sectionTitle)}</h3>
+                        <div className="mt-4 space-y-4">
+                          {questions.map(question => (
+                            <ChecklistQuestionRow
+                              key={question.id}
+                              question={question}
+                              state={openingAnswers[question.id] ?? { answer: "No", detail: "" }}
+                              onChange={next => setOpeningAnswers(state => ({ ...state, [question.id]: next }))}
+                              language={language}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-6">
+                    <Field label={t("Notes / issues")}>
+                      <textarea className={textareaClassName()} value={openingForm.notes} onChange={event => setOpeningForm(current => ({ ...current, notes: event.target.value }))} />
+                    </Field>
+                  </div>
+                  <div className="mt-6 flex w-full">
+                    <button disabled={openingMutation.isPending || inventoryMutation.isPending || readyMadeGelatoMutation.isPending} className="w-full rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
+                      {openingMutation.isPending || inventoryMutation.isPending || readyMadeGelatoMutation.isPending ? t("Submitting...") : t("Submit Opening Form")}
+                    </button>
+                  </div>
+                </SectionCard>
+              </form>
+            ) : null}
+
+            {portalView === "closing" ? (
+              <form className="grid gap-6" onSubmit={handleClosingSubmit}>
+                <SectionCard
+                  icon={<MoonStar className="h-5 w-5" />}
+                  title={t("Closing Form")}
+                  description={t("One closing form for closing counts, final checklist confirmation, sales, and payment totals.")}
+                >
+                  <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+                    <Field label={t("Business Date")}>
+                      <div className="flex h-12 items-center rounded-2xl border border-[#d7cec0] bg-white px-4 text-sm font-medium text-[#2d2925]">{currentBusinessDate}</div>
+                    </Field>
+                    <Field label={t("Staff Name")}>
+                      <input className={inputClassName()} value={closingForm.staffName} onChange={event => setClosingForm(current => ({ ...current, staffName: event.target.value }))} />
+                    </Field>
+                    <Field label={t("Cash total counted")}>
+                      <input className={inputClassName()} type="number" min="0" step="0.01" value={closingForm.cashCounted} onChange={event => setClosingForm(current => ({ ...current, cashCounted: event.target.value }))} />
+                    </Field>
+                    <ToggleField label={t("Matches system?")} value={closingForm.cashMatchesSystem} onChange={next => setClosingForm(current => ({ ...current, cashMatchesSystem: next }))} language={language} />
+                  </div>
+                </SectionCard>
+
+                <SectionCard
+                  icon={<Package2 className="h-5 w-5" />}
+                  title={t("Ready-Made Gelato")}
+                  description={t("Record closing counts and gross pan weights with the small and large pan fields on the same row.")}
+                >
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    {readyMadeGelatoFlavorNames.map(flavor => {
+                      const shift = readyMadeGelato.flavors[flavor]?.closing ?? initialReadyMadeGelatoShiftState();
+                      return (
+                        <div key={flavor} className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] p-4 shadow-sm">
+                          <div className="mb-3 flex items-center justify-between gap-3">
+                            <h3 className="text-lg font-medium tracking-[-0.03em] text-[#2d2925]">{t(flavor)}</h3>
+                            <span className="text-[11px] uppercase tracking-[0.26em] text-[#8a8176]">{t("Closing weights")}</span>
                           </div>
-                          <div className="mt-4 grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-                            {readyMadeGelatoFlavorNames.map(flavor => {
-                              const entry = readyMadeGelato.flavors[flavor]?.[section.shiftType] ?? initialReadyMadeGelatoShiftState();
-                              return (
-                                <div key={`${section.shiftType}-${flavor}`} className="rounded-[1.5rem] border border-[#e7ddd1] bg-white p-5 shadow-sm">
-                                  <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{section.title}</p>
-                                  <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">{t(flavor)}</h3>
-                                  <div className="mt-4 grid gap-4">
-                                    <Field label="Small pan count">
-                                      <input
-                                        className={inputClassName()}
-                                        type="number"
-                                        min="0"
-                                        step="1"
-                                        value={entry.smallPanCount}
-                                        onChange={event =>
-                                          setReadyMadeGelato(current => ({
-                                            ...current,
-                                            flavors: {
-                                              ...current.flavors,
-                                              [flavor]: {
-                                                ...current.flavors[flavor],
-                                                [section.shiftType]: {
-                                                  ...current.flavors[flavor][section.shiftType],
-                                                  smallPanCount: event.target.value,
-                                                },
-                                              },
-                                            },
-                                          }))
-                                        }
-                                      />
-                                    </Field>
-                                    <Field label="Small pan gross weight (kg)">
-                                      <input
-                                        className={inputClassName()}
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        value={entry.smallGrossWeightKg}
-                                        onChange={event =>
-                                          setReadyMadeGelato(current => ({
-                                            ...current,
-                                            flavors: {
-                                              ...current.flavors,
-                                              [flavor]: {
-                                                ...current.flavors[flavor],
-                                                [section.shiftType]: {
-                                                  ...current.flavors[flavor][section.shiftType],
-                                                  smallGrossWeightKg: event.target.value,
-                                                },
-                                              },
-                                            },
-                                          }))
-                                        }
-                                      />
-                                    </Field>
-                                    <Field label="Large pan count">
-                                      <input
-                                        className={inputClassName()}
-                                        type="number"
-                                        min="0"
-                                        step="1"
-                                        value={entry.largePanCount}
-                                        onChange={event =>
-                                          setReadyMadeGelato(current => ({
-                                            ...current,
-                                            flavors: {
-                                              ...current.flavors,
-                                              [flavor]: {
-                                                ...current.flavors[flavor],
-                                                [section.shiftType]: {
-                                                  ...current.flavors[flavor][section.shiftType],
-                                                  largePanCount: event.target.value,
-                                                },
-                                              },
-                                            },
-                                          }))
-                                        }
-                                      />
-                                    </Field>
-                                    <Field label="Large pan gross weight (kg)">
-                                      <input
-                                        className={inputClassName()}
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        value={entry.largeGrossWeightKg}
-                                        onChange={event =>
-                                          setReadyMadeGelato(current => ({
-                                            ...current,
-                                            flavors: {
-                                              ...current.flavors,
-                                              [flavor]: {
-                                                ...current.flavors[flavor],
-                                                [section.shiftType]: {
-                                                  ...current.flavors[flavor][section.shiftType],
-                                                  largeGrossWeightKg: event.target.value,
-                                                },
-                                              },
-                                            },
-                                          }))
-                                        }
-                                      />
-                                    </Field>
-                                  </div>
-                                </div>
-                              );
-                            })}
+                          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)]">
+                            <Field label={t("Small Pans")}>
+                              <input className={smallInputClassName()} type="number" min="0" step="1" value={shift.smallPanCount} onChange={event => updateGelatoField("closing", flavor, "smallPanCount", event.target.value)} />
+                            </Field>
+                            <Field label={t("Small Gross Weight kg")}>
+                              <input className={smallInputClassName()} type="number" min="0" step="0.01" value={shift.smallGrossWeightKg} onChange={event => updateGelatoField("closing", flavor, "smallGrossWeightKg", event.target.value)} />
+                            </Field>
+                            <Field label={t("Large Pans")}>
+                              <input className={smallInputClassName()} type="number" min="0" step="1" value={shift.largePanCount} onChange={event => updateGelatoField("closing", flavor, "largePanCount", event.target.value)} />
+                            </Field>
+                            <Field label={t("Large Gross Weight kg")}>
+                              <input className={smallInputClassName()} type="number" min="0" step="0.01" value={shift.largeGrossWeightKg} onChange={event => updateGelatoField("closing", flavor, "largeGrossWeightKg", event.target.value)} />
+                            </Field>
                           </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </SectionCard>
+
+                <SectionCard
+                  icon={<Package2 className="h-5 w-5" />}
+                  title={t("Closing Stock Counts")}
+                  description={t("Record the final cups, lids, spoon, and bag counts before the night ends.")}
+                >
+                  <div className="space-y-4">
+                    {serviceInventoryPairs.map(pair => (
+                      <div key={pair.left.label} className="grid gap-4 md:grid-cols-2">
+                        {renderInventoryInput(pair.left, "closing")}
+                        {renderInventoryInput(pair.right, "closing")}
+                      </div>
+                    ))}
+                  </div>
+                </SectionCard>
+
+                <SectionCard
+                  icon={<ClipboardCheck className="h-5 w-5" />}
+                  title={t("Closing Checklist")}
+                  description={t("Confirm cleaning, trash, freezer, and store close tasks before sending the nightly report.")}
+                >
+                  {closingQuestionsQuery.isLoading ? <p className="text-sm text-[#625b53]">{t("Loading closing questions…")}</p> : null}
+                  <div className="space-y-6">
+                    {Object.entries(groupedClosingQuestions).map(([sectionTitle, questions]) => (
+                      <div key={sectionTitle} className="rounded-[1.6rem] border border-[#eadfce] bg-[#fcfaf6] p-5">
+                        <h3 className="text-lg font-medium tracking-[-0.03em] text-[#2d2925]">{t(sectionTitle)}</h3>
+                        <div className="mt-4 space-y-4">
+                          {questions.map(question => (
+                            <ChecklistQuestionRow
+                              key={question.id}
+                              question={question}
+                              state={closingAnswers[question.id] ?? { answer: "No", detail: "" }}
+                              onChange={next => setClosingAnswers(state => ({ ...state, [question.id]: next }))}
+                              language={language}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </SectionCard>
+
+                <SectionCard
+                  icon={<ReceiptText className="h-5 w-5" />}
+                  title={t("Sales Entry")}
+                  description={t("Enter here and to-go sales counts, payment totals, and notes without opening a second report page.")}
+                >
+                  <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] p-5">
+                    <div className="grid gap-4 md:grid-cols-[minmax(120px,180px)_minmax(0,1fr)_minmax(0,1fr)] md:items-end">
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.24em] text-[#8a8176]">{t("Cup counts sold")}</p>
+                        <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">{t("Here and To Go")}</h3>
+                      </div>
+                      <span className="text-sm font-medium uppercase tracking-[0.22em] text-[#8a8176] md:text-center">{t("Here")}</span>
+                      <span className="text-sm font-medium uppercase tracking-[0.22em] text-[#8a8176] md:text-center">{t("To Go")}</span>
+                    </div>
+                    <div className="mt-5 space-y-3">
+                      {endOfDayCupRows.map(row => (
+                        <div key={row.label} className="grid gap-3 rounded-2xl border border-[#eadfce] bg-white/80 p-3 md:grid-cols-[minmax(120px,180px)_minmax(0,1fr)_minmax(0,1fr)] md:items-center">
+                          <span className="text-sm font-medium text-[#2f2a26]">{row.label}</span>
+                          <input className={smallInputClassName()} type="number" min="0" step="1" value={closingForm[row.hereKey]} onChange={event => setClosingForm(current => ({ ...current, [row.hereKey]: event.target.value }))} />
+                          <input className={smallInputClassName()} type="number" min="0" step="1" value={closingForm[row.toGoKey]} onChange={event => setClosingForm(current => ({ ...current, [row.toGoKey]: event.target.value }))} />
                         </div>
                       ))}
                     </div>
-                  )}
-                </div>
-                <div className="rounded-[1.75rem] border border-[#e7ddd1] bg-white/85 p-5 shadow-sm">
-                  <div className="flex flex-col gap-3">
-                    {pendingInventoryUpdates.length + pendingReadyMadeGelatoUpdates.length > 0 ? (
-                      <div className="text-sm text-[#6b6258]">
-                        {`${pendingInventoryUpdates.length + pendingReadyMadeGelatoUpdates.length} ${t("updates ready to save")}`}
-                      </div>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={handleSaveInventoryUpdates}
-                      disabled={inventoryMutation.isPending || readyMadeGelatoMutation.isPending}
-                      className="w-full rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {inventoryMutation.isPending || readyMadeGelatoMutation.isPending ? t("Saving inventory and gelato...") : t("Save inventory and gelato updates")}
+                  </div>
+
+                  <div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-5">
+                    <Field label={t("Cash")}><input className={inputClassName()} type="number" min="0" step="0.01" value={closingForm.cashTotal} onChange={event => setClosingForm(current => ({ ...current, cashTotal: event.target.value }))} /></Field>
+                    <Field label={t("Card")}><input className={inputClassName()} type="number" min="0" step="0.01" value={closingForm.cardTotal} onChange={event => setClosingForm(current => ({ ...current, cardTotal: event.target.value }))} /></Field>
+                    <Field label={t("Venmo")}><input className={inputClassName()} type="number" min="0" step="0.01" value={closingForm.venmoTotal} onChange={event => setClosingForm(current => ({ ...current, venmoTotal: event.target.value }))} /></Field>
+                    <Field label={t("Zelle")}><input className={inputClassName()} type="number" min="0" step="0.01" value={closingForm.zelleTotal} onChange={event => setClosingForm(current => ({ ...current, zelleTotal: event.target.value }))} /></Field>
+                    <Field label={t("Total Sales")}><input className={inputClassName()} type="text" value={`$${totalSales.toFixed(2)}`} readOnly /></Field>
+                  </div>
+
+                  <div className="mt-6 grid gap-5 xl:grid-cols-2">
+                    <Field label={t("Waste Notes")}><textarea className={textareaClassName()} value={closingForm.wasteNotes} onChange={event => setClosingForm(current => ({ ...current, wasteNotes: event.target.value }))} /></Field>
+                    <Field label={t("Low-Item Notes")}><textarea className={textareaClassName()} value={closingForm.lowItemNotes} onChange={event => setClosingForm(current => ({ ...current, lowItemNotes: event.target.value }))} /></Field>
+                  </div>
+                  <div className="mt-5 grid gap-5">
+                    <Field label={t("General Notes")}><textarea className={textareaClassName()} value={closingForm.generalNotes} onChange={event => setClosingForm(current => ({ ...current, generalNotes: event.target.value }))} /></Field>
+                    <Field label={t("Notes / issues")}><textarea className={textareaClassName()} value={closingForm.notes} onChange={event => setClosingForm(current => ({ ...current, notes: event.target.value }))} /></Field>
+                  </div>
+
+                  <div className="mt-6 flex w-full">
+                    <button disabled={closingMutation.isPending || endOfDayMutation.isPending || inventoryMutation.isPending || readyMadeGelatoMutation.isPending} className="w-full rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
+                      {closingMutation.isPending || endOfDayMutation.isPending || inventoryMutation.isPending || readyMadeGelatoMutation.isPending ? t("Submitting...") : t("Submit Closing Form")}
                     </button>
                   </div>
-                </div>
-              </div>
-            )}
-          </SectionCard>
-
-          <SectionCard
-            id="opening"
-            icon={<ClipboardCheck className="h-5 w-5" />}
-            title={t("Ojalá Opening Checklist")}
-            description=""
-          >
-            <form
-              className="grid gap-6"
-              onSubmit={event => {
-                event.preventDefault();
-                openingMutation.mutate({
-                  businessDate: currentBusinessDate,
-                  staffName: openingForm.staffName,
-                  startingCash: Number(openingForm.startingCash || 0),
-                  cashCountedAndCorrect: openingForm.cashCountedAndCorrect,
-                  storeReadyToOpen: openingForm.storeReadyToOpen,
-                  stockCounts: {
-                    cups4oz: Number(openingForm.stockCounts.cups4oz || 0),
-                    cups8oz: Number(openingForm.stockCounts.cups8oz || 0),
-                    cupsPint: Number(openingForm.stockCounts.cupsPint || 0),
-                    cupsLiter: Number(openingForm.stockCounts.cupsLiter || 0),
-                    lids4oz: Number(openingForm.stockCounts.lids4oz || 0),
-                    lids8oz: Number(openingForm.stockCounts.lids8oz || 0),
-                    lidsPint: Number(openingForm.stockCounts.lidsPint || 0),
-                    lidsLiter: Number(openingForm.stockCounts.lidsLiter || 0),
-                    spoons: Number(openingForm.stockCounts.spoons || 0),
-                  },
-                  checklistAnswers: buildAnswersPayload(openingQuestions, openingAnswers),
-                  notes: openingForm.notes,
-                });
-              }}
-            >
-              <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-                <Field label={t("Business Date")}>
-                  <div className="flex h-12 items-center rounded-2xl border border-[#d7cec0] bg-white px-4 text-sm font-medium text-[#2d2925]">{currentBusinessDate}</div>
-                </Field>
-                <Field label={t("Staff Name")}>
-                  <input className={inputClassName()} value={openingForm.staffName} onChange={event => setOpeningForm(current => ({ ...current, staffName: event.target.value }))} />
-                </Field>
-                <Field label={t("Starting cash amount")}>
-                  <input className={inputClassName()} type="number" min="0" step="0.01" value={openingForm.startingCash} onChange={event => setOpeningForm(current => ({ ...current, startingCash: event.target.value }))} />
-                </Field>
-                <Field label={t("Cash counted and correct")}>
-                  <select className={inputClassName()} value={openingForm.cashCountedAndCorrect} onChange={event => setOpeningForm(current => ({ ...current, cashCountedAndCorrect: event.target.value as YesNo }))}>
-                    <option value="No">{t("No")}</option>
-                    <option value="Yes">{t("Yes")}</option>
-                  </select>
-                </Field>
-              </div>
-
-              {openingQuestionsQuery.isLoading ? <p className="text-sm text-[#6b6258]">{t("Loading opening questions…")}</p> : null}
-              {Object.entries(groupedOpeningQuestions).map(([section, questions]) => (
-                <div key={section} className="space-y-4">
-                  <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#f7f0e7] px-5 py-4">
-                    <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{t("Opening section")}</p>
-                    <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">{t(section)}</h3>
-                  </div>
-                  <div className="grid gap-4">
-                    {section === "Setup" ? (
-                      <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#f7f0e7] p-5">
-                        <div>
-                          <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{t("Counted stock at opening")}</p>
-                          <h4 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">{t("Cups, lids, spoons, and napkins")}</h4>
-                        </div>
-                        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                          {openingStockFields.map(field => (
-                            <Field key={field.key} label={t(field.label)} hint={t(field.group)}>
-                              <input
-                                className={inputClassName()}
-                                type="number"
-                                min="0"
-                                step="1"
-                                value={openingForm.stockCounts[field.key]}
-                                onChange={event =>
-                                  setOpeningForm(current => ({
-                                    ...current,
-                                    stockCounts: {
-                                      ...current.stockCounts,
-                                      [field.key]: event.target.value,
-                                    },
-                                  }))
-                                }
-                              />
-                            </Field>
-                          ))}
-                          {openingNapkinsQuestion ? (
-                            <Field label={t(openingNapkinsQuestion.prompt)} hint={t("Setup")}>
-                              <select
-                                className={inputClassName()}
-                                value={openingAnswers[openingNapkinsQuestion.id]?.answer ?? "No"}
-                                onChange={event =>
-                                  setOpeningAnswers(state => ({
-                                    ...state,
-                                    [openingNapkinsQuestion.id]: {
-                                      answer: event.target.value as YesNo,
-                                      detail: state[openingNapkinsQuestion.id]?.detail ?? "",
-                                    },
-                                  }))
-                                }
-                              >
-                                <option value="No">No</option>
-                                <option value="Yes">Yes</option>
-                              </select>
-                            </Field>
-                          ) : null}
-                        </div>
-                      </div>
-                    ) : null}
-                    {questions.map(question => (
-                      <ChecklistQuestionRow
-                        key={question.id}
-                        question={question}
-                        state={openingAnswers[question.id] ?? { answer: "No", detail: "" }}
-                        onChange={next => setOpeningAnswers(state => ({ ...state, [question.id]: next }))}
-                        language={language}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))}
-
-              <div className="grid gap-5 md:grid-cols-2">
-                <div className="md:col-span-2">
-                  <Field label={t("Notes / issues")}>
-                    <textarea className={textareaClassName()} value={openingForm.notes} onChange={event => setOpeningForm(current => ({ ...current, notes: event.target.value }))} />
-                  </Field>
-                </div>
-              </div>
-
-              <div className="flex w-full">
-                <button disabled={openingMutation.isPending} className="w-full rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
-                  {openingMutation.isPending ? t("Submitting...") : t("Submit Opening Checklist")}
-                </button>
-              </div>
-            </form>
-          </SectionCard>
-
-          <SectionCard
-            id="closing"
-            icon={<MoonStar className="h-5 w-5" />}
-            title={t("Ojalá Closing Checklist")}
-            description=""
-          >
-            <form
-              className="grid gap-6"
-              onSubmit={event => {
-                event.preventDefault();
-                closingMutation.mutate({
-                  businessDate: currentBusinessDate,
-                  staffName: closingForm.staffName,
-                  cashCounted: Number(closingForm.cashCounted || 0),
-                  cashMatchesSystem: closingForm.cashMatchesSystem,
-                  checklistAnswers: buildAnswersPayload(closingQuestions, closingAnswers),
-                  notes: closingForm.notes,
-                });
-              }}
-            >
-              <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-                <Field label={t("Business Date")}>
-                  <div className="flex h-12 items-center rounded-2xl border border-[#d7cec0] bg-white px-4 text-sm font-medium text-[#2d2925]">{currentBusinessDate}</div>
-                </Field>
-                <Field label={t("Staff Name")}>
-                  <input className={inputClassName()} value={closingForm.staffName} onChange={event => setClosingForm(current => ({ ...current, staffName: event.target.value }))} />
-                </Field>
-                <Field label={t("Cash total counted")}>
-                  <input className={inputClassName()} type="number" min="0" step="0.01" value={closingForm.cashCounted} onChange={event => setClosingForm(current => ({ ...current, cashCounted: event.target.value }))} />
-                </Field>
-                <Field label={t("Matches system?")}>
-                  <select className={inputClassName()} value={closingForm.cashMatchesSystem} onChange={event => setClosingForm(current => ({ ...current, cashMatchesSystem: event.target.value as YesNo }))}>
-                    <option value="No">{t("No")}</option>
-                    <option value="Yes">{t("Yes")}</option>
-                  </select>
-                </Field>
-              </div>
-
-              {closingQuestionsQuery.isLoading ? <p className="text-sm text-[#6b6258]">{t("Loading closing questions…")}</p> : null}
-              {Object.entries(groupedClosingQuestions).map(([section, questions]) => (
-                <div key={section} className="space-y-4">
-                  <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#f7f0e7] px-5 py-4">
-                    <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{t("Closing section")}</p>
-                    <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">{t(section)}</h3>
-                  </div>
-                  <div className="grid gap-4">
-                    {questions.map(question => (
-                      <ChecklistQuestionRow
-                        key={question.id}
-                        question={question}
-                        state={closingAnswers[question.id] ?? { answer: "No", detail: "" }}
-                        onChange={next => setClosingAnswers(state => ({ ...state, [question.id]: next }))}
-                        language={language}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))}
-
-              <Field label="Notes / issues">
-                <textarea className={textareaClassName()} value={closingForm.notes} onChange={event => setClosingForm(current => ({ ...current, notes: event.target.value }))} />
-              </Field>
-
-              <div className="flex w-full">
-                <button disabled={closingMutation.isPending} className="w-full rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
-                  {closingMutation.isPending ? t("Submitting...") : t("Submit Closing Checklist")}
-                </button>
-              </div>
-            </form>
-          </SectionCard>
-
-          <SectionCard
-            id="end-of-day"
-            icon={<ReceiptText className="h-5 w-5" />}
-            title={t("End-of-Day Report")}
-            description=""
-          >
-            <form
-              className="grid gap-5 md:grid-cols-2 xl:grid-cols-4"
-              onSubmit={event => {
-                event.preventDefault();
-                endOfDayMutation.mutate({
-                  businessDate: currentBusinessDate,
-                  staffName: endOfDayForm.staffName,
-                  cups4ozHere: Number(endOfDayForm.cups4ozHere || 0),
-                  cups4ozToGo: Number(endOfDayForm.cups4ozToGo || 0),
-                  cups8ozHere: Number(endOfDayForm.cups8ozHere || 0),
-                  cups8ozToGo: Number(endOfDayForm.cups8ozToGo || 0),
-                  cupsPintHere: Number(endOfDayForm.cupsPintHere || 0),
-                  cupsPintToGo: Number(endOfDayForm.cupsPintToGo || 0),
-                  cupsLiterHere: Number(endOfDayForm.cupsLiterHere || 0),
-                  cupsLiterToGo: Number(endOfDayForm.cupsLiterToGo || 0),
-                  cashTotal: Number(endOfDayForm.cashTotal || 0),
-                  cardTotal: Number(endOfDayForm.cardTotal || 0),
-                  zelleTotal: Number(endOfDayForm.zelleTotal || 0),
-                  venmoTotal: Number(endOfDayForm.venmoTotal || 0),
-                  wasteNotes: endOfDayForm.wasteNotes,
-                  lowItemNotes: endOfDayForm.lowItemNotes,
-                  generalNotes: endOfDayForm.generalNotes,
-                });
-              }}
-            >
-              <Field label={t("Date")}>
-                <div className="flex h-12 items-center rounded-2xl border border-[#d7cec0] bg-white px-4 text-sm font-medium text-[#2d2925]">{currentBusinessDate}</div>
-              </Field>
-              <Field label={t("Staff Name")}>
-                <input className={inputClassName()} value={endOfDayForm.staffName} onChange={event => setEndOfDayForm(current => ({ ...current, staffName: event.target.value }))} />
-              </Field>
-
-              <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] p-5 md:col-span-2 xl:col-span-4">
-                <div className="grid gap-4 md:grid-cols-[minmax(120px,180px)_minmax(0,1fr)_minmax(0,1fr)] md:items-end">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{t("Cup counts sold")}</p>
-                    <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#2d2925]">{t("Here and To Go")}</h3>
-                  </div>
-                  <span className="text-sm font-medium uppercase tracking-[0.22em] text-[#8a8176] md:text-center">{t("Here")}</span>
-                  <span className="text-sm font-medium uppercase tracking-[0.22em] text-[#8a8176] md:text-center">{t("To Go")}</span>
-                </div>
-                <div className="mt-5 space-y-3">
-                  {endOfDayCupRows.map(row => (
-                    <div key={row.label} className="grid gap-3 rounded-2xl border border-[#eadfce] bg-white/80 p-3 md:grid-cols-[minmax(120px,180px)_minmax(0,1fr)_minmax(0,1fr)] md:items-center">
-                      <span className="text-sm font-medium text-[#2f2a26]">{row.label}</span>
-                      <input
-                        className={smallInputClassName()}
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={endOfDayForm[row.hereKey]}
-                        onChange={event => setEndOfDayForm(current => ({ ...current, [row.hereKey]: event.target.value }))}
-                      />
-                      <input
-                        className={smallInputClassName()}
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={endOfDayForm[row.toGoKey]}
-                        onChange={event => setEndOfDayForm(current => ({ ...current, [row.toGoKey]: event.target.value }))}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <Field label={t("Cash")}><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.cashTotal} onChange={event => setEndOfDayForm(current => ({ ...current, cashTotal: event.target.value }))} /></Field>
-              <Field label={t("Card")}><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.cardTotal} onChange={event => setEndOfDayForm(current => ({ ...current, cardTotal: event.target.value }))} /></Field>
-              <Field label={t("Venmo")}><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.venmoTotal} onChange={event => setEndOfDayForm(current => ({ ...current, venmoTotal: event.target.value }))} /></Field>
-              <Field label={t("Zelle")}><input className={inputClassName()} type="number" min="0" step="0.01" value={endOfDayForm.zelleTotal} onChange={event => setEndOfDayForm(current => ({ ...current, zelleTotal: event.target.value }))} /></Field>
-
-              <Field label={t("Total Sales")}>
-                <input className={inputClassName()} type="text" value={`$${totalSales.toFixed(2)}`} readOnly />
-              </Field>
-              <Field label={t("Waste Notes")}><textarea className={textareaClassName()} value={endOfDayForm.wasteNotes} onChange={event => setEndOfDayForm(current => ({ ...current, wasteNotes: event.target.value }))} /></Field>
-              <div className="xl:col-span-2"><Field label={t("Low-Item Notes")}><textarea className={textareaClassName()} value={endOfDayForm.lowItemNotes} onChange={event => setEndOfDayForm(current => ({ ...current, lowItemNotes: event.target.value }))} /></Field></div>
-              <div className="xl:col-span-4"><Field label={t("General Notes")}><textarea className={textareaClassName()} value={endOfDayForm.generalNotes} onChange={event => setEndOfDayForm(current => ({ ...current, generalNotes: event.target.value }))} /></Field></div>
-              <div className="md:col-span-2 xl:col-span-4 flex w-full">
-                <button disabled={endOfDayMutation.isPending} className="w-full rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
-                  {endOfDayMutation.isPending ? t("Submitting...") : t("Submit End-of-Day Report")}
-                </button>
-              </div>
-            </form>
-          </SectionCard>
+                </SectionCard>
+              </form>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>

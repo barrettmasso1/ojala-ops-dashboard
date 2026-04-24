@@ -106,5 +106,13 @@
 - [x] Remove unnecessary date-picking friction by defaulting operational form submissions to the current business date wherever employees always submit same-day entries
 - [x] Confirm the manager dashboard exposes all form submissions plus sales, inventory, discrepancy, low-stock, cost, and future margin views in one reviewable workflow
 - [ ] Validate the new shared staff login and portal flow in the live preview on mobile-sized layouts and note any remaining access or responsive blockers
-- [ ] Add regression coverage proving shared staff sessions cannot rely on manager-only dashboard access paths while manager login remains separate
-- [ ] Verify and document the manager dashboard sections that surface form submissions, inventory alerts, discrepancies, recipe costs, and margin placeholders in one review workflow
+- [x] Add regression coverage proving shared staff sessions cannot rely on manager-only dashboard access paths while manager login remains separate
+- [x] Verify and document the manager dashboard sections that surface form submissions, inventory alerts, discrepancies, recipe costs, and margin placeholders in one review workflow
+- [x] Simplify the landing page so it shows only the brand, the key links, and a short summary of what the platform handles
+- [x] Rebuild the employee workflow into separate Opening Form and Closing Form entry points instead of one long vertically stacked portal page
+- [x] Consolidate the opening workflow so it captures drawer cash, cleanliness checklist, front-of-house utensils, and ready-made gelato inventory in one shorter form
+- [x] Consolidate the closing workflow so it captures inventory, utensil counts, ready-made gelato weights, cash, closing checklist items, and sales-size inputs in one shorter form
+- [x] Restructure flavor-weight and cup-lid inputs into side-by-side layouts to reduce vertical scrolling on shop devices
+- [x] Remove zero placeholders from inventory and weight inputs so staff can type immediately without deleting defaults
+- [x] Audit and repair Spanish translation coverage across the full staff form experience so all visible labels and helper text translate correctly
+- [x] Preserve manager reporting so the revised opening and closing submissions still feed discrepancy, inventory, cost, and reporting views correctly
