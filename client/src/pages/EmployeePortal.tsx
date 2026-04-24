@@ -303,10 +303,11 @@ function buildAnswersPayload(questions: ChecklistQuestion[], answers: ChecklistA
 }
 
 export default function EmployeePortal() {
-  const { user, loading } = useAuth({ redirectOnUnauthenticated: true });
+  const { user, loading } = useAuth({ redirectOnUnauthenticated: true, redirectPath: "/staff-login" });
   const utils = trpc.useUtils();
   const [language, setLanguage] = useState<PortalLanguage>("en");
   const t = (text: string) => translatePortalText(text, language);
+  const currentBusinessDate = todayValue();
 
   const [openingForm, setOpeningForm] = useState<OpeningForm>(initialOpeningForm);
   const [closingForm, setClosingForm] = useState<ClosingForm>(initialClosingForm);
@@ -320,7 +321,7 @@ export default function EmployeePortal() {
   const openingQuestionsQuery = trpc.forms.checklistQuestions.useQuery({ checklistType: "opening" });
   const closingQuestionsQuery = trpc.forms.checklistQuestions.useQuery({ checklistType: "closing" });
   const inventoryItemsQuery = trpc.forms.inventoryItems.useQuery();
-  const readyMadeGelatoQuery = trpc.forms.readyMadeGelatoWeights.useQuery({ businessDate: readyMadeGelato.businessDate });
+  const readyMadeGelatoQuery = trpc.forms.readyMadeGelatoWeights.useQuery({ businessDate: currentBusinessDate });
 
   const openingMutation = trpc.forms.submitOpening.useMutation({
     onSuccess: async () => {
@@ -497,7 +498,7 @@ export default function EmployeePortal() {
 
           return entries.length > 0
             ? readyMadeGelatoMutation.mutateAsync({
-                businessDate: readyMadeGelato.businessDate,
+                businessDate: currentBusinessDate,
                 shiftType,
                 entries,
               })
@@ -642,12 +643,9 @@ export default function EmployeePortal() {
                     <div className="mt-4 grid gap-6">
                       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
                         <Field label={t("Business Date")}>
-                          <input
-                            className={inputClassName()}
-                            type="date"
-                            value={readyMadeGelato.businessDate}
-                            onChange={event => setReadyMadeGelato(current => ({ ...current, businessDate: event.target.value }))}
-                          />
+                          <div className="flex h-12 items-center rounded-2xl border border-[#d7cec0] bg-white px-4 text-sm font-medium text-[#2d2925]">
+                            {currentBusinessDate}
+                          </div>
                         </Field>
                         <div className="rounded-[1.5rem] border border-[#e7ddd1] bg-white p-4 shadow-sm">
                           <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{t("Other flavor / flavor of the day")}</p>
@@ -852,7 +850,7 @@ export default function EmployeePortal() {
               onSubmit={event => {
                 event.preventDefault();
                 openingMutation.mutate({
-                  businessDate: openingForm.businessDate,
+                  businessDate: currentBusinessDate,
                   staffName: openingForm.staffName,
                   startingCash: Number(openingForm.startingCash || 0),
                   cashCountedAndCorrect: openingForm.cashCountedAndCorrect,
@@ -875,7 +873,7 @@ export default function EmployeePortal() {
             >
               <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
                 <Field label={t("Business Date")}>
-                  <input className={inputClassName()} type="date" value={openingForm.businessDate} onChange={event => setOpeningForm(current => ({ ...current, businessDate: event.target.value }))} />
+                  <div className="flex h-12 items-center rounded-2xl border border-[#d7cec0] bg-white px-4 text-sm font-medium text-[#2d2925]">{currentBusinessDate}</div>
                 </Field>
                 <Field label={t("Staff Name")}>
                   <input className={inputClassName()} value={openingForm.staffName} onChange={event => setOpeningForm(current => ({ ...current, staffName: event.target.value }))} />
@@ -989,7 +987,7 @@ export default function EmployeePortal() {
               onSubmit={event => {
                 event.preventDefault();
                 closingMutation.mutate({
-                  businessDate: closingForm.businessDate,
+                  businessDate: currentBusinessDate,
                   staffName: closingForm.staffName,
                   cashCounted: Number(closingForm.cashCounted || 0),
                   cashMatchesSystem: closingForm.cashMatchesSystem,
@@ -1000,7 +998,7 @@ export default function EmployeePortal() {
             >
               <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
                 <Field label={t("Business Date")}>
-                  <input className={inputClassName()} type="date" value={closingForm.businessDate} onChange={event => setClosingForm(current => ({ ...current, businessDate: event.target.value }))} />
+                  <div className="flex h-12 items-center rounded-2xl border border-[#d7cec0] bg-white px-4 text-sm font-medium text-[#2d2925]">{currentBusinessDate}</div>
                 </Field>
                 <Field label={t("Staff Name")}>
                   <input className={inputClassName()} value={closingForm.staffName} onChange={event => setClosingForm(current => ({ ...current, staffName: event.target.value }))} />
@@ -1060,7 +1058,7 @@ export default function EmployeePortal() {
               onSubmit={event => {
                 event.preventDefault();
                 endOfDayMutation.mutate({
-                  businessDate: endOfDayForm.businessDate,
+                  businessDate: currentBusinessDate,
                   staffName: endOfDayForm.staffName,
                   cups4ozHere: Number(endOfDayForm.cups4ozHere || 0),
                   cups4ozToGo: Number(endOfDayForm.cups4ozToGo || 0),
@@ -1081,7 +1079,7 @@ export default function EmployeePortal() {
               }}
             >
               <Field label={t("Date")}>
-                <input className={inputClassName()} type="date" value={endOfDayForm.businessDate} onChange={event => setEndOfDayForm(current => ({ ...current, businessDate: event.target.value }))} />
+                <div className="flex h-12 items-center rounded-2xl border border-[#d7cec0] bg-white px-4 text-sm font-medium text-[#2d2925]">{currentBusinessDate}</div>
               </Field>
               <Field label={t("Staff Name")}>
                 <input className={inputClassName()} value={endOfDayForm.staffName} onChange={event => setEndOfDayForm(current => ({ ...current, staffName: event.target.value }))} />

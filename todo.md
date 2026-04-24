@@ -101,3 +101,10 @@
 - [x] Update the inventory catalog par levels for the user-specified ingredients, cups, lids, bags, and spoons while preserving any values still awaiting confirmation
 - [x] Add support for entering other or flavor-of-the-day gelato items in the opening and closing weigh-in workflow
 - [x] Extend manager reconciliation so opening and closing packaging-utensil counts can be compared against sold serving counts and surfaced as discrepancy notes
+- [x] Verify staff can access the live web app cleanly from iPad and phone and identify any remaining mobile or access blockers
+- [x] Add or confirm a shared staff login flow so employees can enter the portal with one generic password while managers retain full dashboard access
+- [x] Remove unnecessary date-picking friction by defaulting operational form submissions to the current business date wherever employees always submit same-day entries
+- [x] Confirm the manager dashboard exposes all form submissions plus sales, inventory, discrepancy, low-stock, cost, and future margin views in one reviewable workflow
+- [ ] Validate the new shared staff login and portal flow in the live preview on mobile-sized layouts and note any remaining access or responsive blockers
+- [ ] Add regression coverage proving shared staff sessions cannot rely on manager-only dashboard access paths while manager login remains separate
+- [ ] Verify and document the manager dashboard sections that surface form submissions, inventory alerts, discrepancies, recipe costs, and margin placeholders in one review workflow

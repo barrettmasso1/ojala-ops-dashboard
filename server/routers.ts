@@ -1,7 +1,9 @@
 import { z } from "zod";
-import { COOKIE_NAME } from "@shared/const";
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { ENV } from "./_core/env";
 import { notifyOwner } from "./_core/notification";
+import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
@@ -22,6 +24,7 @@ import {
   saveInventoryItem,
   saveReadyMadeGelatoWeights,
   updateInventoryCount,
+  upsertUser,
 } from "./db";
 
 const checklistAnswerSchema = z.object({
@@ -139,6 +142,32 @@ export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
+    staffPortalLogin: publicProcedure.input(z.object({ password: z.string().min(1) })).mutation(async ({ ctx, input }) => {
+      if (!ENV.staffPortalPassword || input.password !== ENV.staffPortalPassword) {
+        throw new Error("Invalid staff portal password");
+      }
+
+      const sharedStaffOpenId = "ojala-shared-staff-portal";
+      await upsertUser({
+        openId: sharedStaffOpenId,
+        name: "Ojala Staff",
+        loginMethod: "shared-password",
+        role: "user",
+        lastSignedIn: new Date(),
+      });
+
+      const sessionToken = await sdk.createSessionToken(sharedStaffOpenId, {
+        name: "Ojala Staff",
+        expiresInMs: ONE_YEAR_MS,
+      });
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+
+      return {
+        success: true,
+        role: "user",
+      } as const;
+    }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });

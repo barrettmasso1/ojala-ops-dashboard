@@ -45,14 +45,19 @@ export default function Home() {
                 {isAdmin ? <ActionLink href="/dashboard">Management Access</ActionLink> : null}
               </>
             ) : (
-              <button
-                onClick={() => {
-                  window.location.href = getLoginUrl();
-                }}
-                className="rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]"
-              >
-                Staff Login
-              </button>
+              <>
+                <ActionLink href="/staff-login" tone="secondary">
+                  Staff Login
+                </ActionLink>
+                <button
+                  onClick={() => {
+                    window.location.href = getLoginUrl();
+                  }}
+                  className="rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]"
+                >
+                  Manager Login
+                </button>
+              </>
             )}
           </div>
         </header>
@@ -84,14 +89,17 @@ export default function Home() {
                     </>
                   ) : (
                     <>
+                      <ActionLink href="/staff-login">
+                        Staff login
+                        <ArrowRight className="h-4 w-4" />
+                      </ActionLink>
                       <button
                         onClick={() => {
                           window.location.href = getLoginUrl();
                         }}
-                        className="inline-flex items-center gap-2 rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]"
+                        className="inline-flex items-center gap-2 rounded-full border border-[#ddd4c8] bg-white/88 px-6 py-3 text-sm font-medium text-[#2f2a26] transition hover:bg-white"
                       >
-                        Staff login
-                        <ArrowRight className="h-4 w-4" />
+                        Manager login
                       </button>
                       <a
                         href="https://www.ojalagelato.com/"
@@ -110,7 +118,7 @@ export default function Home() {
                 <p className="text-[11px] uppercase tracking-[0.34em] text-[#7d756b]">Login point</p>
                 <p className="mt-4 text-3xl font-light tracking-[-0.05em] text-[#2d2925]">A subtle staff doorway inside the same Ojalá world.</p>
                 <p className="mt-4 text-sm leading-7 text-[#655d55]">
-                  Customers continue into the public site, while staff use one branded entry to authenticate and reach the right tools for their role.
+                  Customers continue into the public site, while staff use a shared-password portal entry and management uses a separate owner login.
                 </p>
               </section>
 
@@ -128,7 +136,7 @@ export default function Home() {
                 ) : (
                   <>
                     <p className="mt-4 text-3xl font-light tracking-[-0.05em] text-[#2d2925]">Guest</p>
-                    <p className="mt-3 text-sm leading-7 text-[#655d55]">Use the staff login to enter the operational side without breaking the customer-facing brand experience.</p>
+                    <p className="mt-3 text-sm leading-7 text-[#655d55]">Use the staff login for the employee portal, or the separate manager login for dashboard access.</p>
                   </>
                 )}
               </section>

@@ -7,11 +7,13 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import EmployeePortal from "./pages/EmployeePortal";
 import Home from "./pages/Home";
 import ManagerDashboard from "./pages/ManagerDashboard";
+import StaffLogin from "./pages/StaffLogin";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/staff-login" component={StaffLogin} />
       <Route path="/portal" component={EmployeePortal} />
       <Route path="/dashboard" component={ManagerDashboard} />
       <Route path="/cookbook" component={ManagerDashboard} />

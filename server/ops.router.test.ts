@@ -18,32 +18,42 @@ const dbMocks = vi.hoisted(() => ({
   saveInventoryItem: vi.fn(),
   saveReadyMadeGelatoWeights: vi.fn(),
   updateInventoryCount: vi.fn(),
+  upsertUser: vi.fn(),
 }));
 
 const notificationMocks = vi.hoisted(() => ({
   notifyOwner: vi.fn(),
 }));
 
+const sdkMocks = vi.hoisted(() => ({
+  sdk: {
+    createSessionToken: vi.fn(),
+  },
+}));
+
 vi.mock("./db", () => dbMocks);
 vi.mock("./_core/notification", () => notificationMocks);
+vi.mock("./_core/sdk", () => sdkMocks);
 
 const { appRouter } = await import("./routers");
 
 type Role = "admin" | "user";
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
-function createContext(role: Role): TrpcContext {
-  const user: AuthenticatedUser = {
-    id: role === "admin" ? 99 : 1,
-    openId: `${role}-user`,
-    email: `${role}@example.com`,
-    name: role === "admin" ? "Manager" : "Employee",
-    loginMethod: "manus",
-    role,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    lastSignedIn: new Date(),
-  };
+function createContext(role: Role | null): TrpcContext {
+  const user: AuthenticatedUser | null = role
+    ? {
+        id: role === "admin" ? 99 : 1,
+        openId: `${role}-user`,
+        email: `${role}@example.com`,
+        name: role === "admin" ? "Manager" : "Employee",
+        loginMethod: "manus",
+        role,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        lastSignedIn: new Date(),
+      }
+    : null;
 
   return {
     user,
@@ -52,6 +62,7 @@ function createContext(role: Role): TrpcContext {
       headers: {},
     } as TrpcContext["req"],
     res: {
+      cookie: vi.fn(),
       clearCookie: vi.fn(),
     } as unknown as TrpcContext["res"],
   };
@@ -61,6 +72,37 @@ describe("operations router", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     notificationMocks.notifyOwner.mockResolvedValue(true);
+    sdkMocks.sdk.createSessionToken.mockResolvedValue("staff-session-token");
+  });
+
+  it("accepts the configured shared staff portal password and sets a staff session cookie", async () => {
+    const context = createContext(null);
+    const caller = appRouter.createCaller(context);
+
+    const result = await caller.auth.staffPortalLogin({ password: "Ojalagelato727272" });
+
+    expect(result).toEqual({ success: true, role: "user" });
+    expect(dbMocks.upsertUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        openId: "ojala-shared-staff-portal",
+        role: "user",
+        loginMethod: "shared-password",
+      }),
+    );
+    expect(sdkMocks.sdk.createSessionToken).toHaveBeenCalledWith(
+      "ojala-shared-staff-portal",
+      expect.objectContaining({ name: "Ojala Staff" }),
+    );
+    expect((context.res as unknown as { cookie: ReturnType<typeof vi.fn> }).cookie).toHaveBeenCalled();
+  });
+
+  it("blocks non-admin sessions from manager dashboard queries", async () => {
+    const caller = appRouter.createCaller(createContext("user"));
+
+    await expect(caller.dashboard.daily({ businessDate: "2026-04-21" })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    expect(dbMocks.getDailyOperationsSnapshot).not.toHaveBeenCalled();
   });
 
   it("loads editable opening checklist questions for employees", async () => {
