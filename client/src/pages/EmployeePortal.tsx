@@ -99,6 +99,9 @@ type PairedInputConfig = {
   itemName?: string;
 };
 
+export const GELATO_WEIGHT_INPUT_STEP = "0.001";
+export const GELATO_WEIGHT_INPUT_MODE = "decimal" as const;
+
 function todayValue() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -815,7 +818,7 @@ export default function EmployeePortal(props: any) {
                       <input className={smallInputClassName()} type="number" min="0" step="1" value={shift.smallPanCount} onChange={event => updateGelatoField(shiftType, flavor, "smallPanCount", event.target.value)} />
                     </Field>
                     <Field label={t("Small Gross Weight kg")}>
-                      <input className={smallInputClassName()} type="number" min="0" step="0.01" value={shift.smallGrossWeightKg} onChange={event => updateGelatoField(shiftType, flavor, "smallGrossWeightKg", event.target.value)} />
+                      <input className={smallInputClassName()} type="number" min="0" step={GELATO_WEIGHT_INPUT_STEP} inputMode={GELATO_WEIGHT_INPUT_MODE} value={shift.smallGrossWeightKg} onChange={event => updateGelatoField(shiftType, flavor, "smallGrossWeightKg", event.target.value)} />
                     </Field>
                   </div>
                   <div className="grid gap-3 md:grid-cols-2">
@@ -823,7 +826,7 @@ export default function EmployeePortal(props: any) {
                       <input className={smallInputClassName()} type="number" min="0" step="1" value={shift.largePanCount} onChange={event => updateGelatoField(shiftType, flavor, "largePanCount", event.target.value)} />
                     </Field>
                     <Field label={t("Large Gross Weight kg")}>
-                      <input className={smallInputClassName()} type="number" min="0" step="0.01" value={shift.largeGrossWeightKg} onChange={event => updateGelatoField(shiftType, flavor, "largeGrossWeightKg", event.target.value)} />
+                      <input className={smallInputClassName()} type="number" min="0" step={GELATO_WEIGHT_INPUT_STEP} inputMode={GELATO_WEIGHT_INPUT_MODE} value={shift.largeGrossWeightKg} onChange={event => updateGelatoField(shiftType, flavor, "largeGrossWeightKg", event.target.value)} />
                     </Field>
                   </div>
                 </div>

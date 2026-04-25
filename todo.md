@@ -137,3 +137,4 @@
 - [x] Redesign the manager dashboard inventory area into clearer segmented views or tabs such as product, utensil, and ingredient inventory so managers do not need to scroll horizontally across one oversized page
 - [x] Constrain the manager dashboard content to a cleaner page width so major tables and sections fit within a more readable frame
 - [x] Add a show-hide password icon to the staff password-only login field so employees can verify the password while typing
+- [x] Fix the staff-form numeric input validation so decimal gelato weights such as 2.273 and 3.466 are accepted instead of being blocked as invalid numbers during submission
