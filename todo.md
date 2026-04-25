@@ -116,3 +116,9 @@
 - [x] Remove zero placeholders from inventory and weight inputs so staff can type immediately without deleting defaults
 - [x] Audit and repair Spanish translation coverage across the full staff form experience so all visible labels and helper text translate correctly
 - [x] Preserve manager reporting so the revised opening and closing submissions still feed discrepancy, inventory, cost, and reporting views correctly
+- [x] Remove the extra ready-made gelato helper copy beneath the opening and closing gelato sections so the forms stay visually tighter
+- [x] Reformat each ready-made gelato flavor row so Small Pans sits directly beside Small Gross Weight and Large Pans sits directly beside Large Gross Weight to reduce vertical form length further
+- [x] Restructure the staff workflow so there are exactly three forms: Opening, Closing, and one separate full Inventory form
+- [x] Update the Opening Form so it starts with date and first name, then includes the opening checklist, opening money confirmation, and only utensil plus ready-made gelato inventory sections
+- [x] Update the Closing Form so it starts with date and first name, then includes the closing checklist, nightly money and report questions, and the same utensil plus ready-made gelato inventory sections
+- [x] Keep the separate Inventory form for full business inventory including ingredients, ready-made gelato, utensils, and all other inventory categories

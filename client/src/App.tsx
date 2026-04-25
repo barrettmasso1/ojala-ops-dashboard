@@ -7,6 +7,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import ClosingForm from "./pages/ClosingForm";
 import EmployeePortal from "./pages/EmployeePortal";
 import Home from "./pages/Home";
+import InventoryForm from "./pages/InventoryForm";
 import ManagerDashboard from "./pages/ManagerDashboard";
 import OpeningForm from "./pages/OpeningForm";
 import StaffLogin from "./pages/StaffLogin";
@@ -19,6 +20,7 @@ function Router() {
       <Route path="/portal" component={EmployeePortal} />
       <Route path="/portal/opening" component={OpeningForm} />
       <Route path="/portal/closing" component={ClosingForm} />
+      <Route path="/portal/inventory" component={InventoryForm} />
       <Route path="/dashboard" component={ManagerDashboard} />
       <Route path="/cookbook" component={ManagerDashboard} />
       <Route path="/404" component={NotFound} />

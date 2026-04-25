@@ -25,7 +25,7 @@ export default function Home() {
   const staffLinks = [
     { label: "Opening Form", href: "/portal/opening" },
     { label: "Closing Form", href: "/portal/closing" },
-    { label: "Portal Home", href: "/portal" },
+    { label: "Inventory Form", href: "/portal/inventory" },
   ];
 
   return (
@@ -75,13 +75,13 @@ export default function Home() {
           <section className="grid gap-4 md:grid-cols-3">
             {[
               {
-                title: "Opening and closing forms",
-                text: "Separate staff forms keep drawer cash, gelato counts, and checklist questions shorter and easier to finish on mobile.",
+                title: "Three staff forms",
+                text: "Opening, closing, and the separate inventory form keep checklist, money, and count workflows clearly split for faster use on mobile.",
                 icon: <ClipboardCheck className="h-5 w-5" />,
               },
               {
                 title: "Inventory visibility",
-                text: "Side-by-side cups, lids, spoon, and bag counts make it easier to record front counter stock without a long scrolling page.",
+                text: "Opening and closing now focus on utensils plus ready-made gelato, while the separate inventory form handles ingredients and the full store count.",
                 icon: <Package2 className="h-5 w-5" />,
               },
               {
