@@ -1,7 +1,7 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, ArrowRight, LockKeyhole, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ArrowRight, Eye, EyeOff, LockKeyhole, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { toast } from "sonner";
@@ -10,6 +10,7 @@ export default function StaffLogin() {
   const [, setLocation] = useLocation();
   const { user, loading, refresh } = useAuth();
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   const staffLoginMutation = trpc.auth.staffPortalLogin.useMutation({
     onSuccess: async () => {
@@ -94,14 +95,24 @@ After sign-in, the portal opens directly to the opening form with the current bu
               >
                 <label className="grid gap-2 text-sm font-medium text-[#453f39]">
                   Shared staff password
-                  <input
-                    className="h-12 rounded-2xl border border-[#d7cec0] bg-white px-4 text-base text-[#2d2925] outline-none transition focus:border-[#9d8f7d] focus:ring-2 focus:ring-[#d8cebe]"
-                    type="password"
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={event => setPassword(event.target.value)}
-                    placeholder="Enter shop password"
-                  />
+                  <div className="relative">
+                    <input
+                      className="h-12 w-full rounded-2xl border border-[#d7cec0] bg-white px-4 pr-14 text-base text-[#2d2925] outline-none transition focus:border-[#9d8f7d] focus:ring-2 focus:ring-[#d8cebe]"
+                      type={showPassword ? "text" : "password"}
+                      autoComplete="current-password"
+                      value={password}
+                      onChange={event => setPassword(event.target.value)}
+                      placeholder="Enter shop password"
+                    />
+                    <button
+                      type="button"
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      onClick={() => setShowPassword(current => !current)}
+                      className="absolute inset-y-1.5 right-1.5 inline-flex items-center justify-center rounded-xl px-3 text-[#6b6258] transition hover:bg-[#f4ede2] hover:text-[#2d2925]"
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
                 </label>
                 <button
                   type="submit"

@@ -136,3 +136,4 @@
 - [x] Consolidate inventory submission notifications so one inventory form submission sends a single summary alert instead of one message per item update
 - [x] Redesign the manager dashboard inventory area into clearer segmented views or tabs such as product, utensil, and ingredient inventory so managers do not need to scroll horizontally across one oversized page
 - [x] Constrain the manager dashboard content to a cleaner page width so major tables and sections fit within a more readable frame
+- [x] Add a show-hide password icon to the staff password-only login field so employees can verify the password while typing
