@@ -186,8 +186,13 @@ describe("operations router", () => {
     );
     expect(notificationMocks.notifyOwner).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Opening Checklist submitted for 2026-04-21",
+        title: "Opening form submitted for 2026-04-21",
         content: expect.stringContaining("Failed confirmations: 1"),
+      })
+    );
+    expect(notificationMocks.notifyOwner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining("/dashboard"),
       })
     );
   });
@@ -237,8 +242,13 @@ describe("operations router", () => {
     );
     expect(notificationMocks.notifyOwner).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Closing Checklist submitted for 2026-04-21",
+        title: "Closing form submitted for 2026-04-21",
         content: expect.stringContaining("Failed confirmations: 1"),
+      })
+    );
+    expect(notificationMocks.notifyOwner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining("/dashboard"),
       })
     );
   });
@@ -435,8 +445,13 @@ describe("operations router", () => {
     );
     expect(notificationMocks.notifyOwner).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "End-of-Day Report submitted for 2026-04-21",
+        title: "Closing submission recorded for 2026-04-21",
         content: expect.stringContaining("Total sales: $800.00"),
+      })
+    );
+    expect(notificationMocks.notifyOwner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining("/dashboard"),
       })
     );
   });

@@ -428,6 +428,14 @@ export default function ManagerDashboard() {
                       <thead className="bg-[#f4ede2] text-[#60706b]">
                         <tr>
                           <th className="px-4 py-3 font-medium">Flavor</th>
+                          <th className="px-4 py-3 font-medium">Opening small</th>
+                          <th className="px-4 py-3 font-medium">Opening small kg</th>
+                          <th className="px-4 py-3 font-medium">Opening large</th>
+                          <th className="px-4 py-3 font-medium">Opening large kg</th>
+                          <th className="px-4 py-3 font-medium">Closing small</th>
+                          <th className="px-4 py-3 font-medium">Closing small kg</th>
+                          <th className="px-4 py-3 font-medium">Closing large</th>
+                          <th className="px-4 py-3 font-medium">Closing large kg</th>
                           <th className="px-4 py-3 font-medium">Opening vol oz</th>
                           <th className="px-4 py-3 font-medium">Closing vol oz</th>
                           <th className="px-4 py-3 font-medium">Measured distributed vol oz</th>
@@ -437,6 +445,14 @@ export default function ManagerDashboard() {
                         {daily.gelato.flavors.map(item => (
                           <tr key={item.flavor}>
                             <td className="px-4 py-3">{item.flavor}</td>
+                            <td className="px-4 py-3">{item.opening.smallPanCount}</td>
+                            <td className="px-4 py-3">{item.opening.smallGrossWeightKg.toFixed(2)}</td>
+                            <td className="px-4 py-3">{item.opening.largePanCount}</td>
+                            <td className="px-4 py-3">{item.opening.largeGrossWeightKg.toFixed(2)}</td>
+                            <td className="px-4 py-3">{item.closing.smallPanCount}</td>
+                            <td className="px-4 py-3">{item.closing.smallGrossWeightKg.toFixed(2)}</td>
+                            <td className="px-4 py-3">{item.closing.largePanCount}</td>
+                            <td className="px-4 py-3">{item.closing.largeGrossWeightKg.toFixed(2)}</td>
                             <td className="px-4 py-3">{item.opening.totalVolumeOunces.toFixed(2)}</td>
                             <td className="px-4 py-3">{item.closing.totalVolumeOunces.toFixed(2)}</td>
                             <td className="px-4 py-3">{item.usedVolumeOunces.toFixed(2)}</td>

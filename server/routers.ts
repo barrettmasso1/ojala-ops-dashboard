@@ -56,6 +56,7 @@ const openingChecklistSchema = z.object({
   stockCounts: openingStockCountsSchema,
   checklistAnswers: z.array(checklistAnswerSchema).min(1),
   notes: z.string().optional().default(""),
+  notifyOwner: z.boolean().optional().default(true),
 });
 
 const closingChecklistSchema = z.object({
@@ -65,6 +66,7 @@ const closingChecklistSchema = z.object({
   cashMatchesSystem: z.enum(["Yes", "No"]),
   checklistAnswers: z.array(checklistAnswerSchema).min(1),
   notes: z.string().optional().default(""),
+  notifyOwner: z.boolean().optional().default(true),
 });
 
 const endOfDayReportSchema = z.object({
@@ -85,6 +87,7 @@ const endOfDayReportSchema = z.object({
   wasteNotes: z.string().optional().default(""),
   lowItemNotes: z.string().optional().default(""),
   generalNotes: z.string().optional().default(""),
+  notifyOwner: z.boolean().optional().default(true),
 });
 
 const inventoryItemSchema = z.object({
@@ -108,6 +111,7 @@ const inventoryUpdateSchema = z.object({
   id: z.number().int().positive(),
   currentQuantity: z.number().min(0),
   notes: z.string().optional().default(""),
+  notifyOwner: z.boolean().optional().default(true),
 });
 
 const readyMadeGelatoShiftTypeSchema = z.enum(["opening", "closing"]);
@@ -124,6 +128,7 @@ const readyMadeGelatoSchema = z.object({
   businessDate: z.string().optional(),
   shiftType: readyMadeGelatoShiftTypeSchema,
   entries: z.array(readyMadeGelatoEntrySchema).min(1),
+  notifyOwner: z.boolean().optional().default(true),
 });
 
 const checklistTypeSchema = z.enum(["opening", "closing"]);
@@ -137,6 +142,22 @@ const checklistQuestionSchema = z.object({
   detailTrigger: z.enum(["Yes", "No", "Never"]),
   displayOrder: z.number().int().min(0),
 });
+
+function buildDashboardUrl(req: { protocol?: string; headers: Record<string, string | string[] | undefined>; get?: (name: string) => string | undefined }) {
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  const forwardedHost = req.headers["x-forwarded-host"];
+  const protocol =
+    req.protocol === "https" || (Array.isArray(forwardedProto) ? forwardedProto.join(",") : forwardedProto ?? "").includes("https")
+      ? "https"
+      : req.protocol || "http";
+  const host =
+    (typeof req.get === "function" ? req.get("host") : undefined) ||
+    (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost) ||
+    req.headers.host ||
+    "";
+
+  return host ? `${protocol}://${host}/dashboard` : "/dashboard";
+}
 
 export const appRouter = router({
   system: systemRouter,
@@ -187,10 +208,12 @@ export const appRouter = router({
         notes: input.notes ?? "",
       });
 
-      await notifyOwner({
-        title: `Inventory updated: ${item.itemName}`,
-        content: `${ctx.user.name || "A team member"} updated ${item.itemName} to ${item.currentQuantity} ${item.unitType}.`,
-      });
+      if (input.notifyOwner) {
+        await notifyOwner({
+          title: `Inventory updated: ${item.itemName}`,
+          content: `${ctx.user.name || "A team member"} updated ${item.itemName} to ${item.currentQuantity} ${item.unitType}. Review: ${buildDashboardUrl(ctx.req)}`,
+        });
+      }
 
       return { success: true, item } as const;
     }),
@@ -208,10 +231,12 @@ export const appRouter = router({
         })),
       });
 
-      await notifyOwner({
-        title: `Ready-made gelato ${input.shiftType} saved: ${input.businessDate || new Date().toISOString().slice(0, 10)}`,
-        content: `${ctx.user.name || "A team member"} saved ${records.length} ${input.shiftType} gelato measurements for ${input.businessDate || new Date().toISOString().slice(0, 10)}.`,
-      });
+      if (input.notifyOwner) {
+        await notifyOwner({
+          title: `Ready-made gelato ${input.shiftType} saved: ${input.businessDate || new Date().toISOString().slice(0, 10)}`,
+          content: `${ctx.user.name || "A team member"} saved ${records.length} ${input.shiftType} gelato measurements for ${input.businessDate || new Date().toISOString().slice(0, 10)}. Review: ${buildDashboardUrl(ctx.req)}`,
+        });
+      }
 
       return { success: true, records } as const;
     }),
@@ -246,10 +271,12 @@ export const appRouter = router({
       });
 
       const failedItems = input.checklistAnswers.filter(item => item.answer === "No").length;
-      await notifyOwner({
-        title: `Opening Checklist submitted for ${record.businessDate}`,
-        content: `${record.staffName} submitted the opening checklist. Cash counted and correct: ${record.cashMatchesSystem}. Store ready: ${record.storeReadyStatus}. Failed confirmations: ${failedItems}.`,
-      });
+      if (input.notifyOwner) {
+        await notifyOwner({
+          title: `Opening form submitted for ${record.businessDate}`,
+          content: `${record.staffName} submitted the opening form. Cash counted and correct: ${record.cashMatchesSystem}. Store ready: ${record.storeReadyStatus}. Failed confirmations: ${failedItems}. Review: ${buildDashboardUrl(ctx.req)}`,
+        });
+      }
 
       return { success: true } as const;
     }),
@@ -277,10 +304,12 @@ export const appRouter = router({
       });
 
       const failedItems = input.checklistAnswers.filter(item => item.answer === "No").length;
-      await notifyOwner({
-        title: `Closing Checklist submitted for ${record.businessDate}`,
-        content: `${record.staffName} submitted the closing checklist. Cash match: ${record.cashMatchesSystem}. Store closed: ${record.storeClosedStatus}. Failed confirmations: ${failedItems}.`,
-      });
+      if (input.notifyOwner) {
+        await notifyOwner({
+          title: `Closing form submitted for ${record.businessDate}`,
+          content: `${record.staffName} submitted the closing form. Cash match: ${record.cashMatchesSystem}. Store closed: ${record.storeClosedStatus}. Failed confirmations: ${failedItems}. Review: ${buildDashboardUrl(ctx.req)}`,
+        });
+      }
 
       return { success: true } as const;
     }),
@@ -302,10 +331,12 @@ export const appRouter = router({
       });
 
       const totalSales = input.cashTotal + input.cardTotal + input.zelleTotal + input.venmoTotal;
-      await notifyOwner({
-        title: `End-of-Day Report submitted for ${record.businessDate}`,
-        content: `${record.staffName} submitted the end-of-day report. Total sales: $${totalSales.toFixed(2)}.`,
-      });
+      if (input.notifyOwner) {
+        await notifyOwner({
+          title: `Closing submission recorded for ${record.businessDate}`,
+          content: `${record.staffName} submitted the closing sales report. Total sales: $${totalSales.toFixed(2)}. Review: ${buildDashboardUrl(ctx.req)}`,
+        });
+      }
 
       return { success: true } as const;
     }),

@@ -3,13 +3,19 @@ import { type PortalLanguage, translateErrorMessage, translatePortalText } from 
 import { getOpeningNapkinsQuestion, groupOpeningQuestionsForPortal } from "@/lib/openingSetup";
 import { trpc } from "@/lib/trpc";
 import { ArrowRight, ClipboardCheck, House, MoonStar, Package2, ReceiptText, SunMedium } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Link, useLocation } from "wouter";
 import { READY_MADE_GELATO_FLAVORS } from "../../../shared/opsCatalog";
 
 type YesNo = "Yes" | "No";
 type PortalView = "hub" | "opening" | "closing" | "inventory";
+
+type SubmissionNotice = {
+  view: Exclude<PortalView, "hub">;
+  title: string;
+  detail: string;
+};
 
 type ChecklistQuestion = {
   id: number;
@@ -370,6 +376,9 @@ export default function EmployeePortal(props: any) {
   const [serviceInventoryCounts, setServiceInventoryCounts] = useState<Record<number, string>>({});
   const [readyMadeGelato, setReadyMadeGelato] = useState<ReadyMadeGelatoState>(() => initialReadyMadeGelatoState());
   const [otherFlavorName, setOtherFlavorName] = useState("");
+  const [submissionNotice, setSubmissionNotice] = useState<SubmissionNotice | null>(null);
+  const openingStaffNameRef = useRef<HTMLInputElement | null>(null);
+  const closingStaffNameRef = useRef<HTMLInputElement | null>(null);
 
   const openingQuestionsQuery = trpc.forms.checklistQuestions.useQuery({ checklistType: "opening" });
   const closingQuestionsQuery = trpc.forms.checklistQuestions.useQuery({ checklistType: "closing" });
@@ -412,9 +421,9 @@ export default function EmployeePortal(props: any) {
 
   const readyMadeGelatoFlavorNames = useMemo(() => {
     const seeded = READY_MADE_GELATO_FLAVORS.filter(flavor => flavor in readyMadeGelato.flavors);
-    const custom = Object.keys(readyMadeGelato.flavors)
-      .filter(flavor => !READY_MADE_GELATO_FLAVORS.includes(flavor as (typeof READY_MADE_GELATO_FLAVORS)[number]))
-      .sort((a, b) => a.localeCompare(b));
+    const custom = Object.keys(readyMadeGelato.flavors).filter(
+      flavor => !READY_MADE_GELATO_FLAVORS.includes(flavor as (typeof READY_MADE_GELATO_FLAVORS)[number]),
+    );
     return [...seeded, ...custom];
   }, [readyMadeGelato.flavors]);
 
@@ -572,13 +581,40 @@ export default function EmployeePortal(props: any) {
     ]);
   }
 
+  function getNormalizedStaffName(rawName: string, fallbackValue?: string | null) {
+    return rawName.trim() || fallbackValue?.trim() || "";
+  }
+
+  function validateStaffName(name: string, ref?: React.RefObject<HTMLInputElement | null>) {
+    if (name.trim()) return true;
+    ref?.current?.focus();
+    toast.error(t("Please enter a first name before submitting."));
+    return false;
+  }
+
+  function showSubmissionNotice(view: Exclude<PortalView, "hub">, title: string, detail: string) {
+    setSubmissionNotice({ view, title, detail });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function submitInventoryPayloads(payloads: Array<{ id: number; currentQuantity: number; notes: string }>) {
+    for (const payload of payloads) {
+      await inventoryMutation.mutateAsync(payload);
+    }
+  }
+
   async function handleOpeningSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const normalizedStaffName = getNormalizedStaffName(openingForm.staffName, openingStaffNameRef.current?.value);
+    if (!validateStaffName(normalizedStaffName, openingStaffNameRef)) return;
+    if (normalizedStaffName !== openingForm.staffName) {
+      setOpeningForm(current => ({ ...current, staffName: normalizedStaffName }));
+    }
 
     try {
       await openingMutation.mutateAsync({
         businessDate: currentBusinessDate,
-        staffName: openingForm.staffName,
+        staffName: normalizedStaffName,
         startingCash: Number(openingForm.startingCash || 0),
         cashCountedAndCorrect: openingForm.cashCountedAndCorrect,
         storeReadyToOpen: openingAnswers[storeReadyQuestion?.id ?? -1]?.answer ?? "No",
@@ -597,16 +633,16 @@ export default function EmployeePortal(props: any) {
         checklistAnswers: buildAnswersPayload(openingQuestions, openingAnswers),
       });
 
-      await Promise.all([
-        readyMadeGelatoMutation.mutateAsync({
-          businessDate: currentBusinessDate,
-          shiftType: "opening",
-          entries: buildReadyMadeEntries("opening"),
-        }),
-        ...buildLimitedInventoryPayloads("opening").map(payload => inventoryMutation.mutateAsync(payload)),
-      ]);
+      await readyMadeGelatoMutation.mutateAsync({
+        businessDate: currentBusinessDate,
+        shiftType: "opening",
+        notifyOwner: false,
+        entries: buildReadyMadeEntries("opening"),
+      });
+      await submitInventoryPayloads(buildLimitedInventoryPayloads("opening").map(payload => ({ ...payload, notifyOwner: false })));
 
       toast.success(t("Opening form submitted."));
+      showSubmissionNotice("opening", t("Opening form submitted."), `${t("Saved for")} ${normalizedStaffName} · ${currentBusinessDate}. ${t("Managers can review it in the dashboard.")}`);
       setOpeningForm(initialOpeningForm());
       setOpeningAnswers({});
       await refreshAfterSubmission();
@@ -617,46 +653,53 @@ export default function EmployeePortal(props: any) {
 
   async function handleClosingSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const normalizedStaffName = getNormalizedStaffName(closingForm.staffName, closingStaffNameRef.current?.value);
+    if (!validateStaffName(normalizedStaffName, closingStaffNameRef)) return;
+    if (normalizedStaffName !== closingForm.staffName) {
+      setClosingForm(current => ({ ...current, staffName: normalizedStaffName }));
+    }
 
     try {
       await closingMutation.mutateAsync({
         businessDate: currentBusinessDate,
-        staffName: closingForm.staffName,
+        staffName: normalizedStaffName,
         cashCounted: Number(closingForm.cashCounted || 0),
         cashMatchesSystem: closingForm.cashMatchesSystem,
         notes: closingForm.notes,
+        notifyOwner: false,
         checklistAnswers: buildAnswersPayload(closingQuestions, closingAnswers),
       });
 
-      await Promise.all([
-        readyMadeGelatoMutation.mutateAsync({
-          businessDate: currentBusinessDate,
-          shiftType: "closing",
-          entries: buildReadyMadeEntries("closing"),
-        }),
-        ...buildLimitedInventoryPayloads("closing").map(payload => inventoryMutation.mutateAsync(payload)),
-        endOfDayMutation.mutateAsync({
-          businessDate: currentBusinessDate,
-          staffName: closingForm.staffName,
-          cups4ozHere: Number(closingForm.cups4ozHere || 0),
-          cups4ozToGo: Number(closingForm.cups4ozToGo || 0),
-          cups8ozHere: Number(closingForm.cups8ozHere || 0),
-          cups8ozToGo: Number(closingForm.cups8ozToGo || 0),
-          cupsPintHere: Number(closingForm.cupsPintHere || 0),
-          cupsPintToGo: Number(closingForm.cupsPintToGo || 0),
-          cupsLiterHere: Number(closingForm.cupsLiterHere || 0),
-          cupsLiterToGo: Number(closingForm.cupsLiterToGo || 0),
-          cashTotal: Number(closingForm.cashTotal || 0),
-          cardTotal: Number(closingForm.cardTotal || 0),
-          zelleTotal: Number(closingForm.zelleTotal || 0),
-          venmoTotal: Number(closingForm.venmoTotal || 0),
-          wasteNotes: closingForm.wasteNotes,
-          lowItemNotes: closingForm.lowItemNotes,
-          generalNotes: closingForm.generalNotes,
-        }),
-      ]);
+      await readyMadeGelatoMutation.mutateAsync({
+        businessDate: currentBusinessDate,
+        shiftType: "closing",
+        notifyOwner: false,
+        entries: buildReadyMadeEntries("closing"),
+      });
+      await submitInventoryPayloads(buildLimitedInventoryPayloads("closing").map(payload => ({ ...payload, notifyOwner: false })));
+      await endOfDayMutation.mutateAsync({
+        businessDate: currentBusinessDate,
+        staffName: normalizedStaffName,
+        notifyOwner: true,
+        cups4ozHere: Number(closingForm.cups4ozHere || 0),
+        cups4ozToGo: Number(closingForm.cups4ozToGo || 0),
+        cups8ozHere: Number(closingForm.cups8ozHere || 0),
+        cups8ozToGo: Number(closingForm.cups8ozToGo || 0),
+        cupsPintHere: Number(closingForm.cupsPintHere || 0),
+        cupsPintToGo: Number(closingForm.cupsPintToGo || 0),
+        cupsLiterHere: Number(closingForm.cupsLiterHere || 0),
+        cupsLiterToGo: Number(closingForm.cupsLiterToGo || 0),
+        cashTotal: Number(closingForm.cashTotal || 0),
+        cardTotal: Number(closingForm.cardTotal || 0),
+        zelleTotal: Number(closingForm.zelleTotal || 0),
+        venmoTotal: Number(closingForm.venmoTotal || 0),
+        wasteNotes: closingForm.wasteNotes,
+        lowItemNotes: closingForm.lowItemNotes,
+        generalNotes: closingForm.generalNotes,
+      });
 
       toast.success(t("Closing form submitted."));
+      showSubmissionNotice("closing", t("Closing form submitted."), `${t("Saved for")} ${normalizedStaffName} · ${currentBusinessDate}. ${t("Managers can review it in the dashboard.")}`);
       setClosingForm(initialClosingForm());
       setClosingAnswers({});
       await refreshAfterSubmission();
@@ -678,6 +721,7 @@ export default function EmployeePortal(props: any) {
         }),
       ]);
       toast.success(t("Inventory and ready-made gelato updated."));
+      showSubmissionNotice("inventory", t("Inventory and ready-made gelato updated."), `${t("Saved for")} ${currentBusinessDate}. ${t("Managers can review it in the dashboard.")}`);
       await refreshAfterSubmission();
     } catch {
       // Shared mutation handlers surface the error toast.
@@ -736,27 +780,7 @@ export default function EmployeePortal(props: any) {
             : t("Count ready-made gelato for the closing form before finishing the nightly inventory section."))
         }
       >
-        {allowAddFlavor ? (
-          <div className="flex justify-end">
-            <div className="flex w-full flex-col gap-2 md:max-w-sm md:flex-row">
-              <input
-                className={inputClassName()}
-                value={otherFlavorName}
-                onChange={event => setOtherFlavorName(event.target.value)}
-                placeholder={t("Add custom flavor")}
-              />
-              <button
-                type="button"
-                onClick={addCustomFlavor}
-                className="rounded-full border border-[#ddd4c8] bg-white px-5 py-3 text-sm font-medium text-[#2f2a26] transition hover:bg-[#f5eee5]"
-              >
-                {t("Add flavor")}
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        <div className={`${allowAddFlavor ? "mt-6 " : ""}grid gap-4 xl:grid-cols-2`}>
+        <div className="grid gap-4 xl:grid-cols-2">
           {readyMadeGelatoFlavorNames.map(flavor => {
             const shift = readyMadeGelato.flavors[flavor]?.[shiftType] ?? initialReadyMadeGelatoShiftState();
             return (
@@ -787,6 +811,26 @@ export default function EmployeePortal(props: any) {
             );
           })}
         </div>
+
+        {allowAddFlavor ? (
+          <div className="mt-6 flex justify-end">
+            <div className="flex w-full flex-col gap-2 md:max-w-sm md:flex-row">
+              <input
+                className={inputClassName()}
+                value={otherFlavorName}
+                onChange={event => setOtherFlavorName(event.target.value)}
+                placeholder={t("Add custom flavor")}
+              />
+              <button
+                type="button"
+                onClick={addCustomFlavor}
+                className="rounded-full border border-[#ddd4c8] bg-white px-5 py-3 text-sm font-medium text-[#2f2a26] transition hover:bg-[#f5eee5]"
+              >
+                {t("Add flavor")}
+              </button>
+            </div>
+          </div>
+        ) : null}
       </SectionCard>
     );
   }
@@ -934,7 +978,13 @@ export default function EmployeePortal(props: any) {
             ) : null}
 
             {portalView === "opening" ? (
-              <form className="grid gap-6" onSubmit={handleOpeningSubmit}>
+              <form className="grid gap-6" noValidate onSubmit={handleOpeningSubmit}>
+                {submissionNotice?.view === "opening" ? (
+                  <div className="rounded-[1.75rem] border border-emerald-200 bg-emerald-50 px-5 py-4 text-[#1f4d3b] shadow-sm">
+                    <p className="text-sm font-semibold tracking-[-0.02em]">{submissionNotice.title}</p>
+                    <p className="mt-2 text-sm leading-6 text-[#2c5b49]">{submissionNotice.detail}</p>
+                  </div>
+                ) : null}
                 <SectionCard
                   icon={<SunMedium className="h-5 w-5" />}
                   title={t("Opening Form")}
@@ -945,7 +995,7 @@ export default function EmployeePortal(props: any) {
                       <div className="flex h-12 items-center rounded-2xl border border-[#d7cec0] bg-white px-4 text-sm font-medium text-[#2d2925]">{currentBusinessDate}</div>
                     </Field>
                     <Field label={t("First Name")}>
-                      <input className={inputClassName()} value={openingForm.staffName} onChange={event => setOpeningForm(current => ({ ...current, staffName: event.target.value }))} />
+                      <input ref={openingStaffNameRef} className={inputClassName()} type="text" autoComplete="given-name" value={openingForm.staffName} onChange={event => setOpeningForm(current => ({ ...current, staffName: event.target.value }))} />
                     </Field>
                   </div>
                 </SectionCard>
@@ -1015,7 +1065,7 @@ export default function EmployeePortal(props: any) {
                     ))}
                   </div>
                   <div className="mt-6 flex w-full">
-                    <button disabled={openingMutation.isPending || inventoryMutation.isPending || readyMadeGelatoMutation.isPending} className="w-full rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
+                    <button type="submit" disabled={openingMutation.isPending || inventoryMutation.isPending || readyMadeGelatoMutation.isPending} className="w-full rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
                       {openingMutation.isPending || inventoryMutation.isPending || readyMadeGelatoMutation.isPending ? t("Submitting...") : t("Submit Opening Form")}
                     </button>
                   </div>
@@ -1024,7 +1074,13 @@ export default function EmployeePortal(props: any) {
             ) : null}
 
             {portalView === "closing" ? (
-              <form className="grid gap-6" onSubmit={handleClosingSubmit}>
+              <form className="grid gap-6" noValidate onSubmit={handleClosingSubmit}>
+                {submissionNotice?.view === "closing" ? (
+                  <div className="rounded-[1.75rem] border border-emerald-200 bg-emerald-50 px-5 py-4 text-[#1f4d3b] shadow-sm">
+                    <p className="text-sm font-semibold tracking-[-0.02em]">{submissionNotice.title}</p>
+                    <p className="mt-2 text-sm leading-6 text-[#2c5b49]">{submissionNotice.detail}</p>
+                  </div>
+                ) : null}
                 <SectionCard
                   icon={<MoonStar className="h-5 w-5" />}
                   title={t("Closing Form")}
@@ -1035,7 +1091,7 @@ export default function EmployeePortal(props: any) {
                       <div className="flex h-12 items-center rounded-2xl border border-[#d7cec0] bg-white px-4 text-sm font-medium text-[#2d2925]">{currentBusinessDate}</div>
                     </Field>
                     <Field label={t("First Name")}>
-                      <input className={inputClassName()} value={closingForm.staffName} onChange={event => setClosingForm(current => ({ ...current, staffName: event.target.value }))} />
+                      <input ref={closingStaffNameRef} className={inputClassName()} type="text" autoComplete="given-name" value={closingForm.staffName} onChange={event => setClosingForm(current => ({ ...current, staffName: event.target.value }))} />
                     </Field>
                   </div>
                 </SectionCard>
@@ -1129,7 +1185,7 @@ export default function EmployeePortal(props: any) {
                     ))}
                   </div>
                   <div className="mt-6 flex w-full">
-                    <button disabled={closingMutation.isPending || endOfDayMutation.isPending || inventoryMutation.isPending || readyMadeGelatoMutation.isPending} className="w-full rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
+                    <button type="submit" disabled={closingMutation.isPending || endOfDayMutation.isPending || inventoryMutation.isPending || readyMadeGelatoMutation.isPending} className="w-full rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
                       {closingMutation.isPending || endOfDayMutation.isPending || inventoryMutation.isPending || readyMadeGelatoMutation.isPending ? t("Submitting...") : t("Submit Closing Form")}
                     </button>
                   </div>
@@ -1139,6 +1195,12 @@ export default function EmployeePortal(props: any) {
 
             {portalView === "inventory" ? (
               <form className="grid gap-6" onSubmit={handleInventorySubmit}>
+                {submissionNotice?.view === "inventory" ? (
+                  <div className="rounded-[1.75rem] border border-emerald-200 bg-emerald-50 px-5 py-4 text-[#1f4d3b] shadow-sm">
+                    <p className="text-sm font-semibold tracking-[-0.02em]">{submissionNotice.title}</p>
+                    <p className="mt-2 text-sm leading-6 text-[#2c5b49]">{submissionNotice.detail}</p>
+                  </div>
+                ) : null}
                 <SectionCard
                   icon={<Package2 className="h-5 w-5" />}
                   title={t("Inventory Form")}
@@ -1181,7 +1243,7 @@ export default function EmployeePortal(props: any) {
                     ))}
                   </div>
                   <div className="mt-6 flex w-full">
-                    <button disabled={inventoryMutation.isPending || readyMadeGelatoMutation.isPending} className="w-full rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
+                    <button type="submit" disabled={inventoryMutation.isPending || readyMadeGelatoMutation.isPending} className="w-full rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
                       {inventoryMutation.isPending || readyMadeGelatoMutation.isPending ? t("Saving inventory and gelato...") : t("Save inventory and gelato updates")}
                     </button>
                   </div>

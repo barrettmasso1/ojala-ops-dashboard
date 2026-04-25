@@ -13,6 +13,9 @@ describe("employee portal translations", () => {
     expect(translatePortalText("Inventory Form", "es")).toBe("Formulario de inventario");
     expect(translatePortalText("Open Inventory Form", "es")).toBe("Abrir formulario de inventario");
     expect(translatePortalText("First Name", "es")).toBe("Nombre");
+    expect(translatePortalText("Please enter a first name before submitting.", "es")).toBe("Ingresa un nombre antes de enviar.");
+    expect(translatePortalText("Saved for", "es")).toBe("Guardado para");
+    expect(translatePortalText("Managers can review it in the dashboard.", "es")).toBe("La gerencia puede revisarlo en el panel.");
     expect(translatePortalText("Opening Cash", "es")).toBe("Caja de apertura");
     expect(translatePortalText("Nightly Money and Report", "es")).toBe("Dinero y reporte nocturnos");
     expect(translatePortalText("Utensil and Counter Inventory", "es")).toBe("Inventario de utensilios y mostrador");

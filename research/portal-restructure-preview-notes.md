@@ -23,3 +23,11 @@ Attempting to open `/staff-login` in the live preview redirected into the authen
 ## Gelato-row tightening validation
 
 The opening and closing ready-made gelato sections no longer display the extra helper copy that previously sat under the section heading. In both routes, the visible flavor cards now place **Small Pans** directly beside **Small Gross Weight kg**, with **Large Pans** directly beside **Large Gross Weight kg** on the next row. The live preview confirmed that this tighter pair-based structure is rendering across the visible flavors in both the opening and closing forms.
+
+## Opening submit bug debug note
+
+A direct browser validity check on the current opening form returned `formValid: true` with no invalid elements before submission. That indicates the bounce-to-top behavior is not being caused by native HTML required-field validation in the visible form state and is more likely coming from the application submit flow or one of the async save calls.
+
+## Repeated submit failure investigation update
+
+A scripted validity check still showed the opening form itself was natively valid, so the failure does not look like basic required-field HTML validation. A scripted submit attempt triggered the client toast `Please enter a first name before submitting.`, which confirmed that no network requests were fired when the handler believed the first-name state was empty. A direct browser input later showed the visible first-name field and starting-cash field can both be populated in the UI, so the next debugging step is to reproduce an actual click on the real submit button and inspect whether the React state is losing that first-name value or another client-side guard is still preventing the mutation call.

@@ -105,7 +105,7 @@
 - [x] Add or confirm a shared staff login flow so employees can enter the portal with one generic password while managers retain full dashboard access
 - [x] Remove unnecessary date-picking friction by defaulting operational form submissions to the current business date wherever employees always submit same-day entries
 - [x] Confirm the manager dashboard exposes all form submissions plus sales, inventory, discrepancy, low-stock, cost, and future margin views in one reviewable workflow
-- [ ] Validate the new shared staff login and portal flow in the live preview on mobile-sized layouts and note any remaining access or responsive blockers
+- [x] Validate the new shared staff login and portal flow in the live preview on mobile-sized layouts and note any remaining access or responsive blockers
 - [x] Add regression coverage proving shared staff sessions cannot rely on manager-only dashboard access paths while manager login remains separate
 - [x] Verify and document the manager dashboard sections that surface form submissions, inventory alerts, discrepancies, recipe costs, and margin placeholders in one review workflow
 - [x] Simplify the landing page so it shows only the brand, the key links, and a short summary of what the platform handles
@@ -122,3 +122,13 @@
 - [x] Update the Opening Form so it starts with date and first name, then includes the opening checklist, opening money confirmation, and only utensil plus ready-made gelato inventory sections
 - [x] Update the Closing Form so it starts with date and first name, then includes the closing checklist, nightly money and report questions, and the same utensil plus ready-made gelato inventory sections
 - [x] Keep the separate Inventory form for full business inventory including ingredients, ready-made gelato, utensils, and all other inventory categories
+- [ ] Re-test `/staff-login` in a clean or incognito browser session and verify shared staff password login lands on the intended portal route without redirecting to the manager dashboard
+- [ ] Document mobile-sized validation results for the fresh shared staff login flow, including any remaining responsive or access blockers after successful clean-session testing
+- [x] Move the custom-flavor add controls to the bottom of the ready-made gelato list and append any new flavor to the bottom of that list
+- [x] Fix the opening and closing form submission bug where submit jumps back to the top instead of saving even when the visible required fields are filled
+- [x] Trace the opening and closing submit flow end to end to identify the exact mutation or validation failure causing filled forms not to save
+- [x] Add visible error handling so staff see a clear failure reason instead of the form appearing to jump or reset without saving
+- [x] Protect staff-entered data during failed submissions so a blocked save does not waste a completed form entry
+- [x] Fix the ready-made gelato submission pipeline so employee-entered opening and closing values appear correctly in the manager dashboard and reports
+- [x] Add a clear post-submit employee confirmation state so staff can immediately see that an opening, closing, or inventory submission succeeded
+- [x] Send an owner notification for each new employee submission with a direct dashboard link, using the best supported delivery channel for this project
