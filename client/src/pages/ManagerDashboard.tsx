@@ -104,6 +104,7 @@ export default function ManagerDashboard() {
   const [location, setLocation] = useLocation();
   const utils = trpc.useUtils();
   const [selectedDate, setSelectedDate] = useState(todayValue());
+  const [inventoryDashboardView, setInventoryDashboardView] = useState<"product" | "utensils" | "ingredients">("product");
   const [inventoryForm, setInventoryForm] = useState({
     id: undefined as number | undefined,
     department: "Ingredients",
@@ -250,10 +251,19 @@ export default function ManagerDashboard() {
   const recipes = recipesQuery.data ?? [];
   const openingChecklistQuestions = openingChecklistQuery.data ?? [];
   const closingChecklistQuestions = closingChecklistQuery.data ?? [];
+  const filteredManagerInventoryItems = inventoryItems
+    .filter(item =>
+      inventoryDashboardView === "ingredients"
+        ? item.department === "Ingredients"
+        : inventoryDashboardView === "utensils"
+          ? item.department === "Utensils & Cleaning"
+          : false
+    )
+    .sort((a, b) => a.category.localeCompare(b.category) || a.itemName.localeCompare(b.itemName));
 
   return (
     <DashboardLayout>
-      <div className="space-y-8">
+      <div className="mx-auto w-full max-w-[1440px] space-y-8">
         <SurfaceCard className="overflow-hidden p-0">
           <div className="grid gap-0 lg:grid-cols-[1.12fr_0.88fr]">
             <div className="border-b border-[#e4dccf] p-8 lg:border-b-0 lg:border-r lg:p-10">
@@ -613,76 +623,129 @@ export default function ManagerDashboard() {
               )}
             </div>
 
-            <div className="mt-6 overflow-x-auto rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6]">
-              <table className="w-full min-w-[980px] text-left text-sm">
-                <thead className="bg-[#f4ede2] text-[#60706b]">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">Department</th>
-                    <th className="px-4 py-3 font-medium">Category</th>
-                    <th className="px-4 py-3 font-medium">Item</th>
-                    <th className="px-4 py-3 font-medium">Pack size</th>
-                    <th className="px-4 py-3 font-medium">Current</th>
-                    <th className="px-4 py-3 font-medium">Par</th>
-                    <th className="px-4 py-3 font-medium">Reorder</th>
-                    <th className="px-4 py-3 font-medium">Last count</th>
-                    <th className="px-4 py-3 font-medium">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
-                  {inventoryItemsQuery.isLoading ? (
-                    <tr>
-                      <td className="px-4 py-4 text-[#68716b]" colSpan={9}>Loading inventory setup...</td>
-                    </tr>
-                  ) : inventoryItemsQuery.error ? (
-                    <tr>
-                      <td className="px-4 py-4 text-[#8a4343]" colSpan={9}>Unable to load inventory items right now.</td>
-                    </tr>
-                  ) : inventoryItems.length === 0 ? (
-                    <tr>
-                      <td className="px-4 py-4 text-[#68716b]" colSpan={9}>No inventory items are configured yet.</td>
-                    </tr>
+            <div className="mt-6 rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6] p-4 sm:p-5">
+              <div className="flex flex-wrap gap-3">
+                {[
+                  { key: "product", label: "Product inventory" },
+                  { key: "utensils", label: "Utensil inventory" },
+                  { key: "ingredients", label: "Ingredient inventory" },
+                ].map(tab => {
+                  const active = inventoryDashboardView === tab.key;
+                  return (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      onClick={() => setInventoryDashboardView(tab.key as "product" | "utensils" | "ingredients")}
+                      className={`rounded-full px-4 py-2 text-sm font-medium transition ${active ? "bg-[#2f2a26] text-white shadow-lg shadow-[#2f2a26]/20" : "border border-[#d7cec0] bg-white/80 text-[#31423d] shadow-sm hover:bg-white"}`}
+                    >
+                      {tab.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {inventoryDashboardView === "product" ? (
+                <div className="mt-4 overflow-hidden rounded-[1.25rem] border border-[#e4dccf] bg-white/80">
+                  {dailyQuery.isLoading ? (
+                    <div className="p-4 text-sm text-[#68716b]">Loading product inventory...</div>
+                  ) : dailyQuery.error || !daily ? (
+                    <div className="p-4 text-sm text-[#8a4343]">Unable to load ready-made gelato inventory for the selected date.</div>
                   ) : (
-                    inventoryItems.map(item => (
-                      <tr key={item.id}>
-                        <td className="px-4 py-3">{item.department}</td>
-                        <td className="px-4 py-3">{item.category}</td>
-                        <td className="px-4 py-3">{item.itemName}</td>
-                        <td className="px-4 py-3">{item.packSize || "—"}</td>
-                        <td className="px-4 py-3">{item.currentQuantity} {item.unitType}</td>
-                        <td className="px-4 py-3">{item.parLevel}</td>
-                        <td className="px-4 py-3">{item.reorderQuantity}</td>
-                        <td className="px-4 py-3">{item.lastCountDate || "—"}</td>
-                        <td className="px-4 py-3">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setInventoryForm({
-                                id: item.id,
-                                department: item.department,
-                                category: item.category,
-                                itemName: item.itemName,
-                                unitType: item.unitType,
-                                packSize: item.packSize,
-                                costPerUnit: String(item.costPerUnit),
-                                currentQuantity: String(item.currentQuantity),
-                                parLevel: String(item.parLevel),
-                                reorderQuantity: String(item.reorderQuantity),
-                                supplier: item.supplier ?? "",
-                                supplierContact: item.supplierContact ?? "",
-                                lastCountDate: item.lastCountDate ?? "",
-                                notes: item.notes ?? "",
-                              })
-                            }
-                            className="rounded-full border border-[#d7cec0] bg-white/80 px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-[#31423d] shadow-sm transition hover:bg-white"
-                          >
-                            Edit
-                          </button>
-                        </td>
-                      </tr>
-                    ))
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-[#f4ede2] text-[#60706b]">
+                        <tr>
+                          <th className="px-4 py-3 font-medium">Flavor</th>
+                          <th className="px-4 py-3 font-medium">Opening pans</th>
+                          <th className="px-4 py-3 font-medium">Opening kg</th>
+                          <th className="px-4 py-3 font-medium">Closing pans</th>
+                          <th className="px-4 py-3 font-medium">Closing kg</th>
+                          <th className="px-4 py-3 font-medium">Used oz</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
+                        {daily.gelato.flavors.map(item => (
+                          <tr key={item.flavor}>
+                            <td className="px-4 py-3 font-medium">{item.flavor}</td>
+                            <td className="px-4 py-3">{item.opening.smallPanCount + item.opening.largePanCount}</td>
+                            <td className="px-4 py-3">{(item.opening.smallGrossWeightKg + item.opening.largeGrossWeightKg).toFixed(2)}</td>
+                            <td className="px-4 py-3">{item.closing.smallPanCount + item.closing.largePanCount}</td>
+                            <td className="px-4 py-3">{(item.closing.smallGrossWeightKg + item.closing.largeGrossWeightKg).toFixed(2)}</td>
+                            <td className="px-4 py-3">{item.usedVolumeOunces.toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   )}
-                </tbody>
-              </table>
+                </div>
+              ) : (
+                <div className="mt-4 overflow-hidden rounded-[1.25rem] border border-[#e4dccf] bg-white/80">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-[#f4ede2] text-[#60706b]">
+                      <tr>
+                        <th className="px-4 py-3 font-medium">Category</th>
+                        <th className="px-4 py-3 font-medium">Item</th>
+                        <th className="px-4 py-3 font-medium">Current</th>
+                        <th className="px-4 py-3 font-medium">Par</th>
+                        <th className="px-4 py-3 font-medium">Reorder</th>
+                        <th className="px-4 py-3 font-medium">Last count</th>
+                        <th className="px-4 py-3 font-medium">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
+                      {inventoryItemsQuery.isLoading ? (
+                        <tr>
+                          <td className="px-4 py-4 text-[#68716b]" colSpan={7}>Loading inventory setup...</td>
+                        </tr>
+                      ) : inventoryItemsQuery.error ? (
+                        <tr>
+                          <td className="px-4 py-4 text-[#8a4343]" colSpan={7}>Unable to load inventory items right now.</td>
+                        </tr>
+                      ) : filteredManagerInventoryItems.length === 0 ? (
+                        <tr>
+                          <td className="px-4 py-4 text-[#68716b]" colSpan={7}>No items are configured in this inventory group yet.</td>
+                        </tr>
+                      ) : (
+                        filteredManagerInventoryItems.map(item => (
+                          <tr key={item.id}>
+                            <td className="px-4 py-3">{item.category}</td>
+                            <td className="px-4 py-3 font-medium">{item.itemName}</td>
+                            <td className="px-4 py-3">{item.currentQuantity} {item.unitType}</td>
+                            <td className="px-4 py-3">{item.parLevel}</td>
+                            <td className="px-4 py-3">{item.reorderQuantity}</td>
+                            <td className="px-4 py-3">{item.lastCountDate || "—"}</td>
+                            <td className="px-4 py-3">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setInventoryForm({
+                                    id: item.id,
+                                    department: item.department,
+                                    category: item.category,
+                                    itemName: item.itemName,
+                                    unitType: item.unitType,
+                                    packSize: item.packSize,
+                                    costPerUnit: String(item.costPerUnit),
+                                    currentQuantity: String(item.currentQuantity),
+                                    parLevel: String(item.parLevel),
+                                    reorderQuantity: String(item.reorderQuantity),
+                                    supplier: item.supplier ?? "",
+                                    supplierContact: item.supplierContact ?? "",
+                                    lastCountDate: item.lastCountDate ?? "",
+                                    notes: item.notes ?? "",
+                                  })
+                                }
+                                className="rounded-full border border-[#d7cec0] bg-white/80 px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-[#31423d] shadow-sm transition hover:bg-white"
+                              >
+                                Edit
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </SurfaceCard>
 

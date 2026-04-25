@@ -400,6 +400,9 @@ export default function EmployeePortal(props: any) {
   const readyMadeGelatoMutation = trpc.forms.submitReadyMadeGelato.useMutation({
     onError: error => toast.error(translateErrorMessage(error.message, language)),
   });
+  const inventorySummaryMutation = trpc.forms.submitInventorySubmissionSummary.useMutation({
+    onError: error => toast.error(translateErrorMessage(error.message, language)),
+  });
 
   const openingQuestions = openingQuestionsQuery.data ?? [];
   const closingQuestions = closingQuestionsQuery.data ?? [];
@@ -597,10 +600,20 @@ export default function EmployeePortal(props: any) {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  async function submitInventoryPayloads(payloads: Array<{ id: number; currentQuantity: number; notes: string }>) {
+  async function submitInventoryPayloads(payloads: Array<{ id: number; currentQuantity: number; notes: string; notifyOwner?: boolean }>) {
+    const updatedItems: Array<{ itemName: string; currentQuantity: number; unitType: string; department: string }> = [];
+
     for (const payload of payloads) {
-      await inventoryMutation.mutateAsync(payload);
+      const result = await inventoryMutation.mutateAsync(payload);
+      updatedItems.push({
+        itemName: result.item.itemName,
+        currentQuantity: Number(result.item.currentQuantity || 0),
+        unitType: result.item.unitType,
+        department: result.item.department,
+      });
     }
+
+    return updatedItems;
   }
 
   async function handleOpeningSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -712,14 +725,21 @@ export default function EmployeePortal(props: any) {
     event.preventDefault();
 
     try {
-      await Promise.all([
-        ...buildFullInventoryPayloads().map(payload => inventoryMutation.mutateAsync(payload)),
-        readyMadeGelatoMutation.mutateAsync({
-          businessDate: currentBusinessDate,
-          shiftType: "opening",
-          entries: buildReadyMadeEntries("opening"),
-        }),
-      ]);
+      const updatedItems = await submitInventoryPayloads(
+        buildFullInventoryPayloads().map(payload => ({ ...payload, notifyOwner: false }))
+      );
+      const gelatoResult = await readyMadeGelatoMutation.mutateAsync({
+        businessDate: currentBusinessDate,
+        shiftType: "opening",
+        notifyOwner: false,
+        entries: buildReadyMadeEntries("opening"),
+      });
+      await inventorySummaryMutation.mutateAsync({
+        businessDate: currentBusinessDate,
+        staffName: "Ojala Staff",
+        gelatoEntryCount: gelatoResult.records.length,
+        itemSummaries: updatedItems,
+      });
       toast.success(t("Inventory and ready-made gelato updated."));
       showSubmissionNotice("inventory", t("Inventory and ready-made gelato updated."), `${t("Saved for")} ${currentBusinessDate}. ${t("Managers can review it in the dashboard.")}`);
       await refreshAfterSubmission();

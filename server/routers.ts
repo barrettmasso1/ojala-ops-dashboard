@@ -114,6 +114,21 @@ const inventoryUpdateSchema = z.object({
   notifyOwner: z.boolean().optional().default(true),
 });
 
+const inventorySubmissionSummarySchema = z.object({
+  businessDate: z.string().min(1),
+  staffName: z.string().min(1),
+  gelatoEntryCount: z.number().int().min(0).optional().default(0),
+  itemSummaries: z.array(
+    z.object({
+      itemName: z.string().min(1),
+      currentQuantity: z.number().min(0),
+      unitType: z.string().min(1),
+      department: z.string().optional().default(""),
+    })
+  ).min(1),
+  notifyOwner: z.boolean().optional().default(true),
+});
+
 const readyMadeGelatoShiftTypeSchema = z.enum(["opening", "closing"]);
 
 const readyMadeGelatoEntrySchema = z.object({
@@ -216,6 +231,24 @@ export const appRouter = router({
       }
 
       return { success: true, item } as const;
+    }),
+    submitInventorySubmissionSummary: protectedProcedure.input(inventorySubmissionSummarySchema).mutation(async ({ ctx, input }) => {
+      if (input.notifyOwner) {
+        const previewItems = input.itemSummaries
+          .slice(0, 10)
+          .map(item => `${item.itemName}: ${item.currentQuantity} ${item.unitType}${item.department ? ` (${item.department})` : ""}`)
+          .join("; ");
+        const remainingCount = Math.max(input.itemSummaries.length - 10, 0);
+        const remainingLabel = remainingCount > 0 ? `; plus ${remainingCount} more item${remainingCount === 1 ? "" : "s"}` : "";
+        const gelatoLabel = input.gelatoEntryCount > 0 ? ` Ready-made gelato entries saved: ${input.gelatoEntryCount}.` : "";
+
+        await notifyOwner({
+          title: `Inventory updated for ${input.businessDate}`,
+          content: `${input.staffName || ctx.user.name || "A team member"} submitted ${input.itemSummaries.length} inventory updates for ${input.businessDate}.${gelatoLabel} Updated items: ${previewItems}${remainingLabel}. Review: ${buildDashboardUrl(ctx.req)}`,
+        });
+      }
+
+      return { success: true } as const;
     }),
     submitReadyMadeGelato: protectedProcedure.input(readyMadeGelatoSchema).mutation(async ({ ctx, input }) => {
       const records = await saveReadyMadeGelatoWeights({

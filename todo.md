@@ -132,3 +132,7 @@
 - [x] Fix the ready-made gelato submission pipeline so employee-entered opening and closing values appear correctly in the manager dashboard and reports
 - [x] Add a clear post-submit employee confirmation state so staff can immediately see that an opening, closing, or inventory submission succeeded
 - [x] Send an owner notification for each new employee submission with a direct dashboard link, using the best supported delivery channel for this project
+- [ ] Add direct external email delivery for employee submissions to barrettmasso@me.com once an email provider and credentials are supplied
+- [x] Consolidate inventory submission notifications so one inventory form submission sends a single summary alert instead of one message per item update
+- [x] Redesign the manager dashboard inventory area into clearer segmented views or tabs such as product, utensil, and ingredient inventory so managers do not need to scroll horizontally across one oversized page
+- [x] Constrain the manager dashboard content to a cleaner page width so major tables and sections fit within a more readable frame

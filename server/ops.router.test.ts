@@ -290,6 +290,37 @@ describe("operations router", () => {
     );
   });
 
+  it("sends one consolidated owner alert for a full inventory submission summary", async () => {
+    const caller = appRouter.createCaller(createContext("user"));
+    const result = await caller.forms.submitInventorySubmissionSummary({
+      businessDate: "2026-04-25",
+      staffName: "Ojala Staff",
+      gelatoEntryCount: 14,
+      itemSummaries: [
+        { itemName: "4oz To-Go Cups", currentQuantity: 88, unitType: "units", department: "Utensils & Cleaning" },
+        { itemName: "Cane Sugar", currentQuantity: 12.5, unitType: "kg", department: "Ingredients" },
+      ],
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(notificationMocks.notifyOwner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Inventory updated for 2026-04-25",
+        content: expect.stringContaining("submitted 2 inventory updates for 2026-04-25"),
+      })
+    );
+    expect(notificationMocks.notifyOwner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining("Ready-made gelato entries saved: 14."),
+      })
+    );
+    expect(notificationMocks.notifyOwner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining("Review: /dashboard"),
+      })
+    );
+  });
+
   it("lets employees save ready-made gelato opening measurements for the business date", async () => {
     dbMocks.saveReadyMadeGelatoWeights.mockResolvedValue([
       {
