@@ -12,6 +12,7 @@ describe("employee portal translations", () => {
     expect(translatePortalText("Closing Form", "es")).toBe("Formulario de cierre");
     expect(translatePortalText("Inventory Form", "es")).toBe("Formulario de inventario");
     expect(translatePortalText("Open Inventory Form", "es")).toBe("Abrir formulario de inventario");
+    expect(translatePortalText("Sign out", "es")).toBe("Cerrar sesión");
     expect(translatePortalText("First Name", "es")).toBe("Nombre");
     expect(translatePortalText("Please enter a first name before submitting.", "es")).toBe("Ingresa un nombre antes de enviar.");
     expect(translatePortalText("Saved for", "es")).toBe("Guardado para");

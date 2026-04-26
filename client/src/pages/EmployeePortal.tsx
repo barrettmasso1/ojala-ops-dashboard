@@ -2,7 +2,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { type PortalLanguage, translateErrorMessage, translatePortalText } from "@/lib/employeePortalI18n";
 import { getOpeningNapkinsQuestion, groupOpeningQuestionsForPortal } from "@/lib/openingSetup";
 import { trpc } from "@/lib/trpc";
-import { ArrowRight, ClipboardCheck, House, MoonStar, Package2, ReceiptText, SunMedium } from "lucide-react";
+import { ArrowRight, ClipboardCheck, House, LogOut, MoonStar, Package2, ReceiptText, SunMedium } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Link, useLocation } from "wouter";
@@ -362,7 +362,7 @@ function buildAnswersPayload(questions: ChecklistQuestion[], answers: ChecklistA
 
 export default function EmployeePortal(props: any) {
   const { defaultView } = props as { defaultView?: PortalView };
-  const { loading } = useAuth({ redirectOnUnauthenticated: true, redirectPath: "/staff-login" });
+  const { loading, logout } = useAuth({ redirectOnUnauthenticated: true, redirectPath: "/staff-login" });
   const utils = trpc.useUtils();
   const [location] = useLocation();
   const [language, setLanguage] = useState<PortalLanguage>("en");
@@ -918,28 +918,38 @@ export default function EmployeePortal(props: any) {
                 </div>
               </div>
 
-              <div className="rounded-[1.5rem] border border-[#e5ddd0] bg-[#f9f4ec] p-3 shadow-sm">
-                <p className="text-[11px] uppercase tracking-[0.28em] text-[#7d756b]">{t("Language")}</p>
-                <div className="mt-3 flex gap-2">
-                  {([
-                    { value: "en", label: "English" },
-                    { value: "es", label: "Spanish" },
-                  ] as const).map(option => {
-                    const active = language === option.value;
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => setLanguage(option.value)}
-                        className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-                          active ? "bg-[#2f2a26] text-white" : "border border-[#ddd4c8] bg-white text-[#2f2a26] hover:bg-[#f5eee5]"
-                        }`}
-                      >
-                        {t(option.label)}
-                      </button>
-                    );
-                  })}
+              <div className="flex flex-col gap-3">
+                <div className="rounded-[1.5rem] border border-[#e5ddd0] bg-[#f9f4ec] p-3 shadow-sm">
+                  <p className="text-[11px] uppercase tracking-[0.28em] text-[#7d756b]">{t("Language")}</p>
+                  <div className="mt-3 flex gap-2">
+                    {([
+                      { value: "en", label: "English" },
+                      { value: "es", label: "Spanish" },
+                    ] as const).map(option => {
+                      const active = language === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setLanguage(option.value)}
+                          className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                            active ? "bg-[#2f2a26] text-white" : "border border-[#ddd4c8] bg-white text-[#2f2a26] hover:bg-[#f5eee5]"
+                          }`}
+                        >
+                          {t(option.label)}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={logout}
+                  className="inline-flex items-center justify-center gap-2 rounded-full border border-[#ddd4c8] bg-white/90 px-5 py-3 text-sm font-medium text-[#2f2a26] shadow-sm transition hover:bg-white"
+                >
+                  <LogOut className="h-4 w-4" />
+                  {t("Sign out")}
+                </button>
               </div>
             </div>
           </div>
@@ -952,11 +962,7 @@ export default function EmployeePortal(props: any) {
                   title={t("Opening Form")}
                   description={t("Start the day with opening checklist questions, opening cash, and the limited utensil and ready-made gelato inventory.")}
                 >
-                  <div className="space-y-4">
-                    <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] p-5">
-                      <p className="text-[11px] uppercase tracking-[0.28em] text-[#7d756b]">{t("Includes")}</p>
-                      <p className="mt-3 text-sm leading-7 text-[#625b53]">{t("Date, first name, opening checklist, opening cash, utensil counts, and ready-made gelato counts.")}</p>
-                    </div>
+                  <div>
                     <Link href="/portal/opening" className="inline-flex items-center gap-2 rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]">
                       {t("Open Opening Form")}
                       <ArrowRight className="h-4 w-4" />
@@ -969,11 +975,7 @@ export default function EmployeePortal(props: any) {
                   title={t("Closing Form")}
                   description={t("End the day with closing checklist questions, nightly money and report details, and the same limited inventory counts.")}
                 >
-                  <div className="space-y-4">
-                    <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] p-5">
-                      <p className="text-[11px] uppercase tracking-[0.28em] text-[#7d756b]">{t("Includes")}</p>
-                      <p className="mt-3 text-sm leading-7 text-[#625b53]">{t("Date, first name, closing checklist, money totals, nightly sales report, utensil counts, and ready-made gelato counts.")}</p>
-                    </div>
+                  <div>
                     <Link href="/portal/closing" className="inline-flex items-center gap-2 rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]">
                       {t("Open Closing Form")}
                       <ArrowRight className="h-4 w-4" />
@@ -986,11 +988,7 @@ export default function EmployeePortal(props: any) {
                   title={t("Inventory Form")}
                   description={t("Use the independent inventory form when the team needs the full store count beyond the opening and closing workflows.")}
                 >
-                  <div className="space-y-4">
-                    <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] p-5">
-                      <p className="text-[11px] uppercase tracking-[0.28em] text-[#7d756b]">{t("Includes")}</p>
-                      <p className="mt-3 text-sm leading-7 text-[#625b53]">{t("Ingredients, packaging, utensils, cleaning supplies, and ready-made gelato in one separate inventory form.")}</p>
-                    </div>
+                  <div>
                     <Link href="/portal/inventory" className="inline-flex items-center gap-2 rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]">
                       {t("Open Inventory Form")}
                       <ArrowRight className="h-4 w-4" />

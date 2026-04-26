@@ -138,3 +138,7 @@
 - [x] Constrain the manager dashboard content to a cleaner page width so major tables and sections fit within a more readable frame
 - [x] Add a show-hide password icon to the staff password-only login field so employees can verify the password while typing
 - [x] Fix the staff-form numeric input validation so decimal gelato weights such as 2.273 and 3.466 are accepted instead of being blocked as invalid numbers during submission
+- [ ] Fix the published manager dashboard login redirect so OAuth uses an allowed redirect URI on the live domain instead of the disallowed run.app host
+- [x] Fix the published manager access path so the manager link opens the true data dashboard instead of the forms-selection landing view
+- [x] Add a clear logout action so staff and managers can easily switch sessions and test the correct routes without getting stuck in the wrong account view
+- [x] Remove the extra descriptive text blocks from the three staff portal form cards so the portal hub stays cleaner and more concise

@@ -166,6 +166,7 @@ const textTranslations: Record<string, string> = {
   "Opening form submitted.": "Formulario de apertura enviado.",
   "Closing form submitted.": "Formulario de cierre enviado.",
   "Back home": "Volver al inicio",
+  "Sign out": "Cerrar sesión",
   Includes: "Incluye",
   "Open Opening Form": "Abrir formulario de apertura",
   "Open Closing Form": "Abrir formulario de cierre",
