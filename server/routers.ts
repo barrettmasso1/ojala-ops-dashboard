@@ -26,6 +26,7 @@ import {
   updateInventoryCount,
   upsertUser,
 } from "./db";
+import { extractGelatoPhotos } from "./gelatoPhotoPilot";
 
 const checklistAnswerSchema = z.object({
   questionId: z.number().int().positive(),
@@ -146,6 +147,17 @@ const readyMadeGelatoSchema = z.object({
   notifyOwner: z.boolean().optional().default(true),
 });
 
+const gelatoPhotoUploadSchema = z.object({
+  fileName: z.string().min(1),
+  mimeType: z.string().min(1),
+  dataUrl: z.string().min(1),
+});
+
+const extractGelatoPhotosSchema = z.object({
+  shiftType: readyMadeGelatoShiftTypeSchema,
+  photos: z.array(gelatoPhotoUploadSchema).min(1).max(12),
+});
+
 const checklistTypeSchema = z.enum(["opening", "closing"]);
 
 const checklistQuestionSchema = z.object({
@@ -249,6 +261,16 @@ export const appRouter = router({
       }
 
       return { success: true } as const;
+    }),
+    extractGelatoPhotos: protectedProcedure.input(extractGelatoPhotosSchema).mutation(async ({ input }) => {
+      const result = await extractGelatoPhotos(input.photos);
+
+      return {
+        success: true,
+        shiftType: input.shiftType,
+        extractedPhotos: result.extractedPhotos,
+        groupedEntries: result.groupedEntries,
+      } as const;
     }),
     submitReadyMadeGelato: protectedProcedure.input(readyMadeGelatoSchema).mutation(async ({ ctx, input }) => {
       const records = await saveReadyMadeGelatoWeights({

@@ -908,6 +908,9 @@ export default function EmployeePortal(props: any) {
                       {link.label}
                     </Link>
                   ))}
+                  <Link href="/portal/photo-pilot" className="inline-flex items-center gap-2 rounded-full border border-[#ddd4c8] bg-white/88 px-5 py-3 text-sm font-medium text-[#2f2a26] transition hover:bg-white">
+                    {t("Photo Pilot")}
+                  </Link>
                   <Link href="/portal" className="inline-flex items-center gap-2 rounded-full border border-[#ddd4c8] bg-white/88 px-5 py-3 text-sm font-medium text-[#2f2a26] transition hover:bg-white">
                     {t("Portal Home")}
                   </Link>
@@ -956,7 +959,7 @@ export default function EmployeePortal(props: any) {
 
           <div className="p-6 md:p-8">
             {portalView === "hub" ? (
-              <div className="grid gap-5 lg:grid-cols-3">
+              <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-4">
                 <SectionCard
                   icon={<SunMedium className="h-5 w-5" />}
                   title={t("Opening Form")}
@@ -991,6 +994,19 @@ export default function EmployeePortal(props: any) {
                   <div>
                     <Link href="/portal/inventory" className="inline-flex items-center gap-2 rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]">
                       {t("Open Inventory Form")}
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </div>
+                </SectionCard>
+
+                <SectionCard
+                  icon={<Package2 className="h-5 w-5" />}
+                  title={t("Photo Pilot")}
+                  description={t("Test the separate photo-assisted gelato workflow by uploading pan-on-scale images, reviewing the extracted values, and saving only the verified weights.")}
+                >
+                  <div>
+                    <Link href="/portal/photo-pilot" className="inline-flex items-center gap-2 rounded-full bg-[#52665f] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#41534d]">
+                      {t("Open Photo Pilot")}
                       <ArrowRight className="h-4 w-4" />
                     </Link>
                   </div>

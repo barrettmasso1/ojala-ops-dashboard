@@ -68,7 +68,7 @@ Employees can sign in here with the shared shop password on iPad or phone, move 
               <button
                 type="button"
                 onClick={() => {
-                  window.location.href = getLoginUrl();
+                  window.location.href = getLoginUrl("/dashboard");
                 }}
                 className="inline-flex items-center gap-2 rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]"
               >

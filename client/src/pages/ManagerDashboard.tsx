@@ -1,5 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
+import { getLoginUrl } from "@/const";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { buildManagerReconciliationSnapshot, MANAGER_INVENTORY_TABS, type ManagerInventoryView } from "@/lib/managerReconciliation";
 import { trpc } from "@/lib/trpc";
@@ -108,7 +109,10 @@ function formatSignedValue(value: number | null | undefined) {
 }
 
 export default function ManagerDashboard() {
-  const { user, loading } = useAuth({ redirectOnUnauthenticated: true });
+  const { user, loading } = useAuth({
+    redirectOnUnauthenticated: true,
+    redirectPath: getLoginUrl("/dashboard"),
+  });
   const [location, setLocation] = useLocation();
   const utils = trpc.useUtils();
   const [selectedDate, setSelectedDate] = useState(todayValue());
