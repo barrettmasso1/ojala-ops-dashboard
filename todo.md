@@ -152,3 +152,8 @@
 - [x] Confirm whether the current production candidate is publish-ready after the manager dashboard reconciliation UI changes, taking the remaining live manager-login blockers into account
 - [x] Move the manager-maintained inventory section into its own left-column dashboard link so that setup and maintenance screens have a dedicated manager workspace instead of competing with the main dashboard width
 - [x] Remove the unnecessary Cost source column from the cookbook ingredient table and rename Cost per ingredient unit to Cost per unit so the cookbook reads more cleanly
+- [x] Refocus the main manager dashboard so it shows only the at-a-glance daily operations summary: sales, cups sold, total sold volume, opening completion, closing completion, packaging discrepancy, and cash-card sales breakdown
+- [x] Make the main manager dashboard clearly show flavor-by-flavor opening ounces, closing ounces, distributed ounces, sold ounces, and the over-under discrepancy for the selected date
+- [x] Add a clear date selector workflow so managers can quickly switch the dashboard view to yesterday, last week, or any specific day
+- [x] Move cookbook, recipe, ingredient, and other non-dashboard management content out of the main manager dashboard and into separate left-menu destinations
+- [x] Simplify the manager dashboard layout so it acts as a quick-glimpse operational summary instead of a multi-purpose management workspace

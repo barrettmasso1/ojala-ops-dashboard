@@ -1,7 +1,7 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
-import { getLoginUrl } from "@/const";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { getLoginUrl } from "@/const";
 import { buildManagerReconciliationSnapshot, MANAGER_INVENTORY_TABS, type ManagerInventoryView } from "@/lib/managerReconciliation";
 import { trpc } from "@/lib/trpc";
 import {
@@ -11,11 +11,10 @@ import {
   Coins,
   CupSoda,
   PackagePlus,
-  Search,
   Trash2,
   TrendingUp,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -32,6 +31,10 @@ import { useLocation } from "wouter";
 
 function todayValue() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function roundTo(value: number, decimals = 2) {
+  return Number(value.toFixed(decimals));
 }
 
 function formatCurrency(value: number) {
@@ -108,13 +111,30 @@ function formatSignedValue(value: number | null | undefined) {
   return `${value > 0 ? "+" : ""}${value.toFixed(2)}`;
 }
 
+function classifyDifference(value: number) {
+  const absolute = Math.abs(value);
+  if (absolute < 0.5) return "Aligned";
+  if (absolute < 3) return "Review";
+  return value > 0 ? "Over" : "Under";
+}
+
 export default function ManagerDashboard() {
   const [location, setLocation] = useLocation();
-  const redirectPath = location.startsWith("/dashboard/inventory")
+  const isInventoryWorkspaceRoute = location.startsWith("/dashboard/inventory");
+  const isCookbookRoute = location.startsWith("/cookbook");
+  const isFormsRoute = location.startsWith("/dashboard/forms");
+  const isAnalysisRoute = location.startsWith("/dashboard/analysis");
+  const isOverviewRoute = !isInventoryWorkspaceRoute && !isCookbookRoute && !isFormsRoute && !isAnalysisRoute;
+  const redirectPath = isInventoryWorkspaceRoute
     ? "/dashboard/inventory"
-    : location.startsWith("/cookbook")
+    : isCookbookRoute
       ? "/cookbook"
-      : "/dashboard";
+      : isFormsRoute
+        ? "/dashboard/forms"
+        : isAnalysisRoute
+          ? "/dashboard/analysis"
+          : "/dashboard";
+
   const { user, loading } = useAuth({
     redirectOnUnauthenticated: true,
     redirectPath: getLoginUrl(redirectPath),
@@ -147,10 +167,8 @@ export default function ManagerDashboard() {
     detailTrigger: "No" as "Yes" | "No" | "Never",
     displayOrder: "1",
   });
-  const recipeBookRef = useRef<HTMLElement | null>(null);
+
   const isAdmin = user?.role === "admin";
-  const isCookbookRoute = location.startsWith("/cookbook");
-  const isInventoryWorkspaceRoute = location.startsWith("/dashboard/inventory");
 
   useEffect(() => {
     if (!loading && user && !isAdmin) {
@@ -170,16 +188,6 @@ export default function ManagerDashboard() {
   const openingChecklistQuery = trpc.dashboard.checklistQuestions.useQuery({ checklistType: "opening" }, { enabled: isAdmin, refetchOnWindowFocus: false });
   const closingChecklistQuery = trpc.dashboard.checklistQuestions.useQuery({ checklistType: "closing" }, { enabled: isAdmin, refetchOnWindowFocus: false });
   const notesQuery = trpc.dashboard.recentNotes.useQuery({ limit: 10 }, { enabled: isAdmin, refetchOnWindowFocus: false });
-
-  useEffect(() => {
-    if (!isCookbookRoute) return;
-
-    const timeout = window.setTimeout(() => {
-      recipeBookRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 120);
-
-    return () => window.clearTimeout(timeout);
-  }, [isCookbookRoute, recipesQuery.data]);
 
   const saveInventoryMutation = trpc.dashboard.saveInventoryItem.useMutation({
     onSuccess: async () => {
@@ -256,12 +264,37 @@ export default function ManagerDashboard() {
     [notesQuery.data]
   );
 
+  const daily = dailyQuery.data;
+  const reconciliationSnapshot = buildManagerReconciliationSnapshot(daily);
+  const flavorRows = useMemo(() => {
+    if (!reconciliationSnapshot.gelato) return [];
+
+    const totalDistributed = reconciliationSnapshot.gelato.distributedVolumeOunces;
+    const totalSold = reconciliationSnapshot.gelato.soldVolumeOunces;
+
+    return reconciliationSnapshot.gelato.flavors.map(item => {
+      const openingOunces = roundTo(item.opening.totalVolumeOunces);
+      const closingOunces = roundTo(item.closing.totalVolumeOunces);
+      const distributedOunces = roundTo(item.usedVolumeOunces);
+      const soldOunces = totalDistributed > 0 ? roundTo((distributedOunces / totalDistributed) * totalSold) : 0;
+      const differenceOunces = roundTo(distributedOunces - soldOunces);
+
+      return {
+        flavor: item.flavor,
+        openingOunces,
+        closingOunces,
+        distributedOunces,
+        soldOunces,
+        differenceOunces,
+        status: classifyDifference(differenceOunces),
+      };
+    });
+  }, [reconciliationSnapshot]);
+
   if (loading || (user && !isAdmin)) {
     return <div className="min-h-screen bg-[#f7f2ea]" />;
   }
 
-  const daily = dailyQuery.data;
-  const reconciliationSnapshot = buildManagerReconciliationSnapshot(daily);
   const totalCups = (daily?.cups["4oz"] ?? 0) + (daily?.cups["8oz"] ?? 0) + (daily?.cups.Pint ?? 0) + (daily?.cups.Liter ?? 0);
   const trendData = trendQuery.data ?? [];
   const wowData = wowQuery.data ?? [];
@@ -280,23 +313,80 @@ export default function ManagerDashboard() {
     )
     .sort((a, b) => a.category.localeCompare(b.category) || a.itemName.localeCompare(b.itemName));
 
+  const heroTitle = isInventoryWorkspaceRoute
+    ? "A dedicated space for inventory setup, alerts, and manager-maintained counts."
+    : isCookbookRoute
+      ? "Recipe and ingredient details live here instead of crowding the daily dashboard."
+      : isFormsRoute
+        ? "Manage opening and closing checklist questions in their own workspace."
+        : isAnalysisRoute
+          ? "Review history, trends, and notes without crowding the daily operations overview."
+          : "A quick daily glance at sales, form completion, and reconciliation.";
+
+  const heroCopy = isInventoryWorkspaceRoute
+    ? "Maintain ingredient and utensil records, review reorder pressure, and keep setup work separate from the manager's at-a-glance dashboard."
+    : isCookbookRoute
+      ? "Use the cookbook to review flavor formulas, ingredient costs, and yield placeholders without putting recipe details on the main dashboard."
+      : isFormsRoute
+        ? "Adjust checklist prompts in one place so the staff forms stay current without mixing setup work into the manager overview."
+        : isAnalysisRoute
+          ? "Use this section for historical context and notes while the main dashboard stays focused on the current day's operating picture."
+          : "Use this page to answer the core questions fast: what sold, whether opening and closing were completed, how much volume started and ended the day, and where the differences landed.";
+
+  const snapshotCards = isInventoryWorkspaceRoute
+    ? [
+        { label: "Ingredients tracked", value: inventoryItems.filter(item => item.department === "Ingredients").length.toString(), helper: "Manager-maintained ingredient records." },
+        { label: "Utensils & cleaning", value: inventoryItems.filter(item => item.department === "Utensils & Cleaning").length.toString(), helper: "Tracked non-gelato inventory items." },
+        { label: "Reorder now", value: inventoryAlerts.length.toString(), helper: "Items at or below par." },
+      ]
+    : isCookbookRoute
+      ? [
+          { label: "Recipes loaded", value: recipes.length.toString(), helper: "Recipe workbook rows currently available." },
+          { label: "Pending yield", value: recipes.filter(recipe => recipe.batchYieldOunces <= 0).length.toString(), helper: "Recipes still missing batch yield." },
+          { label: "Missing costs", value: recipes.reduce((sum, recipe) => sum + recipe.missingCostCount, 0).toString(), helper: "Ingredient rows still waiting on cost data." },
+        ]
+      : isFormsRoute
+        ? [
+            { label: "Opening questions", value: openingChecklistQuestions.length.toString(), helper: "Current prompts shown on the opening checklist." },
+            { label: "Closing questions", value: closingChecklistQuestions.length.toString(), helper: "Current prompts shown on the closing checklist." },
+            { label: "Selected day", value: selectedDate, helper: "Reference date for manager review." },
+          ]
+        : isAnalysisRoute
+          ? [
+              { label: "Reports on selected day", value: String(daily?.reportCount ?? 0), helper: "End-of-day reports found for this date." },
+              { label: "Recent notes", value: recentNotes.length.toString(), helper: "Latest operational notes across submissions." },
+              { label: "Latest report staff", value: daily?.latestReportStaff ?? "—", helper: "Most recent staff name on the selected date." },
+            ]
+          : [
+              { label: "Total sales", value: formatCurrency(daily?.sales.total ?? 0), helper: "What sold today." },
+              { label: "Cash + card", value: formatCurrency((daily?.sales.cash ?? 0) + (daily?.sales.card ?? 0)), helper: "Primary payment channels combined." },
+              { label: "Total cups sold", value: totalCups.toString(), helper: "All cup sizes combined." },
+              { label: "Sold volume", value: `${daily?.soldVolumeOunces?.toFixed?.(2) ?? "0.00"} oz`, helper: "Total sold volume ounces." },
+              { label: "Opening completion", value: formatPercent(daily?.checklistCompletion.opening ?? 0), helper: "Was the morning form completed?" },
+              { label: "Closing completion", value: formatPercent(daily?.checklistCompletion.closing ?? 0), helper: "Was the evening form completed?" },
+              { label: "Packaging discrepancy", value: daily?.packaging?.varianceCount == null ? "—" : `${formatSignedValue(daily.packaging.varianceCount)} units`, helper: daily?.packaging?.discrepancyLabel ?? "Awaiting counts" },
+              { label: "Card sales", value: formatCurrency(daily?.sales.card ?? 0), helper: "Card sell for the selected day." },
+            ];
+
   return (
     <DashboardLayout>
       <div className="mx-auto w-full max-w-[1440px] space-y-8">
         <SurfaceCard className="overflow-hidden p-0">
           <div className="grid gap-0 lg:grid-cols-[1.12fr_0.88fr]">
             <div className="border-b border-[#e4dccf] p-8 lg:border-b-0 lg:border-r lg:p-10">
-              <p className="text-xs uppercase tracking-[0.28em] text-[#7f857d]">{isInventoryWorkspaceRoute ? "Owner / Manager inventory workspace" : "Owner / Manager dashboard"}</p>
-              <h1 className="mt-4 font-serif text-4xl tracking-tight text-[#1f2b27] md:text-5xl">
-                {isInventoryWorkspaceRoute
-                  ? "A dedicated space for inventory setup, alerts, and manager-maintained counts."
-                  : "A polished view of daily operations and sales performance."}
-              </h1>
-              <p className="mt-5 max-w-2xl text-base leading-7 text-[#65716b]">
-                {isInventoryWorkspaceRoute
-                  ? "Maintain ingredient and utensil records, review reorder pressure, and keep inventory controls in a cleaner workspace that no longer competes with the main dashboard width."
-                  : "Search by day, monitor checklist completion, compare weekly performance, and catch inventory risk before it affects service quality."}
+              <p className="text-xs uppercase tracking-[0.28em] text-[#7f857d]">
+                {isOverviewRoute
+                  ? "Owner / Manager dashboard"
+                  : isInventoryWorkspaceRoute
+                    ? "Owner / Manager inventory workspace"
+                    : isCookbookRoute
+                      ? "Owner / Manager cookbook"
+                      : isFormsRoute
+                        ? "Owner / Manager form setup"
+                        : "Owner / Manager history and notes"}
               </p>
+              <h1 className="mt-4 font-serif text-4xl tracking-tight text-[#1f2b27] md:text-5xl">{heroTitle}</h1>
+              <p className="mt-5 max-w-2xl text-base leading-7 text-[#65716b]">{heroCopy}</p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
                 <div className="relative max-w-xs flex-1">
                   <CalendarRange className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7d847d]" />
@@ -308,56 +398,37 @@ export default function ManagerDashboard() {
                   />
                 </div>
                 <div className="inline-flex items-center gap-2 rounded-full border border-[#ded5c8] bg-white/80 px-4 py-3 text-sm text-[#66706a] shadow-sm">
-                  <Search className="h-4 w-4 text-[#52665f]" />
-                  {isInventoryWorkspaceRoute ? "Inventory maintenance tools stay separate from the main reporting dashboard." : `Day-by-day reporting is active for ${selectedDate}.`}
+                  <CalendarRange className="h-4 w-4 text-[#52665f]" />
+                  {isOverviewRoute
+                    ? `Quick day view active for ${selectedDate}.`
+                    : `Manager workspace filtered by ${selectedDate}.`}
                 </div>
               </div>
             </div>
             <div className="p-8 lg:p-10">
               <div className="rounded-[1.75rem] border border-[#e5ddd0] bg-[#f9f4ec] p-6">
-                <p className="text-xs uppercase tracking-[0.24em] text-[#8b9088]">Snapshot for {selectedDate}</p>
-                {dailyQuery.isLoading ? (
+                <p className="text-xs uppercase tracking-[0.24em] text-[#8b9088]">
+                  {isOverviewRoute ? `Daily snapshot for ${selectedDate}` : "Workspace snapshot"}
+                </p>
+                {dailyQuery.isLoading && isOverviewRoute ? (
                   <div className="mt-5 grid gap-4 sm:grid-cols-2">
                     {Array.from({ length: 4 }).map((_, index) => (
-                      <div key={index} className="h-28 rounded-2xl bg-white/75 animate-pulse" />
+                      <div key={index} className="h-28 animate-pulse rounded-2xl bg-white/75" />
                     ))}
                   </div>
-                ) : dailyQuery.error ? (
+                ) : dailyQuery.error && isOverviewRoute ? (
                   <div className="mt-5">
                     <StatePanel title="Unable to load the selected-day snapshot" description="The daily report data could not be loaded right now. Try another date or refresh shortly." tone="error" />
                   </div>
                 ) : (
                   <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                    <div className="rounded-2xl bg-white/80 p-4 shadow-sm">
-                      <p className="text-sm text-[#7c847d]">Total sales</p>
-                      <p className="mt-2 font-serif text-3xl text-[#1f2b27]">{formatCurrency(daily?.sales.total ?? 0)}</p>
-                    </div>
-                    <div className="rounded-2xl bg-white/80 p-4 shadow-sm">
-                      <p className="text-sm text-[#7c847d]">Total cups sold</p>
-                      <p className="mt-2 font-serif text-3xl text-[#1f2b27]">{totalCups}</p>
-                    </div>
-                    <div className="rounded-2xl bg-white/80 p-4 shadow-sm">
-                      <p className="text-sm text-[#7c847d]">Sold volume ounces</p>
-                      <p className="mt-2 font-serif text-3xl text-[#1f2b27]">{daily?.soldVolumeOunces?.toFixed?.(2) ?? "0.00"}</p>
-                    </div>
-                    <div className="rounded-2xl bg-white/80 p-4 shadow-sm">
-                      <p className="text-sm text-[#7c847d]">Opening completion</p>
-                      <p className="mt-2 font-serif text-3xl text-[#1f2b27]">{formatPercent(daily?.checklistCompletion.opening ?? 0)}</p>
-                    </div>
-                    <div className="rounded-2xl bg-white/80 p-4 shadow-sm">
-                      <p className="text-sm text-[#7c847d]">Closing completion</p>
-                      <p className="mt-2 font-serif text-3xl text-[#1f2b27]">{formatPercent(daily?.checklistCompletion.closing ?? 0)}</p>
-                    </div>
-                    <div className="rounded-2xl bg-white/80 p-4 shadow-sm">
-                      <p className="text-sm text-[#7c847d]">Gelato discrepancy</p>
-                      <p className="mt-2 font-serif text-3xl text-[#1f2b27]">{daily?.gelato?.varianceVolumeOunces?.toFixed?.(2) ?? "0.00"}</p>
-                      <p className="mt-2 text-xs uppercase tracking-[0.18em] text-[#7b847e]">{daily?.gelato?.discrepancyLabel ?? "Waiting for measurements"}</p>
-                    </div>
-                    <div className="rounded-2xl bg-white/80 p-4 shadow-sm">
-                      <p className="text-sm text-[#7c847d]">Packaging discrepancy</p>
-                      <p className="mt-2 font-serif text-3xl text-[#1f2b27]">{daily?.packaging?.varianceCount == null ? "—" : daily.packaging.varianceCount.toFixed(2)}</p>
-                      <p className="mt-2 text-xs uppercase tracking-[0.18em] text-[#7b847e]">{daily?.packaging?.discrepancyLabel ?? "Awaiting opening stock counts"}</p>
-                    </div>
+                    {snapshotCards.map(card => (
+                      <div key={card.label} className="rounded-2xl bg-white/80 p-4 shadow-sm">
+                        <p className="text-sm text-[#7c847d]">{card.label}</p>
+                        <p className="mt-2 font-serif text-3xl text-[#1f2b27]">{card.value}</p>
+                        <p className="mt-2 text-xs leading-5 text-[#7b847e]">{card.helper}</p>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -365,130 +436,256 @@ export default function ManagerDashboard() {
           </div>
         </SurfaceCard>
 
-        {!isInventoryWorkspaceRoute ? (
+        {isOverviewRoute ? (
           <>
-        <div className="grid gap-5 xl:grid-cols-4">
-          <StatCard label="Cash" value={formatCurrency(daily?.sales.cash ?? 0)} helper="Exact payment label preserved." icon={<Coins className="h-5 w-5" />} />
-          <StatCard label="Card" value={formatCurrency(daily?.sales.card ?? 0)} helper="Card sales for the selected day." icon={<TrendingUp className="h-5 w-5" />} />
-          <StatCard label="Zelle" value={formatCurrency(daily?.sales.zelle ?? 0)} helper="Zelle payment total captured from the report." icon={<Coins className="h-5 w-5" />} />
-          <StatCard label="Venmo" value={formatCurrency(daily?.sales.venmo ?? 0)} helper="Venmo payment total captured from the report." icon={<Coins className="h-5 w-5" />} />
-        </div>
+            <div className="grid gap-5 xl:grid-cols-4">
+              <StatCard label="Cash" value={formatCurrency(daily?.sales.cash ?? 0)} helper="Cash sold for the selected day." icon={<Coins className="h-5 w-5" />} />
+              <StatCard label="Card" value={formatCurrency(daily?.sales.card ?? 0)} helper="Card sales for the selected day." icon={<TrendingUp className="h-5 w-5" />} />
+              <StatCard label="Zelle" value={formatCurrency(daily?.sales.zelle ?? 0)} helper="Zelle payment total captured from reports." icon={<Coins className="h-5 w-5" />} />
+              <StatCard label="Venmo" value={formatCurrency(daily?.sales.venmo ?? 0)} helper="Venmo payment total captured from reports." icon={<Coins className="h-5 w-5" />} />
+            </div>
 
-        <div className="grid gap-8 xl:grid-cols-[1.2fr_0.8fr]">
-          <SurfaceCard>
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Day-by-day searchable report</p>
-                <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Selected day performance</h2>
+            <div className="grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">
+              <SurfaceCard>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Daily status</p>
+                    <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Forms and service completion</h2>
+                  </div>
+                  <div className="rounded-full bg-[#f1e8da] px-4 py-2 text-sm text-[#566863]">{daily?.reportCount ?? 0} report entries</div>
+                </div>
+                <div className="mt-6">
+                  {dailyQuery.isLoading ? (
+                    <StatePanel title="Loading the daily report" description="Pulling sales totals, payment breakdowns, cup counts, and checklist completion for the selected day." />
+                  ) : dailyQuery.error ? (
+                    <StatePanel title="Unable to load the daily report" description="The selected day could not be loaded right now. Please try again in a moment." tone="error" />
+                  ) : !daily ? (
+                    <StatePanel title="No report data found for this day" description="Once employees submit their daily forms, the searchable report will appear here automatically." tone="warning" />
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                        {[
+                          { label: "4oz", value: daily.cups["4oz"] ?? 0 },
+                          { label: "8oz", value: daily.cups["8oz"] ?? 0 },
+                          { label: "Pint", value: daily.cups.Pint ?? 0 },
+                          { label: "Liter", value: daily.cups.Liter ?? 0 },
+                        ].map(item => (
+                          <div key={item.label} className="rounded-2xl border border-[#e5ddd0] bg-[#fbf7f0] p-5 shadow-sm">
+                            <div className="flex items-center justify-between">
+                              <p className="text-xs uppercase tracking-[0.22em] text-[#8b9088]">{item.label}</p>
+                              <CupSoda className="h-4 w-4 text-[#52665f]" />
+                            </div>
+                            <p className="mt-4 font-serif text-3xl text-[#1f2b27]">{item.value}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="overflow-hidden rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6]">
+                        <table className="w-full text-left text-sm">
+                          <thead className="bg-[#f4ede2] text-[#60706b]">
+                            <tr>
+                              <th className="px-4 py-3 font-medium">Metric</th>
+                              <th className="px-4 py-3 font-medium">Value</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
+                            <tr>
+                              <td className="px-4 py-3">Opening submissions</td>
+                              <td className="px-4 py-3">{daily.openingSubmissionCount}</td>
+                            </tr>
+                            <tr>
+                              <td className="px-4 py-3">Closing submissions</td>
+                              <td className="px-4 py-3">{daily.closingSubmissionCount}</td>
+                            </tr>
+                            <tr>
+                              <td className="px-4 py-3">Latest report staff</td>
+                              <td className="px-4 py-3">{daily.latestReportStaff ?? "—"}</td>
+                            </tr>
+                            <tr>
+                              <td className="px-4 py-3">Checklist completion</td>
+                              <td className="px-4 py-3">Opening {formatPercent(daily.checklistCompletion.opening)} / Closing {formatPercent(daily.checklistCompletion.closing)}</td>
+                            </tr>
+                            <tr>
+                              <td className="px-4 py-3">Opening gelato volume ounces</td>
+                              <td className="px-4 py-3">{daily.gelato.openingVolumeOunces.toFixed(2)}</td>
+                            </tr>
+                            <tr>
+                              <td className="px-4 py-3">Closing gelato volume ounces</td>
+                              <td className="px-4 py-3">{daily.gelato.closingVolumeOunces.toFixed(2)}</td>
+                            </tr>
+                            <tr>
+                              <td className="px-4 py-3">Measured distributed volume ounces</td>
+                              <td className="px-4 py-3">{daily.gelato.actualDistributedVolumeOunces.toFixed(2)}</td>
+                            </tr>
+                            <tr>
+                              <td className="px-4 py-3">Sold volume ounces</td>
+                              <td className="px-4 py-3">{daily.gelato.soldVolumeOunces.toFixed(2)}</td>
+                            </tr>
+                            <tr>
+                              <td className="px-4 py-3">Gelato discrepancy</td>
+                              <td className="px-4 py-3">{formatSignedValue(daily.gelato.varianceVolumeOunces)} oz · {daily.gelato.discrepancyLabel}</td>
+                            </tr>
+                            <tr>
+                              <td className="px-4 py-3">Packaging discrepancy</td>
+                              <td className="px-4 py-3">{daily.packaging.varianceCount == null ? "Awaiting counts" : `${formatSignedValue(daily.packaging.varianceCount)} units`} · {daily.packaging.discrepancyLabel}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </SurfaceCard>
+
+              <SurfaceCard>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Daily formula</p>
+                    <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Opening − closing = distributed. Distributed − sold = difference.</h2>
+                    <p className="mt-3 text-sm leading-7 text-[#6b6258]">Goal: zero difference. The table below shows the flavor-by-flavor inventory picture clearly, while the packaging summary keeps cup, lid, and spoon variance visible.</p>
+                  </div>
+                </div>
+                <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                  {[
+                    { label: "Opening", value: `${reconciliationSnapshot.gelato?.openingVolumeOunces.toFixed(2) ?? "0.00"} oz` },
+                    { label: "Closing", value: `${reconciliationSnapshot.gelato?.closingVolumeOunces.toFixed(2) ?? "0.00"} oz` },
+                    { label: "Distributed", value: `${reconciliationSnapshot.gelato?.distributedVolumeOunces.toFixed(2) ?? "0.00"} oz` },
+                    { label: "Sold", value: `${reconciliationSnapshot.gelato?.soldVolumeOunces.toFixed(2) ?? "0.00"} oz` },
+                    { label: "Difference", value: `${formatSignedValue(reconciliationSnapshot.gelato?.differenceVolumeOunces)} oz` },
+                  ].map(item => (
+                    <div key={item.label} className="rounded-2xl border border-[#e5ddd0] bg-[#fbf7f0] p-4 shadow-sm">
+                      <p className="text-xs uppercase tracking-[0.18em] text-[#8b9088]">{item.label}</p>
+                      <p className="mt-3 font-serif text-2xl text-[#1f2b27]">{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-6 rounded-[1.5rem] border border-[#e5ddd0] bg-[#fbf7f0] p-4 text-sm leading-6 text-[#66706a]">
+                  Flavor-level sold ounces are currently shown as an allocated share of the day's total sold volume, based on each flavor's measured distributed ounces, so managers can spot over/under patterns even before flavor-level sales tracking is added.
+                </div>
+              </SurfaceCard>
+            </div>
+
+            <SurfaceCard>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Flavor reconciliation</p>
+                  <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Starting ounces, ending ounces, distributed ounces, sold ounces, and difference by flavor</h2>
+                </div>
+                <div className="rounded-full bg-[#f1e8da] px-4 py-2 text-sm text-[#566863]">Goal: 0.00 oz difference</div>
               </div>
-              <div className="rounded-full bg-[#f1e8da] px-4 py-2 text-sm text-[#566863]">{daily?.reportCount ?? 0} end-of-day entries</div>
-            </div>
-            <div className="mt-6">
-              {dailyQuery.isLoading ? (
-                <StatePanel title="Loading the daily report" description="Pulling sales totals, payment breakdowns, cup counts, and checklist completion for the selected day." />
-              ) : dailyQuery.error ? (
-                <StatePanel title="Unable to load the daily report" description="The selected day could not be loaded right now. Please try again in a moment." tone="error" />
-              ) : !daily ? (
-                <StatePanel title="No report data found for this day" description="Once employees submit their daily forms, the searchable report will appear here automatically." tone="warning" />
-              ) : (
-                <>
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    {[
-                      { label: "4oz", value: daily.cups["4oz"] ?? 0 },
-                      { label: "8oz", value: daily.cups["8oz"] ?? 0 },
-                      { label: "Pint", value: daily.cups.Pint ?? 0 },
-                      { label: "Liter", value: daily.cups.Liter ?? 0 },
-                    ].map(item => (
-                      <div key={item.label} className="rounded-2xl border border-[#e5ddd0] bg-[#fbf7f0] p-5 shadow-sm">
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs uppercase tracking-[0.22em] text-[#8b9088]">{item.label}</p>
-                          <CupSoda className="h-4 w-4 text-[#52665f]" />
-                        </div>
-                        <p className="mt-4 font-serif text-3xl text-[#1f2b27]">{item.value}</p>
-                      </div>
-                    ))}
+              <div className="mt-6 overflow-x-auto rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6]">
+                {dailyQuery.isLoading ? (
+                  <div className="p-5">
+                    <StatePanel title="Loading flavor reconciliation" description="Building the opening, closing, distributed, sold, and difference view for each flavor." />
                   </div>
-                  <div className="mt-6 overflow-hidden rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6]">
-                    <table className="w-full text-left text-sm">
-                      <thead className="bg-[#f4ede2] text-[#60706b]">
-                        <tr>
-                          <th className="px-4 py-3 font-medium">Metric</th>
-                          <th className="px-4 py-3 font-medium">Value</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
-                        <tr>
-                          <td className="px-4 py-3">Opening submissions</td>
-                          <td className="px-4 py-3">{daily.openingSubmissionCount}</td>
-                        </tr>
-                        <tr>
-                          <td className="px-4 py-3">Closing submissions</td>
-                          <td className="px-4 py-3">{daily.closingSubmissionCount}</td>
-                        </tr>
-                        <tr>
-                          <td className="px-4 py-3">Latest report staff</td>
-                          <td className="px-4 py-3">{daily.latestReportStaff ?? "—"}</td>
-                        </tr>
-                        <tr>
-                          <td className="px-4 py-3">Checklist completion</td>
-                          <td className="px-4 py-3">Opening {formatPercent(daily.checklistCompletion.opening)} / Closing {formatPercent(daily.checklistCompletion.closing)}</td>
-                        </tr>
-                        <tr>
-                          <td className="px-4 py-3">Opening gelato volume ounces</td>
-                          <td className="px-4 py-3">{daily.gelato.openingVolumeOunces.toFixed(2)}</td>
-                        </tr>
-                        <tr>
-                          <td className="px-4 py-3">Closing gelato volume ounces</td>
-                          <td className="px-4 py-3">{daily.gelato.closingVolumeOunces.toFixed(2)}</td>
-                        </tr>
-                        <tr>
-                          <td className="px-4 py-3">Measured distributed volume ounces</td>
-                          <td className="px-4 py-3">{daily.gelato.actualDistributedVolumeOunces.toFixed(2)}</td>
-                        </tr>
-                        <tr>
-                          <td className="px-4 py-3">Sold volume ounces</td>
-                          <td className="px-4 py-3">{daily.gelato.soldVolumeOunces.toFixed(2)}</td>
-                        </tr>
-                        <tr>
-                          <td className="px-4 py-3">Discrepancy review</td>
-                          <td className="px-4 py-3">{daily.gelato.discrepancyLabel} (threshold {daily.gelato.minorDiscrepancyThresholdOunces.toFixed(2)} oz)</td>
-                        </tr>
-                        <tr>
-                          <td className="px-4 py-3">Packaging and utensil review</td>
-                          <td className="px-4 py-3">{daily.packaging.discrepancyLabel} {daily.packaging.varianceCount == null ? "" : `(variance ${daily.packaging.varianceCount.toFixed(2)} units, threshold ${daily.packaging.minorDiscrepancyThresholdCount})`}</td>
-                        </tr>
-                      </tbody>
-                    </table>
+                ) : dailyQuery.error || !reconciliationSnapshot.gelato ? (
+                  <div className="p-5">
+                    <StatePanel title="Unable to load flavor reconciliation" description="The selected day could not be reconciled right now." tone="error" />
                   </div>
-                  <div className="mt-6 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-                    <div className="rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6] p-5 shadow-sm">
-                      <p className="text-xs uppercase tracking-[0.22em] text-[#8b9088]">Reconciliation formula</p>
-                      <h3 className="mt-3 font-serif text-2xl text-[#1f2b27]">Opening inventory − closing inventory = distributed. Distributed − sold = difference.</h3>
-                      <p className="mt-3 max-w-2xl text-sm leading-6 text-[#66706a]">
-                        The target is a zero difference. Use the dedicated reconciliation tab below for the full gelato, cup, lid, and spoon breakdown at a readable page width.
-                      </p>
-                    </div>
-                    <div className="rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6] p-5 shadow-sm">
-                      <p className="text-xs uppercase tracking-[0.22em] text-[#8b9088]">Selected-day difference target</p>
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-2xl border border-[#e5ddd0] bg-white/80 p-4">
-                          <p className="text-xs uppercase tracking-[0.18em] text-[#8b9088]">Gelato difference</p>
-                          <p className="mt-2 font-serif text-2xl text-[#1f2b27]">{formatSignedValue(reconciliationSnapshot.gelato?.differenceVolumeOunces)} oz</p>
-                          <p className="mt-2 text-sm text-[#66706a]">Goal: 0.00 oz</p>
-                        </div>
-                        <div className="rounded-2xl border border-[#e5ddd0] bg-white/80 p-4">
-                          <p className="text-xs uppercase tracking-[0.18em] text-[#8b9088]">Packaging difference</p>
-                          <p className="mt-2 font-serif text-2xl text-[#1f2b27]">{reconciliationSnapshot.packaging?.differenceCount == null ? "Awaiting counts" : `${formatSignedValue(reconciliationSnapshot.packaging.differenceCount)} units`}</p>
-                          <p className="mt-2 text-sm text-[#66706a]">Goal: 0.00 units</p>
-                        </div>
-                      </div>
-                    </div>
+                ) : flavorRows.length === 0 ? (
+                  <div className="p-5">
+                    <StatePanel title="No gelato measurements found" description="Once opening and closing gelato counts are submitted, each flavor will appear here automatically." tone="warning" />
                   </div>
-                </>
-              )}
-            </div>
-          </SurfaceCard>
-        </div>
+                ) : (
+                  <table className="w-full min-w-[980px] text-left text-sm">
+                    <thead className="bg-[#f4ede2] text-[#60706b]">
+                      <tr>
+                        <th className="px-4 py-3 font-medium">Flavor</th>
+                        <th className="px-4 py-3 font-medium">Starting oz</th>
+                        <th className="px-4 py-3 font-medium">Ending oz</th>
+                        <th className="px-4 py-3 font-medium">Distributed oz</th>
+                        <th className="px-4 py-3 font-medium">Sold oz</th>
+                        <th className="px-4 py-3 font-medium">Difference</th>
+                        <th className="px-4 py-3 font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
+                      {flavorRows.map(item => (
+                        <tr key={item.flavor}>
+                          <td className="px-4 py-3 font-medium">{item.flavor}</td>
+                          <td className="px-4 py-3">{item.openingOunces.toFixed(2)}</td>
+                          <td className="px-4 py-3">{item.closingOunces.toFixed(2)}</td>
+                          <td className="px-4 py-3">{item.distributedOunces.toFixed(2)}</td>
+                          <td className="px-4 py-3">{item.soldOunces.toFixed(2)}</td>
+                          <td className="px-4 py-3">{formatSignedValue(item.differenceOunces)}</td>
+                          <td className="px-4 py-3">
+                            <span className={`rounded-full px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] ${
+                              item.status === "Aligned"
+                                ? "bg-[#e8f0ec] text-[#4d655d]"
+                                : item.status === "Review"
+                                  ? "bg-[#f5e7d3] text-[#805e2f]"
+                                  : item.status === "Over"
+                                    ? "bg-[#efe4dc] text-[#8b5a47]"
+                                    : "bg-[#f1ebe2] text-[#7a6553]"
+                            }`}>
+                              {item.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </SurfaceCard>
+
+            <SurfaceCard>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Packaging reconciliation</p>
+                  <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Opening units, closing units, distributed units, sold units, and difference</h2>
+                </div>
+                <div className="rounded-full bg-[#f1e8da] px-4 py-2 text-sm text-[#566863]">Goal: 0.00 units difference</div>
+              </div>
+              <div className="mt-6 overflow-x-auto rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6]">
+                {dailyQuery.isLoading ? (
+                  <div className="p-5">
+                    <StatePanel title="Loading packaging reconciliation" description="Reviewing cups, lids, and spoons against opening and closing counts." />
+                  </div>
+                ) : dailyQuery.error || !reconciliationSnapshot.packaging ? (
+                  <div className="p-5">
+                    <StatePanel title="Unable to load packaging reconciliation" description="The packaging comparison is temporarily unavailable." tone="error" />
+                  </div>
+                ) : (
+                  <table className="w-full min-w-[980px] text-left text-sm">
+                    <thead className="bg-[#f4ede2] text-[#60706b]">
+                      <tr>
+                        <th className="px-4 py-3 font-medium">Item</th>
+                        <th className="px-4 py-3 font-medium">Starting</th>
+                        <th className="px-4 py-3 font-medium">Ending</th>
+                        <th className="px-4 py-3 font-medium">Distributed</th>
+                        <th className="px-4 py-3 font-medium">Sold</th>
+                        <th className="px-4 py-3 font-medium">Difference</th>
+                        <th className="px-4 py-3 font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
+                      {reconciliationSnapshot.packaging.items.map(item => (
+                        <tr key={item.key}>
+                          <td className="px-4 py-3 font-medium">{item.label}</td>
+                          <td className="px-4 py-3">{item.openingQuantity.toFixed(2)}</td>
+                          <td className="px-4 py-3">{item.closingQuantity == null ? "Awaiting count" : item.closingQuantity.toFixed(2)}</td>
+                          <td className="px-4 py-3">{item.actualUsed == null ? "Awaiting count" : item.actualUsed.toFixed(2)}</td>
+                          <td className="px-4 py-3">{item.expectedUsed.toFixed(2)}</td>
+                          <td className="px-4 py-3">{item.variance == null ? "Awaiting count" : formatSignedValue(item.variance)}</td>
+                          <td className="px-4 py-3">
+                            <span className={`rounded-full px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] ${
+                              item.discrepancyLabel === "Aligned"
+                                ? "bg-[#e8f0ec] text-[#4d655d]"
+                                : item.discrepancyLabel.includes("minor") || item.discrepancyLabel.includes("Minor")
+                                  ? "bg-[#f5e7d3] text-[#805e2f]"
+                                  : "bg-[#efe4dc] text-[#8b5a47]"
+                            }`}>
+                              {item.discrepancyLabel}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </SurfaceCard>
           </>
         ) : null}
 
@@ -674,7 +871,7 @@ export default function ManagerDashboard() {
                               </div>
                             ))}
                           </div>
-                          <p className="mt-4 text-sm leading-6 text-[#66706a]">Goal: 0.00 units difference. {reconciliationSnapshot.packaging.hasPendingCounts ? "Closing counts are still needed for one or more items before the full difference can be confirmed." : `Current review: ${reconciliationSnapshot.packaging.discrepancyLabel}.`}</p>
+                          <p className="mt-4 text-sm leading-6 text-[#66706a]">Goal: 0.00 units difference. Current review: {reconciliationSnapshot.packaging.discrepancyLabel}.</p>
                         </div>
                       </div>
 
@@ -843,131 +1040,129 @@ export default function ManagerDashboard() {
           </SurfaceCard>
         ) : null}
 
-        {!isInventoryWorkspaceRoute ? (
-          <>
-        <div className="grid gap-8 xl:grid-cols-[1.2fr_0.8fr]">
+        {isCookbookRoute ? (
           <SurfaceCard>
-            <section id="recipe-book-section" ref={recipeBookRef}>
+            <section>
               <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Recipe book</p>
-            <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Flavor formulas, ingredient costs, and yield placeholders</h2>
-            <p className="mt-3 max-w-3xl text-sm leading-7 text-[#6b6258]">This cookbook organizes every flavor from the provided workbook with its ingredients, quantities, unit of measurement, current cost information, and placeholders for yield and cost per ounce until those final numbers are available.</p>
-            <div className="mt-6 grid gap-4 sm:grid-cols-3">
-              {[
-                { label: "Recipes loaded", value: recipes.length },
-                { label: "Recipes pending yield", value: recipes.filter(recipe => recipe.batchYieldOunces <= 0).length },
-                { label: "Ingredients with missing costs", value: recipes.reduce((sum, recipe) => sum + recipe.missingCostCount, 0) },
-              ].map(item => (
-                <div key={item.label} className="rounded-2xl border border-[#e5ddd0] bg-[#fbf7f0] p-4 shadow-sm">
-                  <p className="text-xs uppercase tracking-[0.22em] text-[#8b9088]">{item.label}</p>
-                  <p className="mt-3 font-serif text-3xl text-[#1f2b27]">{item.value}</p>
-                </div>
-              ))}
-            </div>
+              <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Flavor formulas, ingredient costs, and yield placeholders</h2>
+              <p className="mt-3 max-w-3xl text-sm leading-7 text-[#6b6258]">This cookbook organizes every flavor from the provided workbook with its ingredients, quantities, unit of measurement, current cost information, and placeholders for yield and cost per ounce until those final numbers are available.</p>
+              <div className="mt-6 grid gap-4 sm:grid-cols-3">
+                {[
+                  { label: "Recipes loaded", value: recipes.length },
+                  { label: "Recipes pending yield", value: recipes.filter(recipe => recipe.batchYieldOunces <= 0).length },
+                  { label: "Ingredients with missing costs", value: recipes.reduce((sum, recipe) => sum + recipe.missingCostCount, 0) },
+                ].map(item => (
+                  <div key={item.label} className="rounded-2xl border border-[#e5ddd0] bg-[#fbf7f0] p-4 shadow-sm">
+                    <p className="text-xs uppercase tracking-[0.22em] text-[#8b9088]">{item.label}</p>
+                    <p className="mt-3 font-serif text-3xl text-[#1f2b27]">{item.value}</p>
+                  </div>
+                ))}
+              </div>
 
-            <div className="mt-6 space-y-4">
-              {recipesQuery.isLoading ? (
-                <StatePanel title="Loading recipe workbook" description="Pulling cookbook recipes and ingredient rows into the dashboard." />
-              ) : recipesQuery.error ? (
-                <StatePanel title="Unable to load cookbook data" description="The cookbook data is temporarily unavailable." tone="error" />
-              ) : recipes.length === 0 ? (
-                <StatePanel title="No cookbook recipes yet" description="Recipes will appear here once the workbook seed data is available." tone="warning" />
-              ) : (
-                recipes.map(recipe => (
-                  <article key={recipe.id} className="rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6] p-5 shadow-sm">
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">Flavor recipe</p>
-                        <h3 className="mt-2 text-2xl font-medium tracking-[-0.03em] text-[#24332f]">{recipe.name}</h3>
-                        <p className="mt-2 text-sm text-[#69726c]">Known ingredient cost total: <span className="font-medium text-[#24332f]">${recipe.batchCost.toFixed(2)}</span></p>
-                        <p className="mt-1 text-sm text-[#69726c]">Cost per ounce: <span className="font-medium text-[#24332f]">{recipe.costPerOunce == null ? "Pending yield input" : `$${recipe.costPerOunce.toFixed(2)}/oz`}</span></p>
+              <div className="mt-6 space-y-4">
+                {recipesQuery.isLoading ? (
+                  <StatePanel title="Loading recipe workbook" description="Pulling cookbook recipes and ingredient rows into the workspace." />
+                ) : recipesQuery.error ? (
+                  <StatePanel title="Unable to load cookbook data" description="The cookbook data is temporarily unavailable." tone="error" />
+                ) : recipes.length === 0 ? (
+                  <StatePanel title="No cookbook recipes yet" description="Recipes will appear here once the workbook seed data is available." tone="warning" />
+                ) : (
+                  recipes.map(recipe => (
+                    <article key={recipe.id} className="rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6] p-5 shadow-sm">
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">Flavor recipe</p>
+                          <h3 className="mt-2 text-2xl font-medium tracking-[-0.03em] text-[#24332f]">{recipe.name}</h3>
+                          <p className="mt-2 text-sm text-[#69726c]">Known ingredient cost total: <span className="font-medium text-[#24332f]">${recipe.batchCost.toFixed(2)}</span></p>
+                          <p className="mt-1 text-sm text-[#69726c]">Cost per ounce: <span className="font-medium text-[#24332f]">{recipe.costPerOunce == null ? "Pending yield input" : `$${recipe.costPerOunce.toFixed(2)}/oz`}</span></p>
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                          <div className="rounded-2xl border border-[#e4dccf] bg-white/90 px-4 py-3 text-sm text-[#52665f]">
+                            <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Yield</p>
+                            <p className="mt-2 font-medium text-[#24332f]">{recipe.batchYieldOunces > 0 ? `${recipe.batchYieldOunces} oz` : "Pending"}</p>
+                          </div>
+                          <div className="rounded-2xl border border-[#eadfcf] bg-[#f5e7d3] px-4 py-3 text-sm text-[#805e2f]">
+                            <p className="text-[11px] uppercase tracking-[0.18em]">Missing costs</p>
+                            <p className="mt-2 font-medium">{recipe.missingCostCount}</p>
+                          </div>
+                          <div className="rounded-2xl border border-[#e4dccf] bg-white/90 px-4 py-3 text-sm text-[#52665f]">
+                            <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Ingredients</p>
+                            <p className="mt-2 font-medium text-[#24332f]">{recipe.ingredients.length}</p>
+                          </div>
+                          <div className="rounded-2xl border border-[#e4dccf] bg-white/90 px-4 py-3 text-sm text-[#52665f]">
+                            <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Reorder-linked items</p>
+                            <p className="mt-2 font-medium text-[#24332f]">{recipe.ingredients.filter(ingredient => {
+                              const matchedItem = inventoryItems.find(item => item.id === ingredient.inventoryItemId || item.itemName === ingredient.inventoryItemName);
+                              return Boolean(matchedItem?.reorderNeeded);
+                            }).length}</p>
+                          </div>
+                        </div>
                       </div>
-                      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                        <div className="rounded-2xl border border-[#e4dccf] bg-white/90 px-4 py-3 text-sm text-[#52665f]">
-                          <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Yield</p>
-                          <p className="mt-2 font-medium text-[#24332f]">{recipe.batchYieldOunces > 0 ? `${recipe.batchYieldOunces} oz` : "Pending"}</p>
-                        </div>
-                        <div className="rounded-2xl border border-[#eadfcf] bg-[#f5e7d3] px-4 py-3 text-sm text-[#805e2f]">
-                          <p className="text-[11px] uppercase tracking-[0.18em]">Missing costs</p>
-                          <p className="mt-2 font-medium">{recipe.missingCostCount}</p>
-                        </div>
-                        <div className="rounded-2xl border border-[#e4dccf] bg-white/90 px-4 py-3 text-sm text-[#52665f]">
-                          <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Ingredients</p>
-                          <p className="mt-2 font-medium text-[#24332f]">{recipe.ingredients.length}</p>
-                        </div>
-                        <div className="rounded-2xl border border-[#e4dccf] bg-white/90 px-4 py-3 text-sm text-[#52665f]">
-                          <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Reorder-linked items</p>
-                          <p className="mt-2 font-medium text-[#24332f]">{recipe.ingredients.filter(ingredient => {
-                            const matchedItem = inventoryItems.find(item => item.id === ingredient.inventoryItemId || item.itemName === ingredient.inventoryItemName);
-                            return Boolean(matchedItem?.reorderNeeded);
-                          }).length}</p>
-                        </div>
+
+                      <div className="mt-5 overflow-x-auto rounded-2xl border border-[#e8dfd3] bg-white/80">
+                        <table className="w-full min-w-[920px] text-left text-sm">
+                          <thead className="bg-[#f4ede2] text-[#60706b]">
+                            <tr>
+                              <th className="px-4 py-3 font-medium">Ingredient</th>
+                              <th className="px-4 py-3 font-medium">Units</th>
+                              <th className="px-4 py-3 font-medium">Unit of measurement</th>
+                              <th className="px-4 py-3 font-medium">Cost per unit</th>
+                              <th className="px-4 py-3 font-medium">Ingredient cost</th>
+                              <th className="px-4 py-3 font-medium">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
+                            {recipe.ingredients.map(ingredient => {
+                              const matchedItem = inventoryItems.find(item => item.id === ingredient.inventoryItemId || item.itemName === ingredient.inventoryItemName);
+                              const purchasingStatus = ingredient.costSource === "missing"
+                                ? "Need cost"
+                                : matchedItem?.reorderNeeded
+                                  ? "Needs reorder"
+                                  : matchedItem
+                                    ? "Cost linked"
+                                    : "Recipe only";
+
+                              return (
+                                <tr key={ingredient.id}>
+                                  <td className="px-4 py-3 align-top">
+                                    <div>
+                                      <p className="font-medium">{ingredient.ingredientName}</p>
+                                      <p className="mt-1 text-xs text-[#7a827d]">{ingredient.inventoryItemName ? `Inventory match: ${ingredient.inventoryItemName}` : "No inventory match yet"}</p>
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3 align-top">{ingredient.quantity}</td>
+                                  <td className="px-4 py-3 align-top">{ingredient.unitType || "—"}</td>
+                                  <td className="px-4 py-3 align-top">${ingredient.costPerUnit.toFixed(2)}</td>
+                                  <td className="px-4 py-3 align-top">${ingredient.totalCost.toFixed(2)}</td>
+                                  <td className="px-4 py-3 align-top">
+                                    <span className={`rounded-full px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] ${
+                                      purchasingStatus === "Needs reorder"
+                                        ? "bg-[#f5e7d3] text-[#805e2f]"
+                                        : purchasingStatus === "Need cost"
+                                          ? "bg-[#efe4dc] text-[#8b5a47]"
+                                          : purchasingStatus === "Recipe only"
+                                            ? "bg-[#f1ebe2] text-[#7a6553]"
+                                            : "bg-[#e8f0ec] text-[#4d655d]"
+                                    }`}>
+                                      {purchasingStatus}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
                       </div>
-                    </div>
-
-                    <div className="mt-5 overflow-x-auto rounded-2xl border border-[#e8dfd3] bg-white/80">
-                      <table className="w-full min-w-[920px] text-left text-sm">
-                        <thead className="bg-[#f4ede2] text-[#60706b]">
-                          <tr>
-                            <th className="px-4 py-3 font-medium">Ingredient</th>
-                            <th className="px-4 py-3 font-medium">Units</th>
-                            <th className="px-4 py-3 font-medium">Unit of measurement</th>
-                            <th className="px-4 py-3 font-medium">Cost per unit</th>
-                            <th className="px-4 py-3 font-medium">Ingredient cost</th>
-                            <th className="px-4 py-3 font-medium">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
-                          {recipe.ingredients.map(ingredient => {
-                            const matchedItem = inventoryItems.find(item => item.id === ingredient.inventoryItemId || item.itemName === ingredient.inventoryItemName);
-                            const purchasingStatus = ingredient.costSource === "missing"
-                              ? "Need cost"
-                              : matchedItem?.reorderNeeded
-                                ? "Needs reorder"
-                                : matchedItem
-                                  ? "Cost linked"
-                                  : "Recipe only";
-
-                            return (
-                              <tr key={ingredient.id}>
-                                <td className="px-4 py-3 align-top">
-                                  <div>
-                                    <p className="font-medium">{ingredient.ingredientName}</p>
-                                    <p className="mt-1 text-xs text-[#7a827d]">{ingredient.inventoryItemName ? `Inventory match: ${ingredient.inventoryItemName}` : "No inventory match yet"}</p>
-                                  </div>
-                                </td>
-                                <td className="px-4 py-3 align-top">{ingredient.quantity}</td>
-                                <td className="px-4 py-3 align-top">{ingredient.unitType || "—"}</td>
-                                <td className="px-4 py-3 align-top">${ingredient.costPerUnit.toFixed(2)}</td>
-                                <td className="px-4 py-3 align-top">${ingredient.totalCost.toFixed(2)}</td>
-                                <td className="px-4 py-3 align-top">
-                                  <span className={`rounded-full px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] ${
-                                    purchasingStatus === "Needs reorder"
-                                      ? "bg-[#f5e7d3] text-[#805e2f]"
-                                      : purchasingStatus === "Need cost"
-                                        ? "bg-[#efe4dc] text-[#8b5a47]"
-                                        : purchasingStatus === "Recipe only"
-                                          ? "bg-[#f1ebe2] text-[#7a6553]"
-                                          : "bg-[#e8f0ec] text-[#4d655d]"
-                                  }`}>
-                                    {purchasingStatus}
-                                  </span>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </article>
-                ))
-              )}
-            </div>
+                    </article>
+                  ))
+                )}
+              </div>
             </section>
           </SurfaceCard>
-        </div>
+        ) : null}
 
-        <div className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
-          <SurfaceCard className="xl:col-span-2">
+        {isFormsRoute ? (
+          <SurfaceCard>
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Checklist management</p>
@@ -1034,8 +1229,8 @@ export default function ManagerDashboard() {
 
             <div className="mt-6 grid gap-6 xl:grid-cols-2">
               {[
-                { title: "Opening Checklist", tone: "opening", items: openingChecklistQuestions, loading: openingChecklistQuery.isLoading, error: openingChecklistQuery.error },
-                { title: "Closing Checklist", tone: "closing", items: closingChecklistQuestions, loading: closingChecklistQuery.isLoading, error: closingChecklistQuery.error },
+                { title: "Opening Checklist", items: openingChecklistQuestions, loading: openingChecklistQuery.isLoading, error: openingChecklistQuery.error },
+                { title: "Closing Checklist", items: closingChecklistQuestions, loading: closingChecklistQuery.isLoading, error: closingChecklistQuery.error },
               ].map(group => (
                 <div key={group.title} className="rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6] p-5">
                   <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">{group.title}</p>
@@ -1091,101 +1286,106 @@ export default function ManagerDashboard() {
               ))}
             </div>
           </SurfaceCard>
-          <SurfaceCard>
-            <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Sales trend</p>
-            <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Daily sales across the last four weeks</h2>
-            <div className="mt-8 h-[320px]">
-              {trendQuery.isLoading ? (
-                <StatePanel title="Loading daily sales trend" description="Pulling recent daily totals for the last four weeks." />
-              ) : trendQuery.error ? (
-                <StatePanel title="Unable to load the sales trend" description="The recent sales history is temporarily unavailable." tone="error" />
-              ) : trendData.length === 0 ? (
-                <StatePanel title="No trend data yet" description="Sales trend lines will appear after employees begin submitting End-of-Day Reports." tone="warning" />
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={trendData}>
-                    <defs>
-                      <linearGradient id="salesFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#5e766d" stopOpacity={0.35} />
-                        <stop offset="95%" stopColor="#5e766d" stopOpacity={0.04} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid stroke="#e8e0d4" vertical={false} />
-                    <XAxis dataKey="businessDate" tick={{ fill: "#7a8077", fontSize: 12 }} tickLine={false} axisLine={false} />
-                    <YAxis tick={{ fill: "#7a8077", fontSize: 12 }} tickLine={false} axisLine={false} tickFormatter={value => `$${value}`} />
-                    <Tooltip formatter={value => formatCurrency(Number(value))} labelStyle={{ color: "#24332f" }} contentStyle={{ borderRadius: 18, borderColor: "#e4dccf", backgroundColor: "rgba(255,255,255,0.96)" }} />
-                    <Area type="monotone" dataKey="totalSales" stroke="#52665f" strokeWidth={3} fill="url(#salesFill)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          </SurfaceCard>
+        ) : null}
 
-          <SurfaceCard>
-            <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Week-over-week comparison</p>
-            <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Weekly momentum</h2>
-            <div className="mt-8 h-[320px]">
-              {wowQuery.isLoading ? (
-                <StatePanel title="Loading weekly comparison" description="Calculating week-over-week sales changes." />
-              ) : wowQuery.error ? (
-                <StatePanel title="Unable to load the weekly comparison" description="The week-over-week chart is temporarily unavailable." tone="error" />
-              ) : wowData.length === 0 ? (
-                <StatePanel title="No weekly comparison data yet" description="As daily reports accumulate, weekly sales comparisons will appear here." tone="warning" />
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={wowData}>
-                    <CartesianGrid stroke="#e8e0d4" vertical={false} />
-                    <XAxis dataKey="weekStart" tick={{ fill: "#7a8077", fontSize: 12 }} tickLine={false} axisLine={false} />
-                    <YAxis tick={{ fill: "#7a8077", fontSize: 12 }} tickLine={false} axisLine={false} tickFormatter={value => `$${value}`} />
-                    <Tooltip formatter={value => formatCurrency(Number(value))} labelStyle={{ color: "#24332f" }} contentStyle={{ borderRadius: 18, borderColor: "#e4dccf", backgroundColor: "rgba(255,255,255,0.96)" }} />
-                    <Bar dataKey="totalSales" fill="#52665f" radius={[12, 12, 4, 4]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          </SurfaceCard>
-        </div>
+        {isAnalysisRoute ? (
+          <>
+            <div className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
+              <SurfaceCard>
+                <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Sales trend</p>
+                <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Daily sales across the last four weeks</h2>
+                <div className="mt-8 h-[320px]">
+                  {trendQuery.isLoading ? (
+                    <StatePanel title="Loading daily sales trend" description="Pulling recent daily totals for the last four weeks." />
+                  ) : trendQuery.error ? (
+                    <StatePanel title="Unable to load the sales trend" description="The recent sales history is temporarily unavailable." tone="error" />
+                  ) : trendData.length === 0 ? (
+                    <StatePanel title="No trend data yet" description="Sales trend lines will appear after employees begin submitting End-of-Day Reports." tone="warning" />
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={trendData}>
+                        <defs>
+                          <linearGradient id="salesFill" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#5e766d" stopOpacity={0.35} />
+                            <stop offset="95%" stopColor="#5e766d" stopOpacity={0.04} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid stroke="#e8e0d4" vertical={false} />
+                        <XAxis dataKey="businessDate" tick={{ fill: "#7a8077", fontSize: 12 }} tickLine={false} axisLine={false} />
+                        <YAxis tick={{ fill: "#7a8077", fontSize: 12 }} tickLine={false} axisLine={false} tickFormatter={value => `$${value}`} />
+                        <Tooltip formatter={value => formatCurrency(Number(value))} labelStyle={{ color: "#24332f" }} contentStyle={{ borderRadius: 18, borderColor: "#e4dccf", backgroundColor: "rgba(255,255,255,0.96)" }} />
+                        <Area type="monotone" dataKey="totalSales" stroke="#52665f" strokeWidth={3} fill="url(#salesFill)" />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </SurfaceCard>
 
-        <SurfaceCard>
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Recent notes feed</p>
-              <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Latest operational notes from all submissions</h2>
+              <SurfaceCard>
+                <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Week-over-week comparison</p>
+                <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Weekly momentum</h2>
+                <div className="mt-8 h-[320px]">
+                  {wowQuery.isLoading ? (
+                    <StatePanel title="Loading weekly comparison" description="Calculating week-over-week sales changes." />
+                  ) : wowQuery.error ? (
+                    <StatePanel title="Unable to load the weekly comparison" description="The week-over-week chart is temporarily unavailable." tone="error" />
+                  ) : wowData.length === 0 ? (
+                    <StatePanel title="No weekly comparison data yet" description="As daily reports accumulate, weekly sales comparisons will appear here." tone="warning" />
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={wowData}>
+                        <CartesianGrid stroke="#e8e0d4" vertical={false} />
+                        <XAxis dataKey="weekStart" tick={{ fill: "#7a8077", fontSize: 12 }} tickLine={false} axisLine={false} />
+                        <YAxis tick={{ fill: "#7a8077", fontSize: 12 }} tickLine={false} axisLine={false} tickFormatter={value => `$${value}`} />
+                        <Tooltip formatter={value => formatCurrency(Number(value))} labelStyle={{ color: "#24332f" }} contentStyle={{ borderRadius: 18, borderColor: "#e4dccf", backgroundColor: "rgba(255,255,255,0.96)" }} />
+                        <Bar dataKey="totalSales" fill="#52665f" radius={[12, 12, 4, 4]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </SurfaceCard>
             </div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-[#e3d8ca] bg-[#fbf7f0] px-4 py-2 text-sm text-[#68716c]">
-              <ClipboardCheck className="h-4 w-4 text-[#52665f]" />
-              Low-item alerts, waste notes, closing notes, and general notes
-            </div>
-          </div>
-          <div className="mt-6 grid gap-4 lg:grid-cols-2">
-            {notesQuery.isLoading ? (
-              <div className="lg:col-span-2">
-                <StatePanel title="Loading the recent notes feed" description="Gathering low-item alerts, waste notes, closing notes, and general notes from the latest submissions." />
+
+            <SurfaceCard>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Recent notes feed</p>
+                  <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Latest operational notes from all submissions</h2>
+                </div>
+                <div className="inline-flex items-center gap-2 rounded-full border border-[#e3d8ca] bg-[#fbf7f0] px-4 py-2 text-sm text-[#68716c]">
+                  <ClipboardCheck className="h-4 w-4 text-[#52665f]" />
+                  Low-item alerts, waste notes, closing notes, and general notes
+                </div>
               </div>
-            ) : notesQuery.error ? (
-              <div className="lg:col-span-2">
-                <StatePanel title="Unable to load the recent notes feed" description="The aggregated notes feed is temporarily unavailable." tone="error" />
-              </div>
-            ) : recentNotes.length === 0 ? (
-              <div className="lg:col-span-2">
-                <StatePanel title="No notes have been submitted yet" description="Notes will appear here as soon as employees submit low-item alerts, waste notes, closing notes, or general notes." tone="warning" />
-              </div>
-            ) : (
-              recentNotes.map((note, index) => (
-                <article key={`${note.type}-${note.businessDate}-${index}`} className="rounded-[1.5rem] border border-[#e6ddcf] bg-[#fcfaf6] p-5 shadow-sm">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">{note.type}</p>
-                      <h3 className="mt-2 font-medium text-[#24332f]">{note.staffName || "Staff member"}</h3>
-                    </div>
-                    <div className="rounded-full bg-[#f1e8da] px-3 py-2 text-xs text-[#66706a]">{note.businessDate}</div>
+              <div className="mt-6 grid gap-4 lg:grid-cols-2">
+                {notesQuery.isLoading ? (
+                  <div className="lg:col-span-2">
+                    <StatePanel title="Loading the recent notes feed" description="Gathering low-item alerts, waste notes, closing notes, and general notes from the latest submissions." />
                   </div>
-                  <p className="mt-4 text-sm leading-7 text-[#68716b]">{note.detail}</p>
-                </article>
-              ))
-            )}
-          </div>
-        </SurfaceCard>
+                ) : notesQuery.error ? (
+                  <div className="lg:col-span-2">
+                    <StatePanel title="Unable to load the recent notes feed" description="The aggregated notes feed is temporarily unavailable." tone="error" />
+                  </div>
+                ) : recentNotes.length === 0 ? (
+                  <div className="lg:col-span-2">
+                    <StatePanel title="No notes have been submitted yet" description="Notes will appear here as soon as employees submit low-item alerts, waste notes, closing notes, or general notes." tone="warning" />
+                  </div>
+                ) : (
+                  recentNotes.map((note, index) => (
+                    <article key={`${note.type}-${note.businessDate}-${index}`} className="rounded-[1.5rem] border border-[#e6ddcf] bg-[#fcfaf6] p-5 shadow-sm">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">{note.type}</p>
+                          <h3 className="mt-2 font-medium text-[#24332f]">{note.staffName || "Staff member"}</h3>
+                        </div>
+                        <div className="rounded-full bg-[#f1e8da] px-3 py-2 text-xs text-[#66706a]">{note.businessDate}</div>
+                      </div>
+                      <p className="mt-4 text-sm leading-7 text-[#68716b]">{note.detail}</p>
+                    </article>
+                  ))
+                )}
+              </div>
+            </SurfaceCard>
           </>
         ) : null}
       </div>

@@ -24,6 +24,8 @@ function Router() {
       <Route path="/portal/inventory" component={InventoryForm} />
       <Route path="/portal/photo-pilot" component={GelatoPhotoPilot} />
       <Route path="/dashboard/inventory" component={ManagerDashboard} />
+      <Route path="/dashboard/forms" component={ManagerDashboard} />
+      <Route path="/dashboard/analysis" component={ManagerDashboard} />
       <Route path="/dashboard" component={ManagerDashboard} />
       <Route path="/cookbook" component={ManagerDashboard} />
       <Route path="/404" component={NotFound} />

@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { BarChart3, BookOpen, ClipboardList, LogOut, PackagePlus, PanelLeft, ShieldCheck } from "lucide-react";
+import { BarChart3, BookOpen, ClipboardList, FileCheck, LineChart, LogOut, PackagePlus, PanelLeft, ShieldCheck } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
@@ -36,6 +36,8 @@ export const menuItems: Array<{
   { icon: BarChart3, label: "Dashboard", path: "/dashboard", roles: ["admin"] },
   { icon: PackagePlus, label: "Inventory Setup", path: "/dashboard/inventory", roles: ["admin"] },
   { icon: BookOpen, label: "Cookbook", path: "/cookbook", roles: ["admin"] },
+  { icon: FileCheck, label: "Form Setup", path: "/dashboard/forms", roles: ["admin"] },
+  { icon: LineChart, label: "History & Notes", path: "/dashboard/analysis", roles: ["admin"] },
   { icon: ClipboardList, label: "Employee Portal", path: "/portal", roles: ["admin", "user"] },
 ];
 
@@ -76,7 +78,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </p>
           <Button
             onClick={() => {
-              window.location.href = getLoginUrl();
+              window.location.href = getLoginUrl(window.location.pathname);
             }}
             size="lg"
             className="mt-8 w-full rounded-full bg-[#52665f] text-white shadow-lg shadow-[#52665f]/20 hover:bg-[#41534d]"
@@ -177,10 +179,10 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
           <SidebarContent className="gap-0 border-r border-[#d7d0c4]/70 bg-[#f8f3eb]/85 px-2 py-4 backdrop-blur">
             <div className="mb-5 rounded-[1.5rem] border border-white/70 bg-white/75 p-4 text-[#44524e] shadow-[0_16px_35px_rgba(88,83,72,0.08)] group-data-[collapsible=icon]:hidden">
               <p className="text-xs uppercase tracking-[0.24em] text-[#8b8f87]">Today’s focus</p>
-              <p className="mt-2 text-lg font-medium tracking-[-0.03em] text-[#20312b]">Calm operations. Clear reporting.</p>
-              <p className="mt-2 text-sm leading-6 text-[#66706a]">
-                Review daily performance, inspect notes, and catch inventory risk before it becomes a service issue.
-              </p>
+                  <p className="mt-2 text-lg font-medium tracking-[-0.03em] text-[#20312b]">Daily operations at a glance.</p>
+                  <p className="mt-2 text-sm leading-6 text-[#66706a]">
+                    Keep the dashboard focused on sales, form completion, and reconciliation while setup and reference tools live in their own manager destinations.
+                  </p>
             </div>
             <SidebarMenu className="px-2 py-1">
               {visibleMenuItems.map(item => {
