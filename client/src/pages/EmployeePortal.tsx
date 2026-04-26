@@ -1,8 +1,9 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { type PortalLanguage, translateErrorMessage, translatePortalText } from "@/lib/employeePortalI18n";
 import { getOpeningNapkinsQuestion, groupOpeningQuestionsForPortal } from "@/lib/openingSetup";
+import { clearPortalDraft, loadPortalDraft, savePortalDraft } from "@/lib/portalDrafts";
 import { trpc } from "@/lib/trpc";
-import { ArrowRight, ClipboardCheck, House, LogOut, MoonStar, Package2, ReceiptText, SunMedium } from "lucide-react";
+import { ArrowRight, ClipboardCheck, House, LogOut, MoonStar, Package2, ReceiptText, Save, SunMedium } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Link, useLocation } from "wouter";
@@ -93,6 +94,26 @@ type ReadyMadeGelatoState = {
   flavors: Record<string, ReadyMadeGelatoFlavorState>;
 };
 
+type OpeningDraft = {
+  form: OpeningForm;
+  answers: ChecklistAnswerState;
+  gelatoOpening: Record<string, ReadyMadeGelatoShiftState>;
+};
+
+type ClosingDraft = {
+  form: ClosingForm;
+  answers: ChecklistAnswerState;
+  serviceInventoryCounts: Record<number, string>;
+  gelatoClosing: Record<string, ReadyMadeGelatoShiftState>;
+};
+
+type InventoryDraft = {
+  serviceInventoryCounts: Record<number, string>;
+  gelatoOpening: Record<string, ReadyMadeGelatoShiftState>;
+};
+
+type DraftSavedAtState = Partial<Record<Exclude<PortalView, "hub">, number>>;
+
 type PairedInputConfig = {
   label: string;
   stockKey?: keyof OpeningStockCounts;
@@ -101,6 +122,10 @@ type PairedInputConfig = {
 
 export const GELATO_WEIGHT_INPUT_STEP = "0.001";
 export const GELATO_WEIGHT_INPUT_MODE = "decimal" as const;
+
+const openingDraftKey = "opening" as const;
+const closingDraftKey = "closing" as const;
+const inventoryDraftKey = "inventory" as const;
 
 function todayValue() {
   return new Date().toISOString().slice(0, 10);
@@ -111,6 +136,45 @@ function displayNumberValue(value: number | string | null | undefined) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric) || numeric === 0) return "";
   return String(value);
+}
+
+function cloneShiftState(shift?: Partial<ReadyMadeGelatoShiftState>): ReadyMadeGelatoShiftState {
+  return {
+    smallPanCount: shift?.smallPanCount ?? "",
+    smallGrossWeightKg: shift?.smallGrossWeightKg ?? "",
+    largePanCount: shift?.largePanCount ?? "",
+    largeGrossWeightKg: shift?.largeGrossWeightKg ?? "",
+  };
+}
+
+function extractGelatoShiftDraft(readyMadeGelato: ReadyMadeGelatoState, shiftType: ReadyMadeGelatoShiftKey) {
+  return Object.fromEntries(
+    Object.entries(readyMadeGelato.flavors).map(([flavor, shifts]) => [flavor, cloneShiftState(shifts[shiftType])]),
+  ) as Record<string, ReadyMadeGelatoShiftState>;
+}
+
+function applyGelatoShiftDraft(
+  current: ReadyMadeGelatoState,
+  shiftType: ReadyMadeGelatoShiftKey,
+  draftFlavors: Record<string, ReadyMadeGelatoShiftState>,
+  businessDate: string,
+) {
+  return {
+    ...current,
+    businessDate,
+    flavors: Object.fromEntries(
+      Array.from(new Set([...Object.keys(current.flavors), ...Object.keys(draftFlavors)])).map(flavor => [
+        flavor,
+        {
+          ...(current.flavors[flavor] ?? {
+            opening: initialReadyMadeGelatoShiftState(),
+            closing: initialReadyMadeGelatoShiftState(),
+          }),
+          [shiftType]: cloneShiftState(draftFlavors[flavor]),
+        },
+      ]),
+    ) as Record<string, ReadyMadeGelatoFlavorState>,
+  };
 }
 
 const initialOpeningStockCounts = (): OpeningStockCounts => ({
@@ -380,8 +444,15 @@ export default function EmployeePortal(props: any) {
   const [readyMadeGelato, setReadyMadeGelato] = useState<ReadyMadeGelatoState>(() => initialReadyMadeGelatoState());
   const [otherFlavorName, setOtherFlavorName] = useState("");
   const [submissionNotice, setSubmissionNotice] = useState<SubmissionNotice | null>(null);
+  const [draftSavedAt, setDraftSavedAt] = useState<DraftSavedAtState>({});
   const openingStaffNameRef = useRef<HTMLInputElement | null>(null);
   const closingStaffNameRef = useRef<HTMLInputElement | null>(null);
+  const didAttemptOpeningDraftRestore = useRef(false);
+  const didAttemptClosingDraftRestore = useRef(false);
+  const didAttemptInventoryDraftRestore = useRef(false);
+  const hasOpeningDraftRestored = useRef(false);
+  const hasClosingDraftRestored = useRef(false);
+  const hasInventoryDraftRestored = useRef(false);
 
   const openingQuestionsQuery = trpc.forms.checklistQuestions.useQuery({ checklistType: "opening" });
   const closingQuestionsQuery = trpc.forms.checklistQuestions.useQuery({ checklistType: "closing" });
@@ -463,11 +534,22 @@ export default function EmployeePortal(props: any) {
 
   useEffect(() => {
     if (inventoryItems.length === 0) return;
+    if ((portalView === "closing" && hasClosingDraftRestored.current) || (portalView === "inventory" && hasInventoryDraftRestored.current)) {
+      return;
+    }
     setServiceInventoryCounts(Object.fromEntries(inventoryItems.map(item => [item.id, displayNumberValue(item.currentQuantity)])));
-  }, [inventoryItems]);
+  }, [inventoryItems, portalView]);
 
   useEffect(() => {
     if (!readyMadeGelatoQuery.data) return;
+    if (
+      (portalView === "opening" && hasOpeningDraftRestored.current) ||
+      (portalView === "closing" && hasClosingDraftRestored.current) ||
+      (portalView === "inventory" && hasInventoryDraftRestored.current)
+    ) {
+      return;
+    }
+
     setReadyMadeGelato(current => ({
       ...current,
       businessDate: currentBusinessDate,
@@ -494,7 +576,7 @@ export default function EmployeePortal(props: any) {
         ) as Record<string, ReadyMadeGelatoFlavorState>),
       },
     }));
-  }, [currentBusinessDate, readyMadeGelatoQuery.data]);
+  }, [currentBusinessDate, portalView, readyMadeGelatoQuery.data]);
 
   function updateGelatoField(shiftType: ReadyMadeGelatoShiftKey, flavor: string, field: keyof ReadyMadeGelatoShiftState, value: string) {
     setReadyMadeGelato(current => ({
@@ -530,6 +612,51 @@ export default function EmployeePortal(props: any) {
     }));
     setOtherFlavorName("");
   }
+
+  useEffect(() => {
+    if (portalView !== "opening" || didAttemptOpeningDraftRestore.current) return;
+    didAttemptOpeningDraftRestore.current = true;
+
+    const draft = loadPortalDraft<OpeningDraft>(openingDraftKey, currentBusinessDate);
+    if (!draft) return;
+
+    hasOpeningDraftRestored.current = true;
+    setOpeningForm({ ...draft.data.form, businessDate: currentBusinessDate });
+    setOpeningAnswers(draft.data.answers ?? {});
+    setReadyMadeGelato(current => applyGelatoShiftDraft(current, "opening", draft.data.gelatoOpening ?? {}, currentBusinessDate));
+    setDraftSavedAt(current => ({ ...current, opening: draft.savedAt }));
+    toast.success(t("Saved opening draft restored."));
+  }, [currentBusinessDate, portalView, t]);
+
+  useEffect(() => {
+    if (portalView !== "closing" || didAttemptClosingDraftRestore.current) return;
+    didAttemptClosingDraftRestore.current = true;
+
+    const draft = loadPortalDraft<ClosingDraft>(closingDraftKey, currentBusinessDate);
+    if (!draft) return;
+
+    hasClosingDraftRestored.current = true;
+    setClosingForm({ ...draft.data.form, businessDate: currentBusinessDate });
+    setClosingAnswers(draft.data.answers ?? {});
+    setServiceInventoryCounts(draft.data.serviceInventoryCounts ?? {});
+    setReadyMadeGelato(current => applyGelatoShiftDraft(current, "closing", draft.data.gelatoClosing ?? {}, currentBusinessDate));
+    setDraftSavedAt(current => ({ ...current, closing: draft.savedAt }));
+    toast.success(t("Saved closing draft restored."));
+  }, [currentBusinessDate, portalView, t]);
+
+  useEffect(() => {
+    if (portalView !== "inventory" || didAttemptInventoryDraftRestore.current) return;
+    didAttemptInventoryDraftRestore.current = true;
+
+    const draft = loadPortalDraft<InventoryDraft>(inventoryDraftKey, currentBusinessDate);
+    if (!draft) return;
+
+    hasInventoryDraftRestored.current = true;
+    setServiceInventoryCounts(draft.data.serviceInventoryCounts ?? {});
+    setReadyMadeGelato(current => applyGelatoShiftDraft(current, "opening", draft.data.gelatoOpening ?? {}, currentBusinessDate));
+    setDraftSavedAt(current => ({ ...current, inventory: draft.savedAt }));
+    toast.success(t("Saved inventory draft restored."));
+  }, [currentBusinessDate, portalView, t]);
 
   function updateInventoryItem(itemId: number, value: string) {
     setServiceInventoryCounts(current => ({ ...current, [itemId]: value }));
@@ -604,6 +731,45 @@ export default function EmployeePortal(props: any) {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  function saveOpeningDraft() {
+    const savedDraft = savePortalDraft<OpeningDraft>(openingDraftKey, currentBusinessDate, {
+      form: { ...openingForm, businessDate: currentBusinessDate, staffName: getNormalizedStaffName(openingForm.staffName, openingStaffNameRef.current?.value) },
+      answers: openingAnswers,
+      gelatoOpening: extractGelatoShiftDraft(readyMadeGelato, "opening"),
+    });
+    if (!savedDraft) return;
+
+    hasOpeningDraftRestored.current = true;
+    setDraftSavedAt(current => ({ ...current, opening: savedDraft.savedAt }));
+    toast.success(t("Opening draft saved."));
+  }
+
+  function saveClosingDraft() {
+    const savedDraft = savePortalDraft<ClosingDraft>(closingDraftKey, currentBusinessDate, {
+      form: { ...closingForm, businessDate: currentBusinessDate, staffName: getNormalizedStaffName(closingForm.staffName, closingStaffNameRef.current?.value) },
+      answers: closingAnswers,
+      serviceInventoryCounts,
+      gelatoClosing: extractGelatoShiftDraft(readyMadeGelato, "closing"),
+    });
+    if (!savedDraft) return;
+
+    hasClosingDraftRestored.current = true;
+    setDraftSavedAt(current => ({ ...current, closing: savedDraft.savedAt }));
+    toast.success(t("Closing draft saved."));
+  }
+
+  function saveInventoryDraft() {
+    const savedDraft = savePortalDraft<InventoryDraft>(inventoryDraftKey, currentBusinessDate, {
+      serviceInventoryCounts,
+      gelatoOpening: extractGelatoShiftDraft(readyMadeGelato, "opening"),
+    });
+    if (!savedDraft) return;
+
+    hasInventoryDraftRestored.current = true;
+    setDraftSavedAt(current => ({ ...current, inventory: savedDraft.savedAt }));
+    toast.success(t("Inventory draft saved."));
+  }
+
   async function submitInventoryPayloads(payloads: Array<{ id: number; currentQuantity: number; notes: string; notifyOwner?: boolean }>) {
     const updatedItems: Array<{ itemName: string; currentQuantity: number; unitType: string; department: string }> = [];
 
@@ -661,6 +827,9 @@ export default function EmployeePortal(props: any) {
 
       toast.success(t("Opening form submitted."));
       showSubmissionNotice("opening", t("Opening form submitted."), `${t("Saved for")} ${normalizedStaffName} · ${currentBusinessDate}. ${t("Managers can review it in the dashboard.")}`);
+      clearPortalDraft(openingDraftKey);
+      hasOpeningDraftRestored.current = false;
+      setDraftSavedAt(current => ({ ...current, opening: undefined }));
       setOpeningForm(initialOpeningForm());
       setOpeningAnswers({});
       await refreshAfterSubmission();
@@ -719,6 +888,9 @@ export default function EmployeePortal(props: any) {
 
       toast.success(t("Closing form submitted."));
       showSubmissionNotice("closing", t("Closing form submitted."), `${t("Saved for")} ${normalizedStaffName} · ${currentBusinessDate}. ${t("Managers can review it in the dashboard.")}`);
+      clearPortalDraft(closingDraftKey);
+      hasClosingDraftRestored.current = false;
+      setDraftSavedAt(current => ({ ...current, closing: undefined }));
       setClosingForm(initialClosingForm());
       setClosingAnswers({});
       await refreshAfterSubmission();
@@ -749,6 +921,9 @@ export default function EmployeePortal(props: any) {
       });
       toast.success(t("Inventory and ready-made gelato updated."));
       showSubmissionNotice("inventory", t("Inventory and ready-made gelato updated."), `${t("Saved for")} ${currentBusinessDate}. ${t("Managers can review it in the dashboard.")}`);
+      clearPortalDraft(inventoryDraftKey);
+      hasInventoryDraftRestored.current = false;
+      setDraftSavedAt(current => ({ ...current, inventory: undefined }));
       await refreshAfterSubmission();
     } catch {
       // Shared mutation handlers surface the error toast.
@@ -1105,11 +1280,16 @@ export default function EmployeePortal(props: any) {
                       </div>
                     ))}
                   </div>
-                  <div className="mt-6 flex w-full">
+                  <div className="mt-6 grid gap-3 md:grid-cols-2">
+                    <button type="button" onClick={saveOpeningDraft} disabled={openingMutation.isPending || inventoryMutation.isPending || readyMadeGelatoMutation.isPending} className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-[#ddd4c8] bg-white px-6 py-3 text-sm font-medium text-[#2f2a26] transition hover:bg-[#f5eee5] disabled:cursor-not-allowed disabled:opacity-60">
+                      <Save className="h-4 w-4" />
+                      {t("Save progress")}
+                    </button>
                     <button type="submit" disabled={openingMutation.isPending || inventoryMutation.isPending || readyMadeGelatoMutation.isPending} className="w-full rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
                       {openingMutation.isPending || inventoryMutation.isPending || readyMadeGelatoMutation.isPending ? t("Submitting...") : t("Submit Opening Form")}
                     </button>
                   </div>
+                  {draftSavedAt.opening ? <p className="mt-3 text-xs text-[#7d756b]">{t("Draft saved on this device for today.")}</p> : null}
                 </SectionCard>
               </form>
             ) : null}
@@ -1225,11 +1405,16 @@ export default function EmployeePortal(props: any) {
                       </div>
                     ))}
                   </div>
-                  <div className="mt-6 flex w-full">
+                  <div className="mt-6 grid gap-3 md:grid-cols-2">
+                    <button type="button" onClick={saveClosingDraft} disabled={closingMutation.isPending || endOfDayMutation.isPending || inventoryMutation.isPending || readyMadeGelatoMutation.isPending} className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-[#ddd4c8] bg-white px-6 py-3 text-sm font-medium text-[#2f2a26] transition hover:bg-[#f5eee5] disabled:cursor-not-allowed disabled:opacity-60">
+                      <Save className="h-4 w-4" />
+                      {t("Save progress")}
+                    </button>
                     <button type="submit" disabled={closingMutation.isPending || endOfDayMutation.isPending || inventoryMutation.isPending || readyMadeGelatoMutation.isPending} className="w-full rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
                       {closingMutation.isPending || endOfDayMutation.isPending || inventoryMutation.isPending || readyMadeGelatoMutation.isPending ? t("Submitting...") : t("Submit Closing Form")}
                     </button>
                   </div>
+                  {draftSavedAt.closing ? <p className="mt-3 text-xs text-[#7d756b]">{t("Draft saved on this device for today.")}</p> : null}
                 </SectionCard>
               </form>
             ) : null}
@@ -1283,11 +1468,16 @@ export default function EmployeePortal(props: any) {
                       </div>
                     ))}
                   </div>
-                  <div className="mt-6 flex w-full">
+                  <div className="mt-6 grid gap-3 md:grid-cols-2">
+                    <button type="button" onClick={saveInventoryDraft} disabled={inventoryMutation.isPending || readyMadeGelatoMutation.isPending} className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-[#ddd4c8] bg-white px-6 py-3 text-sm font-medium text-[#2f2a26] transition hover:bg-[#f5eee5] disabled:cursor-not-allowed disabled:opacity-60">
+                      <Save className="h-4 w-4" />
+                      {t("Save progress")}
+                    </button>
                     <button type="submit" disabled={inventoryMutation.isPending || readyMadeGelatoMutation.isPending} className="w-full rounded-full bg-[#2f2a26] px-6 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60">
                       {inventoryMutation.isPending || readyMadeGelatoMutation.isPending ? t("Saving inventory and gelato...") : t("Save inventory and gelato updates")}
                     </button>
                   </div>
+                  {draftSavedAt.inventory ? <p className="mt-3 text-xs text-[#7d756b]">{t("Draft saved on this device for today.")}</p> : null}
                 </SectionCard>
               </form>
             ) : null}

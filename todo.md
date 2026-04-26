@@ -158,3 +158,6 @@
 - [x] Move cookbook, recipe, ingredient, and other non-dashboard management content out of the main manager dashboard and into separate left-menu destinations
 - [x] Simplify the manager dashboard layout so it acts as a quick-glimpse operational summary instead of a multi-purpose management workspace
 - [x] Fix owner notification email links so submission alerts point to the allowed published manager dashboard domain instead of the old run.app host
+- [x] Add save-progress buttons for the staff opening, closing, and inventory forms so employees can pause work and return without losing unfinished entries
+- [x] Persist unfinished staff form drafts so saved opening, closing, and inventory progress restores when employees come back later
+- [x] Add regression coverage for staff draft-save and draft-restore behavior before release
