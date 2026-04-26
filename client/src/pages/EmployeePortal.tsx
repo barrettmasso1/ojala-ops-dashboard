@@ -406,6 +406,7 @@ export default function EmployeePortal(props: any) {
   const inventorySummaryMutation = trpc.forms.submitInventorySubmissionSummary.useMutation({
     onError: error => toast.error(translateErrorMessage(error.message, language)),
   });
+  const submissionOrigin = typeof window === "undefined" ? undefined : window.location.origin;
 
   const openingQuestions = openingQuestionsQuery.data ?? [];
   const closingQuestions = closingQuestionsQuery.data ?? [];
@@ -647,6 +648,7 @@ export default function EmployeePortal(props: any) {
         },
         notes: openingForm.notes,
         checklistAnswers: buildAnswersPayload(openingQuestions, openingAnswers),
+        origin: submissionOrigin,
       });
 
       await readyMadeGelatoMutation.mutateAsync({
@@ -712,6 +714,7 @@ export default function EmployeePortal(props: any) {
         wasteNotes: closingForm.wasteNotes,
         lowItemNotes: closingForm.lowItemNotes,
         generalNotes: closingForm.generalNotes,
+        origin: submissionOrigin,
       });
 
       toast.success(t("Closing form submitted."));
@@ -742,6 +745,7 @@ export default function EmployeePortal(props: any) {
         staffName: "Ojala Staff",
         gelatoEntryCount: gelatoResult.records.length,
         itemSummaries: updatedItems,
+        origin: submissionOrigin,
       });
       toast.success(t("Inventory and ready-made gelato updated."));
       showSubmissionNotice("inventory", t("Inventory and ready-made gelato updated."), `${t("Saved for")} ${currentBusinessDate}. ${t("Managers can review it in the dashboard.")}`);

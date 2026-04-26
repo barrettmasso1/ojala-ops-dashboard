@@ -58,6 +58,7 @@ const openingChecklistSchema = z.object({
   checklistAnswers: z.array(checklistAnswerSchema).min(1),
   notes: z.string().optional().default(""),
   notifyOwner: z.boolean().optional().default(true),
+  origin: z.string().url().optional(),
 });
 
 const closingChecklistSchema = z.object({
@@ -68,6 +69,7 @@ const closingChecklistSchema = z.object({
   checklistAnswers: z.array(checklistAnswerSchema).min(1),
   notes: z.string().optional().default(""),
   notifyOwner: z.boolean().optional().default(true),
+  origin: z.string().url().optional(),
 });
 
 const endOfDayReportSchema = z.object({
@@ -89,6 +91,7 @@ const endOfDayReportSchema = z.object({
   lowItemNotes: z.string().optional().default(""),
   generalNotes: z.string().optional().default(""),
   notifyOwner: z.boolean().optional().default(true),
+  origin: z.string().url().optional(),
 });
 
 const inventoryItemSchema = z.object({
@@ -113,6 +116,7 @@ const inventoryUpdateSchema = z.object({
   currentQuantity: z.number().min(0),
   notes: z.string().optional().default(""),
   notifyOwner: z.boolean().optional().default(true),
+  origin: z.string().url().optional(),
 });
 
 const inventorySubmissionSummarySchema = z.object({
@@ -128,6 +132,7 @@ const inventorySubmissionSummarySchema = z.object({
     })
   ).min(1),
   notifyOwner: z.boolean().optional().default(true),
+  origin: z.string().url().optional(),
 });
 
 const readyMadeGelatoShiftTypeSchema = z.enum(["opening", "closing"]);
@@ -145,6 +150,7 @@ const readyMadeGelatoSchema = z.object({
   shiftType: readyMadeGelatoShiftTypeSchema,
   entries: z.array(readyMadeGelatoEntrySchema).min(1),
   notifyOwner: z.boolean().optional().default(true),
+  origin: z.string().url().optional(),
 });
 
 const gelatoPhotoUploadSchema = z.object({
@@ -170,7 +176,25 @@ const checklistQuestionSchema = z.object({
   displayOrder: z.number().int().min(0),
 });
 
-function buildDashboardUrl(req: { protocol?: string; headers: Record<string, string | string[] | undefined>; get?: (name: string) => string | undefined }) {
+function normalizeFrontendOrigin(origin?: string) {
+  if (!origin) return "";
+
+  try {
+    return new URL(origin).origin;
+  } catch {
+    return "";
+  }
+}
+
+function buildDashboardUrl(
+  req: { protocol?: string; headers: Record<string, string | string[] | undefined>; get?: (name: string) => string | undefined },
+  frontendOrigin?: string
+) {
+  const normalizedOrigin = normalizeFrontendOrigin(frontendOrigin);
+  if (normalizedOrigin) {
+    return `${normalizedOrigin}/dashboard`;
+  }
+
   const forwardedProto = req.headers["x-forwarded-proto"];
   const forwardedHost = req.headers["x-forwarded-host"];
   const protocol =
@@ -238,7 +262,7 @@ export const appRouter = router({
       if (input.notifyOwner) {
         await notifyOwner({
           title: `Inventory updated: ${item.itemName}`,
-          content: `${ctx.user.name || "A team member"} updated ${item.itemName} to ${item.currentQuantity} ${item.unitType}. Review: ${buildDashboardUrl(ctx.req)}`,
+          content: `${ctx.user.name || "A team member"} updated ${item.itemName} to ${item.currentQuantity} ${item.unitType}. Review: ${buildDashboardUrl(ctx.req, input.origin)}`,
         });
       }
 
@@ -256,7 +280,7 @@ export const appRouter = router({
 
         await notifyOwner({
           title: `Inventory updated for ${input.businessDate}`,
-          content: `${input.staffName || ctx.user.name || "A team member"} submitted ${input.itemSummaries.length} inventory updates for ${input.businessDate}.${gelatoLabel} Updated items: ${previewItems}${remainingLabel}. Review: ${buildDashboardUrl(ctx.req)}`,
+          content: `${input.staffName || ctx.user.name || "A team member"} submitted ${input.itemSummaries.length} inventory updates for ${input.businessDate}.${gelatoLabel} Updated items: ${previewItems}${remainingLabel}. Review: ${buildDashboardUrl(ctx.req, input.origin)}`,
         });
       }
 
@@ -289,7 +313,7 @@ export const appRouter = router({
       if (input.notifyOwner) {
         await notifyOwner({
           title: `Ready-made gelato ${input.shiftType} saved: ${input.businessDate || new Date().toISOString().slice(0, 10)}`,
-          content: `${ctx.user.name || "A team member"} saved ${records.length} ${input.shiftType} gelato measurements for ${input.businessDate || new Date().toISOString().slice(0, 10)}. Review: ${buildDashboardUrl(ctx.req)}`,
+          content: `${ctx.user.name || "A team member"} saved ${records.length} ${input.shiftType} gelato measurements for ${input.businessDate || new Date().toISOString().slice(0, 10)}. Review: ${buildDashboardUrl(ctx.req, input.origin)}`,
         });
       }
 
@@ -329,7 +353,7 @@ export const appRouter = router({
       if (input.notifyOwner) {
         await notifyOwner({
           title: `Opening form submitted for ${record.businessDate}`,
-          content: `${record.staffName} submitted the opening form. Cash counted and correct: ${record.cashMatchesSystem}. Store ready: ${record.storeReadyStatus}. Failed confirmations: ${failedItems}. Review: ${buildDashboardUrl(ctx.req)}`,
+          content: `${record.staffName} submitted the opening form. Cash counted and correct: ${record.cashMatchesSystem}. Store ready: ${record.storeReadyStatus}. Failed confirmations: ${failedItems}. Review: ${buildDashboardUrl(ctx.req, input.origin)}`,
         });
       }
 
@@ -362,7 +386,7 @@ export const appRouter = router({
       if (input.notifyOwner) {
         await notifyOwner({
           title: `Closing form submitted for ${record.businessDate}`,
-          content: `${record.staffName} submitted the closing form. Cash match: ${record.cashMatchesSystem}. Store closed: ${record.storeClosedStatus}. Failed confirmations: ${failedItems}. Review: ${buildDashboardUrl(ctx.req)}`,
+          content: `${record.staffName} submitted the closing form. Cash match: ${record.cashMatchesSystem}. Store closed: ${record.storeClosedStatus}. Failed confirmations: ${failedItems}. Review: ${buildDashboardUrl(ctx.req, input.origin)}`,
         });
       }
 
@@ -389,7 +413,7 @@ export const appRouter = router({
       if (input.notifyOwner) {
         await notifyOwner({
           title: `Closing submission recorded for ${record.businessDate}`,
-          content: `${record.staffName} submitted the closing sales report. Total sales: $${totalSales.toFixed(2)}. Review: ${buildDashboardUrl(ctx.req)}`,
+          content: `${record.staffName} submitted the closing sales report. Total sales: $${totalSales.toFixed(2)}. Review: ${buildDashboardUrl(ctx.req, input.origin)}`,
         });
       }
 

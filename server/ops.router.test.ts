@@ -169,6 +169,7 @@ describe("operations router", () => {
         },
       ],
       notes: "Opening concern logged",
+      origin: "https://ojaladarsh-m6piugsr.manus.space",
     });
 
     expect(result).toEqual({ success: true });
@@ -192,7 +193,7 @@ describe("operations router", () => {
     );
     expect(notificationMocks.notifyOwner).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: expect.stringContaining("/dashboard"),
+        content: expect.stringContaining("https://ojaladarsh-m6piugsr.manus.space/dashboard"),
       })
     );
   });
@@ -228,6 +229,7 @@ describe("operations router", () => {
         },
       ],
       notes: "Closing note",
+      origin: "https://ojaladarsh-m6piugsr.manus.space",
     });
 
     expect(result).toEqual({ success: true });
@@ -248,7 +250,7 @@ describe("operations router", () => {
     );
     expect(notificationMocks.notifyOwner).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: expect.stringContaining("/dashboard"),
+        content: expect.stringContaining("https://ojaladarsh-m6piugsr.manus.space/dashboard"),
       })
     );
   });
@@ -300,6 +302,7 @@ describe("operations router", () => {
         { itemName: "4oz To-Go Cups", currentQuantity: 88, unitType: "units", department: "Utensils & Cleaning" },
         { itemName: "Cane Sugar", currentQuantity: 12.5, unitType: "kg", department: "Ingredients" },
       ],
+      origin: "https://ojaladarsh-m6piugsr.manus.space",
     });
 
     expect(result).toEqual({ success: true });
@@ -316,7 +319,7 @@ describe("operations router", () => {
     );
     expect(notificationMocks.notifyOwner).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: expect.stringContaining("Review: /dashboard"),
+        content: expect.stringContaining("Review: https://ojaladarsh-m6piugsr.manus.space/dashboard"),
       })
     );
   });
@@ -451,6 +454,7 @@ describe("operations router", () => {
       wasteNotes: "Two lids cracked",
       lowItemNotes: "Need spoons",
       generalNotes: "Steady evening traffic",
+      origin: "https://ojaladarsh-m6piugsr.manus.space",
     });
 
     expect(result).toEqual({ success: true });
@@ -482,7 +486,7 @@ describe("operations router", () => {
     );
     expect(notificationMocks.notifyOwner).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: expect.stringContaining("/dashboard"),
+        content: expect.stringContaining("https://ojaladarsh-m6piugsr.manus.space/dashboard"),
       })
     );
   });

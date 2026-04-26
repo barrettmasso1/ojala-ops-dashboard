@@ -157,3 +157,4 @@
 - [x] Add a clear date selector workflow so managers can quickly switch the dashboard view to yesterday, last week, or any specific day
 - [x] Move cookbook, recipe, ingredient, and other non-dashboard management content out of the main manager dashboard and into separate left-menu destinations
 - [x] Simplify the manager dashboard layout so it acts as a quick-glimpse operational summary instead of a multi-purpose management workspace
+- [x] Fix owner notification email links so submission alerts point to the allowed published manager dashboard domain instead of the old run.app host
