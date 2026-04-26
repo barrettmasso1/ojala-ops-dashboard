@@ -137,7 +137,9 @@ describe("db aggregation helpers", () => {
     expect(snapshot.gelato.openingVolumeOunces).toBeCloseTo(384, 0);
     expect(snapshot.gelato.closingVolumeOunces).toBeCloseTo(341.16, 2);
     expect(snapshot.gelato.actualDistributedVolumeOunces).toBeCloseTo(42.84, 2);
+    expect(snapshot.gelato.actualDistributedVolumeOunces).toBeCloseTo(snapshot.gelato.openingVolumeOunces - snapshot.gelato.closingVolumeOunces, 2);
     expect(snapshot.gelato.varianceVolumeOunces).toBeCloseTo(-329.16, 2);
+    expect(snapshot.gelato.varianceVolumeOunces).toBeCloseTo(snapshot.gelato.actualDistributedVolumeOunces - snapshot.gelato.soldVolumeOunces, 2);
     expect(snapshot.gelato.discrepancyStatus).toBe("major");
     expect(snapshot.gelato.discrepancyLabel).toBe("Major discrepancy");
     expect(snapshot.gelato.flavors.find(item => item.flavor === "Vanilla")).toMatchObject({
@@ -155,6 +157,14 @@ describe("db aggregation helpers", () => {
       variance: 19,
       discrepancyStatus: "major",
     });
+    const comparablePackagingItems = snapshot.packaging.items.filter(item => item.actualUsed != null && item.variance != null && item.closingQuantity != null);
+    const packagingOpeningTotal = comparablePackagingItems.reduce((sum, item) => sum + item.openingQuantity, 0);
+    const packagingClosingTotal = comparablePackagingItems.reduce((sum, item) => sum + (item.closingQuantity ?? 0), 0);
+    const packagingDistributedTotal = comparablePackagingItems.reduce((sum, item) => sum + (item.actualUsed ?? 0), 0);
+    const packagingSoldTotal = comparablePackagingItems.reduce((sum, item) => sum + item.expectedUsed, 0);
+    const packagingDifferenceTotal = comparablePackagingItems.reduce((sum, item) => sum + (item.variance ?? 0), 0);
+    expect(packagingDistributedTotal).toBeCloseTo(packagingOpeningTotal - packagingClosingTotal, 2);
+    expect(packagingDifferenceTotal).toBeCloseTo(packagingDistributedTotal - packagingSoldTotal, 2);
     expect(snapshot.packaging.items.find(item => item.key === "spoons")).toMatchObject({
       expectedUsed: 0,
       actualUsed: 6,
@@ -224,7 +234,9 @@ describe("db aggregation helpers", () => {
     );
     expect(snapshot.soldVolumeOunces).toBe(8);
     expect(snapshot.gelato.actualDistributedVolumeOunces).toBeCloseTo(3.47, 2);
+    expect(snapshot.gelato.actualDistributedVolumeOunces).toBeCloseTo(snapshot.gelato.openingVolumeOunces - snapshot.gelato.closingVolumeOunces, 2);
     expect(snapshot.gelato.varianceVolumeOunces).toBeCloseTo(-4.53, 2);
+    expect(snapshot.gelato.varianceVolumeOunces).toBeCloseTo(snapshot.gelato.actualDistributedVolumeOunces - snapshot.gelato.soldVolumeOunces, 2);
     expect(snapshot.gelato.discrepancyStatus).toBe("minor");
     expect(snapshot.gelato.discrepancyLabel).toBe("Sample / minor discrepancy");
     expect(snapshot.packaging.items.find(item => item.key === "cups8oz")).toMatchObject({

@@ -122,7 +122,7 @@
 - [x] Update the Opening Form so it starts with date and first name, then includes the opening checklist, opening money confirmation, and only utensil plus ready-made gelato inventory sections
 - [x] Update the Closing Form so it starts with date and first name, then includes the closing checklist, nightly money and report questions, and the same utensil plus ready-made gelato inventory sections
 - [x] Keep the separate Inventory form for full business inventory including ingredients, ready-made gelato, utensils, and all other inventory categories
-- [ ] Re-test `/staff-login` in a clean or incognito browser session and verify shared staff password login lands on the intended portal route without redirecting to the manager dashboard
+- [x] Re-test `/staff-login` in a clean or incognito browser session and verify shared staff password login lands on the intended portal route without redirecting to the manager dashboard
 - [ ] Document mobile-sized validation results for the fresh shared staff login flow, including any remaining responsive or access blockers after successful clean-session testing
 - [x] Move the custom-flavor add controls to the bottom of the ready-made gelato list and append any new flavor to the bottom of that list
 - [x] Fix the opening and closing form submission bug where submit jumps back to the top instead of saving even when the visible required fields are filled
@@ -139,6 +139,10 @@
 - [x] Add a show-hide password icon to the staff password-only login field so employees can verify the password while typing
 - [x] Fix the staff-form numeric input validation so decimal gelato weights such as 2.273 and 3.466 are accepted instead of being blocked as invalid numbers during submission
 - [ ] Fix the published manager dashboard login redirect so OAuth uses an allowed redirect URI on the live domain instead of the disallowed run.app host
-- [x] Fix the published manager access path so the manager link opens the true data dashboard instead of the forms-selection landing view
+- [ ] Fix the published manager access path so the manager link opens the true data dashboard instead of the forms-selection landing view
 - [x] Add a clear logout action so staff and managers can easily switch sessions and test the correct routes without getting stuck in the wrong account view
 - [x] Remove the extra descriptive text blocks from the three staff portal form cards so the portal hub stays cleaner and more concise
+- [x] Add a dedicated manager reconciliation tab so the full gelato and packaging comparison tables no longer have to fit inside the standard inventory page width
+- [x] Show explicit reconciliation math for gelato and packaging using opening inventory minus closing inventory minus sold volume or units so managers can quickly see the remaining difference from the zero-goal target
+- [x] Adjust the manager dashboard layout so the reconciliation view is easy to access from the existing inventory and reporting experience on standard laptop and tablet widths
+- [x] Add or update regression tests for the new reconciliation tab and difference calculations, then verify the dashboard health after implementation

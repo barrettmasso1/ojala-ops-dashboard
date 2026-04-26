@@ -7,6 +7,7 @@ import { SignJWT, jwtVerify } from "jose";
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
 import { ENV } from "./env";
+import { parseOAuthState } from "./oauthState";
 import type {
   ExchangeTokenRequest,
   ExchangeTokenResponse,
@@ -39,8 +40,7 @@ class OAuthService {
   }
 
   private decodeState(state: string): string {
-    const redirectUri = atob(state);
-    return redirectUri;
+    return parseOAuthState(state).redirectUri;
   }
 
   async getTokenByCode(

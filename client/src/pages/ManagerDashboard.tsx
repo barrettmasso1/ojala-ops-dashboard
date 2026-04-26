@@ -1,5 +1,7 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { buildManagerReconciliationSnapshot, MANAGER_INVENTORY_TABS, type ManagerInventoryView } from "@/lib/managerReconciliation";
 import { trpc } from "@/lib/trpc";
 import {
   AlertTriangle,
@@ -99,12 +101,18 @@ function inventoryFieldClassName() {
   return "h-11 rounded-2xl border border-[#dbd2c5] bg-[#fcfaf6] px-4 text-sm text-[#24332f] shadow-sm outline-none transition focus:border-[#52665f] focus:ring-4 focus:ring-[#52665f]/10";
 }
 
+function formatSignedValue(value: number | null | undefined) {
+  if (value == null) return "—";
+  if (Math.abs(value) < 0.005) return "0.00";
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}`;
+}
+
 export default function ManagerDashboard() {
   const { user, loading } = useAuth({ redirectOnUnauthenticated: true });
   const [location, setLocation] = useLocation();
   const utils = trpc.useUtils();
   const [selectedDate, setSelectedDate] = useState(todayValue());
-  const [inventoryDashboardView, setInventoryDashboardView] = useState<"product" | "utensils" | "ingredients">("product");
+  const [inventoryDashboardView, setInventoryDashboardView] = useState<ManagerInventoryView>("product");
   const [inventoryForm, setInventoryForm] = useState({
     id: undefined as number | undefined,
     department: "Ingredients",
@@ -243,6 +251,7 @@ export default function ManagerDashboard() {
   }
 
   const daily = dailyQuery.data;
+  const reconciliationSnapshot = buildManagerReconciliationSnapshot(daily);
   const totalCups = (daily?.cups["4oz"] ?? 0) + (daily?.cups["8oz"] ?? 0) + (daily?.cups.Pint ?? 0) + (daily?.cups.Liter ?? 0);
   const trendData = trendQuery.data ?? [];
   const wowData = wowQuery.data ?? [];
@@ -433,71 +442,29 @@ export default function ManagerDashboard() {
                       </tbody>
                     </table>
                   </div>
-                  <div className="mt-6 overflow-hidden rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6]">
-                    <table className="w-full text-left text-sm">
-                      <thead className="bg-[#f4ede2] text-[#60706b]">
-                        <tr>
-                          <th className="px-4 py-3 font-medium">Flavor</th>
-                          <th className="px-4 py-3 font-medium">Opening small</th>
-                          <th className="px-4 py-3 font-medium">Opening small kg</th>
-                          <th className="px-4 py-3 font-medium">Opening large</th>
-                          <th className="px-4 py-3 font-medium">Opening large kg</th>
-                          <th className="px-4 py-3 font-medium">Closing small</th>
-                          <th className="px-4 py-3 font-medium">Closing small kg</th>
-                          <th className="px-4 py-3 font-medium">Closing large</th>
-                          <th className="px-4 py-3 font-medium">Closing large kg</th>
-                          <th className="px-4 py-3 font-medium">Opening vol oz</th>
-                          <th className="px-4 py-3 font-medium">Closing vol oz</th>
-                          <th className="px-4 py-3 font-medium">Measured distributed vol oz</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
-                        {daily.gelato.flavors.map(item => (
-                          <tr key={item.flavor}>
-                            <td className="px-4 py-3">{item.flavor}</td>
-                            <td className="px-4 py-3">{item.opening.smallPanCount}</td>
-                            <td className="px-4 py-3">{item.opening.smallGrossWeightKg.toFixed(2)}</td>
-                            <td className="px-4 py-3">{item.opening.largePanCount}</td>
-                            <td className="px-4 py-3">{item.opening.largeGrossWeightKg.toFixed(2)}</td>
-                            <td className="px-4 py-3">{item.closing.smallPanCount}</td>
-                            <td className="px-4 py-3">{item.closing.smallGrossWeightKg.toFixed(2)}</td>
-                            <td className="px-4 py-3">{item.closing.largePanCount}</td>
-                            <td className="px-4 py-3">{item.closing.largeGrossWeightKg.toFixed(2)}</td>
-                            <td className="px-4 py-3">{item.opening.totalVolumeOunces.toFixed(2)}</td>
-                            <td className="px-4 py-3">{item.closing.totalVolumeOunces.toFixed(2)}</td>
-                            <td className="px-4 py-3">{item.usedVolumeOunces.toFixed(2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="mt-6 overflow-hidden rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6]">
-                    <table className="w-full text-left text-sm">
-                      <thead className="bg-[#f4ede2] text-[#60706b]">
-                        <tr>
-                          <th className="px-4 py-3 font-medium">Service item</th>
-                          <th className="px-4 py-3 font-medium">Opening count</th>
-                          <th className="px-4 py-3 font-medium">Closing count</th>
-                          <th className="px-4 py-3 font-medium">Expected used</th>
-                          <th className="px-4 py-3 font-medium">Actual used</th>
-                          <th className="px-4 py-3 font-medium">Variance</th>
-                          <th className="px-4 py-3 font-medium">Review</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
-                        {daily.packaging.items.map(item => (
-                          <tr key={item.key}>
-                            <td className="px-4 py-3">{item.label}</td>
-                            <td className="px-4 py-3">{item.openingQuantity}</td>
-                            <td className="px-4 py-3">{item.closingQuantity == null ? "Awaiting count" : item.closingQuantity.toFixed(2)}</td>
-                            <td className="px-4 py-3">{item.expectedUsed}</td>
-                            <td className="px-4 py-3">{item.actualUsed == null ? "—" : item.actualUsed.toFixed(2)}</td>
-                            <td className="px-4 py-3">{item.variance == null ? "—" : item.variance.toFixed(2)}</td>
-                            <td className="px-4 py-3">{item.discrepancyLabel}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div className="mt-6 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+                    <div className="rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6] p-5 shadow-sm">
+                      <p className="text-xs uppercase tracking-[0.22em] text-[#8b9088]">Reconciliation formula</p>
+                      <h3 className="mt-3 font-serif text-2xl text-[#1f2b27]">Opening inventory − closing inventory = distributed. Distributed − sold = difference.</h3>
+                      <p className="mt-3 max-w-2xl text-sm leading-6 text-[#66706a]">
+                        The target is a zero difference. Use the dedicated reconciliation tab below for the full gelato, cup, lid, and spoon breakdown at a readable page width.
+                      </p>
+                    </div>
+                    <div className="rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6] p-5 shadow-sm">
+                      <p className="text-xs uppercase tracking-[0.22em] text-[#8b9088]">Selected-day difference target</p>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-2xl border border-[#e5ddd0] bg-white/80 p-4">
+                          <p className="text-xs uppercase tracking-[0.18em] text-[#8b9088]">Gelato difference</p>
+                          <p className="mt-2 font-serif text-2xl text-[#1f2b27]">{formatSignedValue(reconciliationSnapshot.gelato?.differenceVolumeOunces)} oz</p>
+                          <p className="mt-2 text-sm text-[#66706a]">Goal: 0.00 oz</p>
+                        </div>
+                        <div className="rounded-2xl border border-[#e5ddd0] bg-white/80 p-4">
+                          <p className="text-xs uppercase tracking-[0.18em] text-[#8b9088]">Packaging difference</p>
+                          <p className="mt-2 font-serif text-2xl text-[#1f2b27]">{reconciliationSnapshot.packaging?.differenceCount == null ? "Awaiting counts" : `${formatSignedValue(reconciliationSnapshot.packaging.differenceCount)} units`}</p>
+                          <p className="mt-2 text-sm text-[#66706a]">Goal: 0.00 units</p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </>
               )}
@@ -625,17 +592,13 @@ export default function ManagerDashboard() {
 
             <div className="mt-6 rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6] p-4 sm:p-5">
               <div className="flex flex-wrap gap-3">
-                {[
-                  { key: "product", label: "Product inventory" },
-                  { key: "utensils", label: "Utensil inventory" },
-                  { key: "ingredients", label: "Ingredient inventory" },
-                ].map(tab => {
+                {MANAGER_INVENTORY_TABS.map(tab => {
                   const active = inventoryDashboardView === tab.key;
                   return (
                     <button
                       key={tab.key}
                       type="button"
-                      onClick={() => setInventoryDashboardView(tab.key as "product" | "utensils" | "ingredients")}
+                      onClick={() => setInventoryDashboardView(tab.key)}
                       className={`rounded-full px-4 py-2 text-sm font-medium transition ${active ? "bg-[#2f2a26] text-white shadow-lg shadow-[#2f2a26]/20" : "border border-[#d7cec0] bg-white/80 text-[#31423d] shadow-sm hover:bg-white"}`}
                     >
                       {tab.label}
@@ -644,7 +607,115 @@ export default function ManagerDashboard() {
                 })}
               </div>
 
-              {inventoryDashboardView === "product" ? (
+              {inventoryDashboardView === "reconciliation" ? (
+                <div className="mt-4 rounded-[1.25rem] border border-[#e4dccf] bg-white/80 p-4 sm:p-5">
+                  {dailyQuery.isLoading ? (
+                    <div className="p-4 text-sm text-[#68716b]">Loading reconciliation data...</div>
+                  ) : dailyQuery.error || !daily || !reconciliationSnapshot.gelato || !reconciliationSnapshot.packaging ? (
+                    <div className="p-4 text-sm text-[#8a4343]">Unable to load reconciliation data for the selected date.</div>
+                  ) : (
+                    <>
+                      <div className="grid gap-4 xl:grid-cols-2">
+                        <div className="rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6] p-5 shadow-sm">
+                          <p className="text-xs uppercase tracking-[0.22em] text-[#8b9088]">Gelato target</p>
+                          <p className="mt-3 font-serif text-2xl text-[#1f2b27]">Opening oz − closing oz = distributed oz. Distributed oz − sold oz = difference.</p>
+                          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+                            {[
+                              { label: "Opening", value: `${reconciliationSnapshot.gelato.openingVolumeOunces.toFixed(2)} oz` },
+                              { label: "Closing", value: `${reconciliationSnapshot.gelato.closingVolumeOunces.toFixed(2)} oz` },
+                              { label: "Distributed", value: `${reconciliationSnapshot.gelato.distributedVolumeOunces.toFixed(2)} oz` },
+                              { label: "Sold", value: `${reconciliationSnapshot.gelato.soldVolumeOunces.toFixed(2)} oz` },
+                              { label: "Difference", value: `${formatSignedValue(reconciliationSnapshot.gelato.differenceVolumeOunces)} oz` },
+                            ].map(item => (
+                              <div key={item.label} className="rounded-2xl border border-[#e5ddd0] bg-white/80 p-4">
+                                <p className="text-xs uppercase tracking-[0.18em] text-[#8b9088]">{item.label}</p>
+                                <p className="mt-2 font-medium text-[#1f2b27]">{item.value}</p>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="mt-4 text-sm leading-6 text-[#66706a]">Goal: 0.00 oz difference. Current review: {reconciliationSnapshot.gelato.discrepancyLabel}.</p>
+                        </div>
+                        <div className="rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6] p-5 shadow-sm">
+                          <p className="text-xs uppercase tracking-[0.22em] text-[#8b9088]">Packaging target</p>
+                          <p className="mt-3 font-serif text-2xl text-[#1f2b27]">Opening units − closing units = distributed units. Distributed units − sold units = difference.</p>
+                          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+                            {[
+                              { label: "Opening", value: `${reconciliationSnapshot.packaging.openingCount.toFixed(2)} units` },
+                              { label: "Closing", value: reconciliationSnapshot.packaging.closingCount == null ? "Awaiting counts" : `${reconciliationSnapshot.packaging.closingCount.toFixed(2)} units` },
+                              { label: "Distributed", value: reconciliationSnapshot.packaging.distributedCount == null ? "Awaiting counts" : `${reconciliationSnapshot.packaging.distributedCount.toFixed(2)} units` },
+                              { label: "Sold", value: `${reconciliationSnapshot.packaging.soldCount.toFixed(2)} units` },
+                              { label: "Difference", value: reconciliationSnapshot.packaging.differenceCount == null ? "Awaiting counts" : `${formatSignedValue(reconciliationSnapshot.packaging.differenceCount)} units` },
+                            ].map(item => (
+                              <div key={item.label} className="rounded-2xl border border-[#e5ddd0] bg-white/80 p-4">
+                                <p className="text-xs uppercase tracking-[0.18em] text-[#8b9088]">{item.label}</p>
+                                <p className="mt-2 font-medium text-[#1f2b27]">{item.value}</p>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="mt-4 text-sm leading-6 text-[#66706a]">Goal: 0.00 units difference. {reconciliationSnapshot.packaging.hasPendingCounts ? "Closing counts are still needed for one or more items before the full difference can be confirmed." : `Current review: ${reconciliationSnapshot.packaging.discrepancyLabel}.`}</p>
+                        </div>
+                      </div>
+
+                      <Tabs defaultValue="gelato" className="mt-6 w-full gap-4">
+                        <TabsList className="h-auto w-full flex-wrap rounded-[1.25rem] border border-[#ddd4c7] bg-[#f4ede2] p-1.5">
+                          <TabsTrigger value="gelato" className="rounded-[1rem] px-4 py-2 data-[state=active]:bg-white data-[state=active]:text-[#1f2b27]">Gelato ounces</TabsTrigger>
+                          <TabsTrigger value="packaging" className="rounded-[1rem] px-4 py-2 data-[state=active]:bg-white data-[state=active]:text-[#1f2b27]">Cups, lids, and spoons</TabsTrigger>
+                        </TabsList>
+                        <TabsContent value="gelato" className="mt-4 overflow-hidden rounded-[1.25rem] border border-[#e4dccf] bg-[#fcfaf6]">
+                          <table className="w-full text-left text-sm">
+                            <thead className="bg-[#f4ede2] text-[#60706b]">
+                              <tr>
+                                <th className="px-4 py-3 font-medium">Flavor</th>
+                                <th className="px-4 py-3 font-medium">Opening oz</th>
+                                <th className="px-4 py-3 font-medium">Closing oz</th>
+                                <th className="px-4 py-3 font-medium">Distributed oz</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
+                              {reconciliationSnapshot.gelato.flavors.map(item => (
+                                <tr key={item.flavor}>
+                                  <td className="px-4 py-3 font-medium">{item.flavor}</td>
+                                  <td className="px-4 py-3">{item.opening.totalVolumeOunces.toFixed(2)}</td>
+                                  <td className="px-4 py-3">{item.closing.totalVolumeOunces.toFixed(2)}</td>
+                                  <td className="px-4 py-3">{item.usedVolumeOunces.toFixed(2)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </TabsContent>
+                        <TabsContent value="packaging" className="mt-4 overflow-hidden rounded-[1.25rem] border border-[#e4dccf] bg-[#fcfaf6]">
+                          <table className="w-full text-left text-sm">
+                            <thead className="bg-[#f4ede2] text-[#60706b]">
+                              <tr>
+                                <th className="px-4 py-3 font-medium">Item</th>
+                                <th className="px-4 py-3 font-medium">Opening</th>
+                                <th className="px-4 py-3 font-medium">Closing</th>
+                                <th className="px-4 py-3 font-medium">Distributed</th>
+                                <th className="px-4 py-3 font-medium">Sold</th>
+                                <th className="px-4 py-3 font-medium">Difference</th>
+                                <th className="px-4 py-3 font-medium">Goal</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
+                              {reconciliationSnapshot.packaging.items.map(item => (
+                                <tr key={item.key}>
+                                  <td className="px-4 py-3 font-medium">{item.label}</td>
+                                  <td className="px-4 py-3">{item.openingQuantity.toFixed(2)}</td>
+                                  <td className="px-4 py-3">{item.closingQuantity == null ? "Awaiting count" : item.closingQuantity.toFixed(2)}</td>
+                                  <td className="px-4 py-3">{item.actualUsed == null ? "Awaiting count" : item.actualUsed.toFixed(2)}</td>
+                                  <td className="px-4 py-3">{item.expectedUsed.toFixed(2)}</td>
+                                  <td className="px-4 py-3">{item.variance == null ? "Awaiting count" : formatSignedValue(item.variance)}</td>
+                                  <td className="px-4 py-3">0.00</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </TabsContent>
+                      </Tabs>
+                    </>
+                  )}
+                </div>
+              ) : inventoryDashboardView === "product" ? (
                 <div className="mt-4 overflow-hidden rounded-[1.25rem] border border-[#e4dccf] bg-white/80">
                   {dailyQuery.isLoading ? (
                     <div className="p-4 text-sm text-[#68716b]">Loading product inventory...</div>

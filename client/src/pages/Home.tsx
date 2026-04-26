@@ -60,7 +60,7 @@ export default function Home() {
                 </ActionLink>
                 <button
                   onClick={() => {
-                    window.location.href = getLoginUrl();
+                    window.location.href = getLoginUrl("/dashboard");
                   }}
                   className="rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]"
                 >
