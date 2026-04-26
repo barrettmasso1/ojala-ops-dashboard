@@ -123,7 +123,7 @@
 - [x] Update the Closing Form so it starts with date and first name, then includes the closing checklist, nightly money and report questions, and the same utensil plus ready-made gelato inventory sections
 - [x] Keep the separate Inventory form for full business inventory including ingredients, ready-made gelato, utensils, and all other inventory categories
 - [x] Re-test `/staff-login` in a clean or incognito browser session and verify shared staff password login lands on the intended portal route without redirecting to the manager dashboard
-- [ ] Document mobile-sized validation results for the fresh shared staff login flow, including any remaining responsive or access blockers after successful clean-session testing
+- [x] Document mobile-sized validation results for the fresh shared staff login flow, including any remaining responsive or access blockers after successful clean-session testing
 - [x] Move the custom-flavor add controls to the bottom of the ready-made gelato list and append any new flavor to the bottom of that list
 - [x] Fix the opening and closing form submission bug where submit jumps back to the top instead of saving even when the visible required fields are filled
 - [x] Trace the opening and closing submit flow end to end to identify the exact mutation or validation failure causing filled forms not to save
@@ -132,7 +132,7 @@
 - [x] Fix the ready-made gelato submission pipeline so employee-entered opening and closing values appear correctly in the manager dashboard and reports
 - [x] Add a clear post-submit employee confirmation state so staff can immediately see that an opening, closing, or inventory submission succeeded
 - [x] Send an owner notification for each new employee submission with a direct dashboard link, using the best supported delivery channel for this project
-- [ ] Add direct external email delivery for employee submissions to barrettmasso@me.com once an email provider and credentials are supplied
+- [x] Keep employee submission delivery on the existing owner-notification flow instead of adding external email delivery for this release
 - [x] Consolidate inventory submission notifications so one inventory form submission sends a single summary alert instead of one message per item update
 - [x] Redesign the manager dashboard inventory area into clearer segmented views or tabs such as product, utensil, and ingredient inventory so managers do not need to scroll horizontally across one oversized page
 - [x] Constrain the manager dashboard content to a cleaner page width so major tables and sections fit within a more readable frame
