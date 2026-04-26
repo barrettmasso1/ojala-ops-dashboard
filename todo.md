@@ -150,3 +150,4 @@
 - [x] Define the lowest-risk test version of image-based weight capture so employees can verify extracted values before the data affects reconciliation results
 - [x] Build a separate test version of the gelato weighing workflow that lets staff upload scale photos for extraction and verification without replacing the current manual workflow yet
 - [x] Confirm whether the current production candidate is publish-ready after the manager dashboard reconciliation UI changes, taking the remaining live manager-login blockers into account
+- [x] Move the manager-maintained inventory section into its own left-column dashboard link so that setup and maintenance screens have a dedicated manager workspace instead of competing with the main dashboard width

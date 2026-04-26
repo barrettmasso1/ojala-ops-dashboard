@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { BarChart3, BookOpen, ClipboardList, LogOut, PanelLeft, ShieldCheck } from "lucide-react";
+import { BarChart3, BookOpen, ClipboardList, LogOut, PackagePlus, PanelLeft, ShieldCheck } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
@@ -34,6 +34,7 @@ export const menuItems: Array<{
   roles: Array<"admin" | "user">;
 }> = [
   { icon: BarChart3, label: "Dashboard", path: "/dashboard", roles: ["admin"] },
+  { icon: PackagePlus, label: "Inventory Setup", path: "/dashboard/inventory", roles: ["admin"] },
   { icon: BookOpen, label: "Cookbook", path: "/cookbook", roles: ["admin"] },
   { icon: ClipboardList, label: "Employee Portal", path: "/portal", roles: ["admin", "user"] },
 ];
@@ -111,7 +112,9 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const visibleMenuItems = getVisibleMenuItemsForRole((user?.role ?? "user") as "admin" | "user");
-  const activeMenuItem = visibleMenuItems.find(item => location.startsWith(item.path));
+  const activeMenuItem = visibleMenuItems.find(item =>
+    item.path === "/dashboard" ? location === "/dashboard" : location.startsWith(item.path)
+  );
   const isMobile = useIsMobile();
 
   useEffect(() => {
@@ -181,7 +184,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
             </div>
             <SidebarMenu className="px-2 py-1">
               {visibleMenuItems.map(item => {
-                const isActive = location.startsWith(item.path);
+                const isActive = item.path === "/dashboard" ? location === "/dashboard" : location.startsWith(item.path);
                 return (
                   <SidebarMenuItem key={item.path}>
                     <SidebarMenuButton

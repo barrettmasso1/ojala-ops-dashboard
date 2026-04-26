@@ -109,11 +109,16 @@ function formatSignedValue(value: number | null | undefined) {
 }
 
 export default function ManagerDashboard() {
+  const [location, setLocation] = useLocation();
+  const redirectPath = location.startsWith("/dashboard/inventory")
+    ? "/dashboard/inventory"
+    : location.startsWith("/cookbook")
+      ? "/cookbook"
+      : "/dashboard";
   const { user, loading } = useAuth({
     redirectOnUnauthenticated: true,
-    redirectPath: getLoginUrl("/dashboard"),
+    redirectPath: getLoginUrl(redirectPath),
   });
-  const [location, setLocation] = useLocation();
   const utils = trpc.useUtils();
   const [selectedDate, setSelectedDate] = useState(todayValue());
   const [inventoryDashboardView, setInventoryDashboardView] = useState<ManagerInventoryView>("product");
@@ -145,6 +150,7 @@ export default function ManagerDashboard() {
   const recipeBookRef = useRef<HTMLElement | null>(null);
   const isAdmin = user?.role === "admin";
   const isCookbookRoute = location.startsWith("/cookbook");
+  const isInventoryWorkspaceRoute = location.startsWith("/dashboard/inventory");
 
   useEffect(() => {
     if (!loading && user && !isAdmin) {
@@ -280,10 +286,16 @@ export default function ManagerDashboard() {
         <SurfaceCard className="overflow-hidden p-0">
           <div className="grid gap-0 lg:grid-cols-[1.12fr_0.88fr]">
             <div className="border-b border-[#e4dccf] p-8 lg:border-b-0 lg:border-r lg:p-10">
-              <p className="text-xs uppercase tracking-[0.28em] text-[#7f857d]">Owner / Manager dashboard</p>
-              <h1 className="mt-4 font-serif text-4xl tracking-tight text-[#1f2b27] md:text-5xl">A polished view of daily operations and sales performance.</h1>
+              <p className="text-xs uppercase tracking-[0.28em] text-[#7f857d]">{isInventoryWorkspaceRoute ? "Owner / Manager inventory workspace" : "Owner / Manager dashboard"}</p>
+              <h1 className="mt-4 font-serif text-4xl tracking-tight text-[#1f2b27] md:text-5xl">
+                {isInventoryWorkspaceRoute
+                  ? "A dedicated space for inventory setup, alerts, and manager-maintained counts."
+                  : "A polished view of daily operations and sales performance."}
+              </h1>
               <p className="mt-5 max-w-2xl text-base leading-7 text-[#65716b]">
-                Search by day, monitor checklist completion, compare weekly performance, and catch inventory risk before it affects service quality.
+                {isInventoryWorkspaceRoute
+                  ? "Maintain ingredient and utensil records, review reorder pressure, and keep inventory controls in a cleaner workspace that no longer competes with the main dashboard width."
+                  : "Search by day, monitor checklist completion, compare weekly performance, and catch inventory risk before it affects service quality."}
               </p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
                 <div className="relative max-w-xs flex-1">
@@ -297,7 +309,7 @@ export default function ManagerDashboard() {
                 </div>
                 <div className="inline-flex items-center gap-2 rounded-full border border-[#ded5c8] bg-white/80 px-4 py-3 text-sm text-[#66706a] shadow-sm">
                   <Search className="h-4 w-4 text-[#52665f]" />
-                  Day-by-day reporting is active for {selectedDate}.
+                  {isInventoryWorkspaceRoute ? "Inventory maintenance tools stay separate from the main reporting dashboard." : `Day-by-day reporting is active for ${selectedDate}.`}
                 </div>
               </div>
             </div>
@@ -353,6 +365,8 @@ export default function ManagerDashboard() {
           </div>
         </SurfaceCard>
 
+        {!isInventoryWorkspaceRoute ? (
+          <>
         <div className="grid gap-5 xl:grid-cols-4">
           <StatCard label="Cash" value={formatCurrency(daily?.sales.cash ?? 0)} helper="Exact payment label preserved." icon={<Coins className="h-5 w-5" />} />
           <StatCard label="Card" value={formatCurrency(daily?.sales.card ?? 0)} helper="Card sales for the selected day." icon={<TrendingUp className="h-5 w-5" />} />
@@ -474,7 +488,11 @@ export default function ManagerDashboard() {
               )}
             </div>
           </SurfaceCard>
+        </div>
+          </>
+        ) : null}
 
+        {isInventoryWorkspaceRoute ? (
           <SurfaceCard>
             <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Inventory setup and alerts</p>
             <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Manager-maintained inventory</h2>
@@ -823,7 +841,11 @@ export default function ManagerDashboard() {
               )}
             </div>
           </SurfaceCard>
+        ) : null}
 
+        {!isInventoryWorkspaceRoute ? (
+          <>
+        <div className="grid gap-8 xl:grid-cols-[1.2fr_0.8fr]">
           <SurfaceCard>
             <section id="recipe-book-section" ref={recipeBookRef}>
               <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Recipe book</p>
@@ -1166,6 +1188,8 @@ export default function ManagerDashboard() {
             )}
           </div>
         </SurfaceCard>
+          </>
+        ) : null}
       </div>
     </DashboardLayout>
   );
