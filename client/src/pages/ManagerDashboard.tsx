@@ -911,8 +911,7 @@ export default function ManagerDashboard() {
                             <th className="px-4 py-3 font-medium">Ingredient</th>
                             <th className="px-4 py-3 font-medium">Units</th>
                             <th className="px-4 py-3 font-medium">Unit of measurement</th>
-                            <th className="px-4 py-3 font-medium">Cost source</th>
-                            <th className="px-4 py-3 font-medium">Cost per ingredient unit</th>
+                            <th className="px-4 py-3 font-medium">Cost per unit</th>
                             <th className="px-4 py-3 font-medium">Ingredient cost</th>
                             <th className="px-4 py-3 font-medium">Status</th>
                           </tr>
@@ -938,7 +937,6 @@ export default function ManagerDashboard() {
                                 </td>
                                 <td className="px-4 py-3 align-top">{ingredient.quantity}</td>
                                 <td className="px-4 py-3 align-top">{ingredient.unitType || "—"}</td>
-                                <td className="px-4 py-3 align-top capitalize">{ingredient.costSource}</td>
                                 <td className="px-4 py-3 align-top">${ingredient.costPerUnit.toFixed(2)}</td>
                                 <td className="px-4 py-3 align-top">${ingredient.totalCost.toFixed(2)}</td>
                                 <td className="px-4 py-3 align-top">
