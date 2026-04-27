@@ -982,7 +982,7 @@ export default function EmployeePortal(props: any) {
             : t("Count ready-made gelato for the closing form before finishing the nightly inventory section."))
         }
       >
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-2">
           {readyMadeGelatoFlavorNames.map(flavor => {
             const shift = readyMadeGelato.flavors[flavor]?.[shiftType] ?? initialReadyMadeGelatoShiftState();
             return (
@@ -1067,7 +1067,7 @@ export default function EmployeePortal(props: any) {
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(86,111,104,0.10),_transparent_26%),linear-gradient(180deg,_#fbf8f2_0%,_#f4eee4_46%,_#f8f4ec_100%)] pb-16">
-      <div className="container pt-8 md:pt-12">
+      <div className="container max-w-[1440px] px-4 pt-6 sm:px-6 md:pt-10 lg:px-8">
         <div className="overflow-hidden rounded-[2rem] border border-white/70 bg-white/70 shadow-[0_28px_80px_rgba(88,83,72,0.12)] backdrop-blur">
           <div className="border-b border-[#eadfce] p-6 md:p-8">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
@@ -1103,7 +1103,7 @@ export default function EmployeePortal(props: any) {
               <div className="flex flex-col gap-3">
                 <div className="rounded-[1.5rem] border border-[#e5ddd0] bg-[#f9f4ec] p-3 shadow-sm">
                   <p className="text-[11px] uppercase tracking-[0.28em] text-[#7d756b]">{t("Language")}</p>
-                  <div className="mt-3 flex gap-2">
+                  <div className="mt-3 flex flex-wrap gap-2">
                     {([
                       { value: "en", label: "English" },
                       { value: "es", label: "Spanish" },
@@ -1138,7 +1138,7 @@ export default function EmployeePortal(props: any) {
 
           <div className="p-6 md:p-8">
             {portalView === "hub" ? (
-              <div className="grid gap-5 lg:grid-cols-2 xl:grid-cols-4">
+              <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
                 <SectionCard
                   icon={<SunMedium className="h-5 w-5" />}
                   title={t("Opening Form")}
@@ -1458,7 +1458,7 @@ export default function EmployeePortal(props: any) {
                     {Object.entries(inventoryGroups).map(([department, items]) => (
                       <div key={department} className="rounded-[1.6rem] border border-[#eadfce] bg-[#fcfaf6] p-5">
                         <h3 className="text-lg font-medium tracking-[-0.03em] text-[#2d2925]">{t(department)}</h3>
-                        <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                           {items.map(item => (
                             <Field key={item.id} label={item.itemName} hint={`${t("Par level")}: ${item.parLevel}`}>
                               <input className={smallInputClassName()} type="number" min="0" step="0.01" value={serviceInventoryCounts[item.id] ?? ""} onChange={event => updateInventoryItem(item.id, event.target.value)} />

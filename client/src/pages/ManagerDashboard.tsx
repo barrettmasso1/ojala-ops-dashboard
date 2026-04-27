@@ -49,6 +49,16 @@ function formatPercent(value: number) {
   return `${Math.round((value || 0) * 100)}%`;
 }
 
+function formatCount(value: number | null | undefined) {
+  if (value == null) return "—";
+  return Math.round(value).toLocaleString("en-US");
+}
+
+function formatWholeOunces(value: number | null | undefined) {
+  if (value == null) return "—";
+  return `${formatCount(value)} oz`;
+}
+
 function SurfaceCard({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <section className={`rounded-[2rem] border border-white/70 bg-white/82 p-6 shadow-[0_24px_70px_rgba(88,83,72,0.10)] backdrop-blur ${className}`}>{children}</section>;
 }
@@ -107,8 +117,9 @@ function inventoryFieldClassName() {
 
 function formatSignedValue(value: number | null | undefined) {
   if (value == null) return "—";
-  if (Math.abs(value) < 0.005) return "0.00";
-  return `${value > 0 ? "+" : ""}${value.toFixed(2)}`;
+  if (Math.abs(value) < 0.5) return "0";
+  const rounded = Math.round(value);
+  return `${rounded > 0 ? "+" : ""}${rounded}`;
 }
 
 function classifyDifference(value: number) {
@@ -273,11 +284,11 @@ export default function ManagerDashboard() {
     const totalSold = reconciliationSnapshot.gelato.soldVolumeOunces;
 
     return reconciliationSnapshot.gelato.flavors.map(item => {
-      const openingOunces = roundTo(item.opening.totalVolumeOunces);
-      const closingOunces = roundTo(item.closing.totalVolumeOunces);
-      const distributedOunces = roundTo(item.usedVolumeOunces);
-      const soldOunces = totalDistributed > 0 ? roundTo((distributedOunces / totalDistributed) * totalSold) : 0;
-      const differenceOunces = roundTo(distributedOunces - soldOunces);
+      const openingOunces = roundTo(item.opening.totalVolumeOunces, 0);
+      const closingOunces = roundTo(item.closing.totalVolumeOunces, 0);
+      const distributedOunces = roundTo(item.usedVolumeOunces, 0);
+      const soldOunces = totalDistributed > 0 ? roundTo((item.usedVolumeOunces / totalDistributed) * totalSold, 0) : 0;
+      const differenceOunces = roundTo(item.usedVolumeOunces - (totalDistributed > 0 ? (item.usedVolumeOunces / totalDistributed) * totalSold : 0), 0);
 
       return {
         flavor: item.flavor,
@@ -296,6 +307,17 @@ export default function ManagerDashboard() {
   }
 
   const totalCups = (daily?.cups["4oz"] ?? 0) + (daily?.cups["8oz"] ?? 0) + (daily?.cups.Pint ?? 0) + (daily?.cups.Liter ?? 0);
+  const totalForHereCups = (daily?.cupsHere?.["4oz"] ?? 0) + (daily?.cupsHere?.["8oz"] ?? 0) + (daily?.cupsHere?.Pint ?? 0) + (daily?.cupsHere?.Liter ?? 0);
+  const totalToGoCups = (daily?.cupsToGo?.["4oz"] ?? 0) + (daily?.cupsToGo?.["8oz"] ?? 0) + (daily?.cupsToGo?.Pint ?? 0) + (daily?.cupsToGo?.Liter ?? 0);
+  const totalToGoCupsUsed = reconciliationSnapshot.packaging?.toGoCupUsedCount ?? null;
+  const hasZelleSales = (daily?.sales.zelle ?? 0) > 0;
+  const hasVenmoSales = (daily?.sales.venmo ?? 0) > 0;
+  const paymentBreakdownCards = [
+    { label: "Cash", value: formatCurrency(daily?.sales.cash ?? 0), helper: "Cash sold for the selected day.", icon: <Coins className="h-5 w-5" /> },
+    { label: "Card", value: formatCurrency(daily?.sales.card ?? 0), helper: "Card sales for the selected day.", icon: <TrendingUp className="h-5 w-5" /> },
+    ...(hasVenmoSales ? [{ label: "Venmo", value: formatCurrency(daily?.sales.venmo ?? 0), helper: "Venmo payment total captured from reports.", icon: <Coins className="h-5 w-5" /> }] : []),
+    ...(hasZelleSales ? [{ label: "Zelle", value: formatCurrency(daily?.sales.zelle ?? 0), helper: "Zelle payment total captured from reports.", icon: <Coins className="h-5 w-5" /> }] : []),
+  ];
   const trendData = trendQuery.data ?? [];
   const wowData = wowQuery.data ?? [];
   const inventoryAlerts = alertsQuery.data ?? [];
@@ -359,13 +381,15 @@ export default function ManagerDashboard() {
             ]
           : [
               { label: "Total sales", value: formatCurrency(daily?.sales.total ?? 0), helper: "What sold today." },
-              { label: "Cash + card", value: formatCurrency((daily?.sales.cash ?? 0) + (daily?.sales.card ?? 0)), helper: "Primary payment channels combined." },
-              { label: "Total cups sold", value: totalCups.toString(), helper: "All cup sizes combined." },
-              { label: "Sold volume", value: `${daily?.soldVolumeOunces?.toFixed?.(2) ?? "0.00"} oz`, helper: "Total sold volume ounces." },
-              { label: "Opening completion", value: formatPercent(daily?.checklistCompletion.opening ?? 0), helper: "Was the morning form completed?" },
-              { label: "Closing completion", value: formatPercent(daily?.checklistCompletion.closing ?? 0), helper: "Was the evening form completed?" },
-              { label: "Packaging discrepancy", value: daily?.packaging?.varianceCount == null ? "—" : `${formatSignedValue(daily.packaging.varianceCount)} units`, helper: daily?.packaging?.discrepancyLabel ?? "Awaiting counts" },
-              { label: "Card sales", value: formatCurrency(daily?.sales.card ?? 0), helper: "Card sell for the selected day." },
+              { label: "Cash sales", value: formatCurrency(daily?.sales.cash ?? 0), helper: "Cash collected for the selected day." },
+              { label: "Card sales", value: formatCurrency(daily?.sales.card ?? 0), helper: "Card collected for the selected day." },
+              ...(hasVenmoSales ? [{ label: "Venmo sales", value: formatCurrency(daily?.sales.venmo ?? 0), helper: "Only shown when Venmo sales were reported." }] : []),
+              ...(hasZelleSales ? [{ label: "Zelle sales", value: formatCurrency(daily?.sales.zelle ?? 0), helper: "Only shown when Zelle sales were reported." }] : []),
+              { label: "Total ounces sold", value: formatWholeOunces(reconciliationSnapshot.gelato?.soldVolumeOunces ?? daily?.soldVolumeOunces), helper: "Cup sales converted into sold gelato ounces." },
+              { label: "Total ounces distributed", value: formatWholeOunces(reconciliationSnapshot.gelato?.distributedVolumeOunces), helper: "Morning gelato ounces minus closing gelato ounces." },
+              { label: "For-here cups sold", value: formatCount(totalForHereCups), helper: "All dine-in cups sold across sizes." },
+              { label: "To-go cups sold", value: formatCount(totalToGoCups), helper: "All to-go cups sold across sizes." },
+              { label: "Total to-go cups used", value: formatCount(totalToGoCupsUsed), helper: "Morning to-go cup count minus closing to-go cup count." },
             ];
 
   return (
@@ -407,7 +431,7 @@ export default function ManagerDashboard() {
             </div>
             <div className="p-8 lg:p-10">
               <div className="rounded-[1.75rem] border border-[#e5ddd0] bg-[#f9f4ec] p-6">
-                <p className="text-xs uppercase tracking-[0.24em] text-[#8b9088]">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-[#8b9088] md:text-xs md:tracking-[0.24em]">
                   {isOverviewRoute ? `Daily snapshot for ${selectedDate}` : "Workspace snapshot"}
                 </p>
                 {dailyQuery.isLoading && isOverviewRoute ? (
@@ -421,12 +445,12 @@ export default function ManagerDashboard() {
                     <StatePanel title="Unable to load the selected-day snapshot" description="The daily report data could not be loaded right now. Try another date or refresh shortly." tone="error" />
                   </div>
                 ) : (
-                  <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                     {snapshotCards.map(card => (
-                      <div key={card.label} className="rounded-2xl bg-white/80 p-4 shadow-sm">
-                        <p className="text-sm text-[#7c847d]">{card.label}</p>
-                        <p className="mt-2 font-serif text-3xl text-[#1f2b27]">{card.value}</p>
-                        <p className="mt-2 text-xs leading-5 text-[#7b847e]">{card.helper}</p>
+                      <div key={card.label} className="min-w-0 rounded-2xl bg-white/80 p-5 shadow-sm md:p-6">
+                        <p className="text-sm text-[#6f776f]">{card.label}</p>
+                        <p className="mt-3 break-words font-serif text-[2.2rem] leading-none text-[#1f2b27] md:text-[2.7rem]">{card.value}</p>
+                        <p className="mt-3 max-w-[24ch] text-sm leading-6 text-[#727b74]">{card.helper}</p>
                       </div>
                     ))}
                   </div>
@@ -438,11 +462,10 @@ export default function ManagerDashboard() {
 
         {isOverviewRoute ? (
           <>
-            <div className="grid gap-5 xl:grid-cols-4">
-              <StatCard label="Cash" value={formatCurrency(daily?.sales.cash ?? 0)} helper="Cash sold for the selected day." icon={<Coins className="h-5 w-5" />} />
-              <StatCard label="Card" value={formatCurrency(daily?.sales.card ?? 0)} helper="Card sales for the selected day." icon={<TrendingUp className="h-5 w-5" />} />
-              <StatCard label="Zelle" value={formatCurrency(daily?.sales.zelle ?? 0)} helper="Zelle payment total captured from reports." icon={<Coins className="h-5 w-5" />} />
-              <StatCard label="Venmo" value={formatCurrency(daily?.sales.venmo ?? 0)} helper="Venmo payment total captured from reports." icon={<Coins className="h-5 w-5" />} />
+            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+              {paymentBreakdownCards.map(card => (
+                <StatCard key={card.label} label={card.label} value={card.value} helper={card.helper} icon={card.icon} />
+              ))}
             </div>
 
             <div className="grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">
@@ -507,19 +530,19 @@ export default function ManagerDashboard() {
                             </tr>
                             <tr>
                               <td className="px-4 py-3">Opening gelato volume ounces</td>
-                              <td className="px-4 py-3">{daily.gelato.openingVolumeOunces.toFixed(2)}</td>
+                              <td className="px-4 py-3">{formatCount(daily.gelato.openingVolumeOunces)}</td>
                             </tr>
                             <tr>
                               <td className="px-4 py-3">Closing gelato volume ounces</td>
-                              <td className="px-4 py-3">{daily.gelato.closingVolumeOunces.toFixed(2)}</td>
+                              <td className="px-4 py-3">{formatCount(daily.gelato.closingVolumeOunces)}</td>
                             </tr>
                             <tr>
                               <td className="px-4 py-3">Measured distributed volume ounces</td>
-                              <td className="px-4 py-3">{daily.gelato.actualDistributedVolumeOunces.toFixed(2)}</td>
+                              <td className="px-4 py-3">{formatCount(daily.gelato.actualDistributedVolumeOunces)}</td>
                             </tr>
                             <tr>
                               <td className="px-4 py-3">Sold volume ounces</td>
-                              <td className="px-4 py-3">{daily.gelato.soldVolumeOunces.toFixed(2)}</td>
+                              <td className="px-4 py-3">{formatCount(daily.gelato.soldVolumeOunces)}</td>
                             </tr>
                             <tr>
                               <td className="px-4 py-3">Gelato discrepancy</td>

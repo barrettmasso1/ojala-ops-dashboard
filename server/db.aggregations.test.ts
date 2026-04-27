@@ -45,9 +45,17 @@ describe("db aggregation helpers", () => {
           businessDate: "2026-04-21",
           staffName: "Marco",
           cups4oz: 10,
+          cups4ozHere: 3,
+          cups4ozToGo: 7,
           cups8oz: 12,
+          cups8ozHere: 5,
+          cups8ozToGo: 7,
           cupsPint: 4,
+          cupsPintHere: 2,
+          cupsPintToGo: 2,
           cupsLiter: 1,
+          cupsLiterHere: 0,
+          cupsLiterToGo: 1,
           cashTotal: "200.00",
           cardTotal: "300.00",
           zelleTotal: "50.00",
@@ -58,9 +66,17 @@ describe("db aggregation helpers", () => {
           businessDate: "2026-04-21",
           staffName: "Sofia",
           cups4oz: 5,
+          cups4ozHere: 1,
+          cups4ozToGo: 4,
           cups8oz: 7,
+          cups8ozHere: 3,
+          cups8ozToGo: 4,
           cupsPint: 2,
+          cupsPintHere: 0,
+          cupsPintToGo: 2,
           cupsLiter: 1,
+          cupsLiterHere: 1,
+          cupsLiterToGo: 0,
           cashTotal: "150.00",
           cardTotal: "100.00",
           zelleTotal: "20.00",
@@ -133,6 +149,8 @@ describe("db aggregation helpers", () => {
       venmo: 55,
     });
     expect(snapshot.cups).toEqual({ "4oz": 15, "8oz": 19, Pint: 6, Liter: 2 });
+    expect(snapshot.cupsHere).toEqual({ "4oz": 4, "8oz": 8, Pint: 2, Liter: 1 });
+    expect(snapshot.cupsToGo).toEqual({ "4oz": 11, "8oz": 11, Pint: 4, Liter: 1 });
     expect(snapshot.soldVolumeOunces).toBe(372);
     expect(snapshot.gelato.openingVolumeOunces).toBeCloseTo(384, 0);
     expect(snapshot.gelato.closingVolumeOunces).toBeCloseTo(341.16, 2);
@@ -148,13 +166,13 @@ describe("db aggregation helpers", () => {
     expect(snapshot.gelato.flavors.find(item => item.flavor === "Flavor of the Day")).toMatchObject({
       usedVolumeOunces: expect.closeTo(10.41, 2),
     });
-    expect(snapshot.packaging.varianceCount).toBeCloseTo(71, 2);
+    expect(snapshot.packaging.varianceCount).toBeCloseTo(-10, 2);
     expect(snapshot.packaging.discrepancyStatus).toBe("major");
     expect(snapshot.packaging.discrepancyLabel).toBe("Major discrepancy");
     expect(snapshot.packaging.items.find(item => item.key === "cups8oz")).toMatchObject({
-      expectedUsed: 0,
+      expectedUsed: 11,
       actualUsed: 19,
-      variance: 19,
+      variance: 8,
       discrepancyStatus: "major",
     });
     const comparablePackagingItems = snapshot.packaging.items.filter(item => item.actualUsed != null && item.variance != null && item.closingQuantity != null);
@@ -166,9 +184,9 @@ describe("db aggregation helpers", () => {
     expect(packagingDistributedTotal).toBeCloseTo(packagingOpeningTotal - packagingClosingTotal, 2);
     expect(packagingDifferenceTotal).toBeCloseTo(packagingDistributedTotal - packagingSoldTotal, 2);
     expect(snapshot.packaging.items.find(item => item.key === "spoons")).toMatchObject({
-      expectedUsed: 0,
+      expectedUsed: 27,
       actualUsed: 6,
-      variance: 6,
+      variance: -21,
       discrepancyStatus: "major",
     });
     expect(snapshot.checklistCompletion).toEqual({ opening: 1, closing: 1 });

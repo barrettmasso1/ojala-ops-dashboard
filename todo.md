@@ -161,3 +161,6 @@
 - [x] Add save-progress buttons for the staff opening, closing, and inventory forms so employees can pause work and return without losing unfinished entries
 - [x] Persist unfinished staff form drafts so saved opening, closing, and inventory progress restores when employees come back later
 - [x] Add regression coverage for staff draft-save and draft-restore behavior before release
+- [x] Remove unnecessary decimal places from ounce-based dashboard values so sold and distributed ounces display as whole ounces
+- [x] Rebuild the manager daily snapshot card order and content so payment and sales metrics are grouped exactly as requested, including conditional Venmo and Zelle cards plus for-here, to-go, and to-go-used cup totals
+- [x] Optimize the manager dashboard and related staff pages for desktop, iPad, and phone so the card grid and forms no longer overflow or feel cramped on smaller screens

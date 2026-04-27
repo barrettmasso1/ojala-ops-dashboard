@@ -72,6 +72,11 @@ describe("manager reconciliation helper", () => {
       distributedCount: 44,
       soldCount: 42,
       differenceCount: 2,
+      toGoCupOpeningCount: 40,
+      toGoCupClosingCount: 18,
+      toGoCupUsedCount: 22,
+      toGoCupSoldCount: 21,
+      toGoCupDifferenceCount: 1,
       goalCount: 0,
       hasPendingCounts: false,
     });
@@ -112,6 +117,11 @@ describe("manager reconciliation helper", () => {
       distributedCount: null,
       soldCount: 8,
       differenceCount: null,
+      toGoCupOpeningCount: 20,
+      toGoCupClosingCount: null,
+      toGoCupUsedCount: null,
+      toGoCupSoldCount: 8,
+      toGoCupDifferenceCount: null,
       hasPendingCounts: true,
     });
   });

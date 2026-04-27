@@ -29,6 +29,16 @@ type PackagingItemSnapshot = {
   discrepancyLabel: string;
 };
 
+function summarizePackagingCounts(items: PackagingItemSnapshot[], hasPendingCounts: boolean) {
+  return {
+    openingCount: roundTo(items.reduce((sum, item) => sum + item.openingQuantity, 0)),
+    soldCount: roundTo(items.reduce((sum, item) => sum + item.expectedUsed, 0)),
+    closingCount: hasPendingCounts ? null : roundTo(items.reduce((sum, item) => sum + (item.closingQuantity ?? 0), 0)),
+    distributedCount: hasPendingCounts ? null : roundTo(items.reduce((sum, item) => sum + (item.actualUsed ?? 0), 0)),
+    differenceCount: hasPendingCounts ? null : roundTo(items.reduce((sum, item) => sum + (item.variance ?? 0), 0)),
+  };
+}
+
 type DailySnapshotLike = {
   gelato: {
     openingVolumeOunces: number;
@@ -60,11 +70,9 @@ export function buildManagerReconciliationSnapshot(daily?: DailySnapshotLike | n
 
   const packagingItems = daily.packaging.items ?? [];
   const packagingHasPendingCounts = packagingItems.some(item => item.actualUsed == null || item.closingQuantity == null || item.variance == null);
-  const packagingOpeningCount = roundTo(packagingItems.reduce((sum, item) => sum + item.openingQuantity, 0));
-  const packagingSoldCount = roundTo(packagingItems.reduce((sum, item) => sum + item.expectedUsed, 0));
-  const packagingClosingCount = packagingHasPendingCounts ? null : roundTo(packagingItems.reduce((sum, item) => sum + (item.closingQuantity ?? 0), 0));
-  const packagingDistributedCount = packagingHasPendingCounts ? null : roundTo(packagingItems.reduce((sum, item) => sum + (item.actualUsed ?? 0), 0));
-  const packagingDifferenceCount = packagingHasPendingCounts ? null : roundTo(packagingItems.reduce((sum, item) => sum + (item.variance ?? 0), 0));
+  const packagingCounts = summarizePackagingCounts(packagingItems, packagingHasPendingCounts);
+  const cupPackagingItems = packagingItems.filter(item => item.key.startsWith("cups"));
+  const cupPackagingCounts = summarizePackagingCounts(cupPackagingItems, packagingHasPendingCounts);
 
   return {
     gelato: {
@@ -78,11 +86,12 @@ export function buildManagerReconciliationSnapshot(daily?: DailySnapshotLike | n
       flavors: daily.gelato.flavors,
     },
     packaging: {
-      openingCount: packagingOpeningCount,
-      closingCount: packagingClosingCount,
-      distributedCount: packagingDistributedCount,
-      soldCount: packagingSoldCount,
-      differenceCount: packagingDifferenceCount,
+      ...packagingCounts,
+      toGoCupOpeningCount: cupPackagingCounts.openingCount,
+      toGoCupClosingCount: cupPackagingCounts.closingCount,
+      toGoCupUsedCount: cupPackagingCounts.distributedCount,
+      toGoCupSoldCount: cupPackagingCounts.soldCount,
+      toGoCupDifferenceCount: cupPackagingCounts.differenceCount,
       goalCount: 0,
       discrepancyLabel: daily.packaging.discrepancyLabel,
       hasPendingCounts: packagingHasPendingCounts,

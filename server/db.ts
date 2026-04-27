@@ -599,12 +599,16 @@ export function buildDailySnapshot(
     businessDate: string;
     staffName: string;
     cups4oz: number;
+    cups4ozHere?: number;
     cups4ozToGo?: number;
     cups8oz: number;
+    cups8ozHere?: number;
     cups8ozToGo?: number;
     cupsPint: number;
+    cupsPintHere?: number;
     cupsPintToGo?: number;
     cupsLiter: number;
+    cupsLiterHere?: number;
     cupsLiterToGo?: number;
     cashTotal: unknown;
     cardTotal: unknown;
@@ -630,6 +634,14 @@ export function buildDailySnapshot(
       acc.cups8oz += report.cups8oz;
       acc.cupsPint += report.cupsPint;
       acc.cupsLiter += report.cupsLiter;
+      acc.cups4ozHere += toNumber(report.cups4ozHere);
+      acc.cups4ozToGo += toNumber(report.cups4ozToGo);
+      acc.cups8ozHere += toNumber(report.cups8ozHere);
+      acc.cups8ozToGo += toNumber(report.cups8ozToGo);
+      acc.cupsPintHere += toNumber(report.cupsPintHere);
+      acc.cupsPintToGo += toNumber(report.cupsPintToGo);
+      acc.cupsLiterHere += toNumber(report.cupsLiterHere);
+      acc.cupsLiterToGo += toNumber(report.cupsLiterToGo);
       return acc;
     },
     {
@@ -642,6 +654,14 @@ export function buildDailySnapshot(
       cups8oz: 0,
       cupsPint: 0,
       cupsLiter: 0,
+      cups4ozHere: 0,
+      cups4ozToGo: 0,
+      cups8ozHere: 0,
+      cups8ozToGo: 0,
+      cupsPintHere: 0,
+      cupsPintToGo: 0,
+      cupsLiterHere: 0,
+      cupsLiterToGo: 0,
     }
   );
 
@@ -669,6 +689,18 @@ export function buildDailySnapshot(
       "8oz": sales.cups8oz,
       Pint: sales.cupsPint,
       Liter: sales.cupsLiter,
+    },
+    cupsHere: {
+      "4oz": sales.cups4ozHere,
+      "8oz": sales.cups8ozHere,
+      Pint: sales.cupsPintHere,
+      Liter: sales.cupsLiterHere,
+    },
+    cupsToGo: {
+      "4oz": sales.cups4ozToGo,
+      "8oz": sales.cups8ozToGo,
+      Pint: sales.cupsPintToGo,
+      Liter: sales.cupsLiterToGo,
     },
     gelato,
     packaging,

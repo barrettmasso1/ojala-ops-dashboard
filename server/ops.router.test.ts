@@ -505,6 +505,8 @@ describe("operations router", () => {
         venmo: 60,
       },
       cups: { "4oz": 12, "8oz": 18, Pint: 6, Liter: 2 },
+      cupsHere: { "4oz": 4, "8oz": 6, Pint: 2, Liter: 1 },
+      cupsToGo: { "4oz": 8, "8oz": 12, Pint: 4, Liter: 1 },
       checklistCompletion: { opening: 1, closing: 1 },
       latestReportStaff: "Marco",
     });
