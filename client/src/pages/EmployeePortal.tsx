@@ -3,7 +3,7 @@ import { type PortalLanguage, translateErrorMessage, translatePortalText } from 
 import { getOpeningNapkinsQuestion, groupOpeningQuestionsForPortal } from "@/lib/openingSetup";
 import { clearPortalDraft, loadPortalDraft, savePortalDraft } from "@/lib/portalDrafts";
 import { trpc } from "@/lib/trpc";
-import { ArrowRight, ClipboardCheck, House, LogOut, MoonStar, Package2, ReceiptText, Save, SunMedium } from "lucide-react";
+import { ArrowRight, ClipboardCheck, House, LoaderCircle, LogOut, MoonStar, Package2, ReceiptText, Save, SunMedium, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Link, useLocation } from "wouter";
@@ -94,10 +94,24 @@ type ReadyMadeGelatoState = {
   flavors: Record<string, ReadyMadeGelatoFlavorState>;
 };
 
+type GelatoEntryMode = "manual" | "photo";
+
+type ExtractedGelatoPhoto = {
+  fileName: string;
+  imageUrl: string;
+  flavor: string;
+  smallPanCount: number;
+  largePanCount: number;
+  combinedGrossWeightKg: number;
+  confidence: "high" | "medium" | "low";
+  warning: string;
+};
+
 type OpeningDraft = {
   form: OpeningForm;
   answers: ChecklistAnswerState;
   gelatoOpening: Record<string, ReadyMadeGelatoShiftState>;
+  gelatoOpeningMode?: GelatoEntryMode;
 };
 
 type ClosingDraft = {
@@ -105,11 +119,13 @@ type ClosingDraft = {
   answers: ChecklistAnswerState;
   serviceInventoryCounts: Record<number, string>;
   gelatoClosing: Record<string, ReadyMadeGelatoShiftState>;
+  gelatoClosingMode?: GelatoEntryMode;
 };
 
 type InventoryDraft = {
   serviceInventoryCounts: Record<number, string>;
   gelatoOpening: Record<string, ReadyMadeGelatoShiftState>;
+  gelatoOpeningMode?: GelatoEntryMode;
 };
 
 type DraftSavedAtState = Partial<Record<Exclude<PortalView, "hub">, number>>;
@@ -122,6 +138,12 @@ type PairedInputConfig = {
 
 export const GELATO_WEIGHT_INPUT_STEP = "0.001";
 export const GELATO_WEIGHT_INPUT_MODE = "decimal" as const;
+
+const KG_TO_WEIGHT_OUNCES = 35.27396195;
+const SMALL_PAN_EMPTY_KG = 0.286;
+const LARGE_PAN_EMPTY_KG = 0.4;
+const SMALL_PAN_FULL_WEIGHT_OUNCES = (1.9 - SMALL_PAN_EMPTY_KG) * KG_TO_WEIGHT_OUNCES;
+const LARGE_PAN_FULL_WEIGHT_OUNCES = (4.3 - LARGE_PAN_EMPTY_KG) * KG_TO_WEIGHT_OUNCES;
 
 const openingDraftKey = "opening" as const;
 const closingDraftKey = "closing" as const;
@@ -136,6 +158,100 @@ function displayNumberValue(value: number | string | null | undefined) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric) || numeric === 0) return "";
   return String(value);
+}
+
+function roundTo(value: number, decimals = 3) {
+  const factor = 10 ** decimals;
+  return Math.round(value * factor) / factor;
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+    reader.readAsDataURL(file);
+  });
+}
+
+export function resolveAnalyzedPhotoGrossWeights(photo: Pick<ExtractedGelatoPhoto, "smallPanCount" | "largePanCount" | "combinedGrossWeightKg">) {
+  const smallPanCount = Math.max(0, Math.trunc(photo.smallPanCount));
+  const largePanCount = Math.max(0, Math.trunc(photo.largePanCount));
+  const combinedGrossWeightKg = Math.max(0, photo.combinedGrossWeightKg);
+
+  if (combinedGrossWeightKg <= 0 || (smallPanCount === 0 && largePanCount === 0)) {
+    return {
+      smallPanCount,
+      smallGrossWeightKg: 0,
+      largePanCount,
+      largeGrossWeightKg: 0,
+    };
+  }
+
+  const totalNetWeightKg = Math.max(
+    0,
+    combinedGrossWeightKg - smallPanCount * SMALL_PAN_EMPTY_KG - largePanCount * LARGE_PAN_EMPTY_KG
+  );
+  const smallCapacityWeightKg = smallPanCount * (SMALL_PAN_FULL_WEIGHT_OUNCES / KG_TO_WEIGHT_OUNCES);
+  const largeCapacityWeightKg = largePanCount * (LARGE_PAN_FULL_WEIGHT_OUNCES / KG_TO_WEIGHT_OUNCES);
+  const totalCapacityWeightKg = smallCapacityWeightKg + largeCapacityWeightKg;
+  const smallNetWeightKg =
+    totalCapacityWeightKg > 0 ? totalNetWeightKg * (smallCapacityWeightKg / totalCapacityWeightKg) : 0;
+  const largeNetWeightKg = Math.max(0, totalNetWeightKg - smallNetWeightKg);
+
+  return {
+    smallPanCount,
+    smallGrossWeightKg: roundTo(smallPanCount * SMALL_PAN_EMPTY_KG + smallNetWeightKg),
+    largePanCount,
+    largeGrossWeightKg: roundTo(largePanCount * LARGE_PAN_EMPTY_KG + largeNetWeightKg),
+  };
+}
+
+export function applyAnalyzedPhotosToGelatoState(
+  current: ReadyMadeGelatoState,
+  shiftType: ReadyMadeGelatoShiftKey,
+  photos: ExtractedGelatoPhoto[]
+) {
+  const summarizedByFlavor = new Map<string, ReturnType<typeof resolveAnalyzedPhotoGrossWeights>>();
+
+  for (const photo of photos) {
+    const flavor = photo.flavor.trim();
+    if (!flavor) continue;
+
+    const resolved = resolveAnalyzedPhotoGrossWeights(photo);
+    const existing = summarizedByFlavor.get(flavor);
+
+    summarizedByFlavor.set(flavor, {
+      smallPanCount: (existing?.smallPanCount ?? 0) + resolved.smallPanCount,
+      smallGrossWeightKg: roundTo((existing?.smallGrossWeightKg ?? 0) + resolved.smallGrossWeightKg),
+      largePanCount: (existing?.largePanCount ?? 0) + resolved.largePanCount,
+      largeGrossWeightKg: roundTo((existing?.largeGrossWeightKg ?? 0) + resolved.largeGrossWeightKg),
+    });
+  }
+
+  if (summarizedByFlavor.size === 0) return current;
+
+  const nextFlavors = { ...current.flavors };
+
+  for (const [flavor, resolved] of Array.from(summarizedByFlavor.entries())) {
+    nextFlavors[flavor] = {
+      ...(nextFlavors[flavor] ?? {
+        opening: initialReadyMadeGelatoShiftState(),
+        closing: initialReadyMadeGelatoShiftState(),
+      }),
+      [shiftType]: {
+        smallPanCount: displayNumberValue(resolved.smallPanCount),
+        smallGrossWeightKg: displayNumberValue(resolved.smallGrossWeightKg),
+        largePanCount: displayNumberValue(resolved.largePanCount),
+        largeGrossWeightKg: displayNumberValue(resolved.largeGrossWeightKg),
+      },
+    };
+  }
+
+  return {
+    ...current,
+    flavors: nextFlavors,
+  };
 }
 
 function cloneShiftState(shift?: Partial<ReadyMadeGelatoShiftState>): ReadyMadeGelatoShiftState {
@@ -442,11 +558,21 @@ export default function EmployeePortal(props: any) {
   const [closingAnswers, setClosingAnswers] = useState<ChecklistAnswerState>({});
   const [serviceInventoryCounts, setServiceInventoryCounts] = useState<Record<number, string>>({});
   const [readyMadeGelato, setReadyMadeGelato] = useState<ReadyMadeGelatoState>(() => initialReadyMadeGelatoState());
+  const [gelatoEntryMode, setGelatoEntryMode] = useState<Record<ReadyMadeGelatoShiftKey, GelatoEntryMode>>({
+    opening: "manual",
+    closing: "manual",
+  });
+  const [gelatoPhotoFiles, setGelatoPhotoFiles] = useState<Record<ReadyMadeGelatoShiftKey, File[]>>({
+    opening: [],
+    closing: [],
+  });
   const [otherFlavorName, setOtherFlavorName] = useState("");
   const [submissionNotice, setSubmissionNotice] = useState<SubmissionNotice | null>(null);
   const [draftSavedAt, setDraftSavedAt] = useState<DraftSavedAtState>({});
   const openingStaffNameRef = useRef<HTMLInputElement | null>(null);
   const closingStaffNameRef = useRef<HTMLInputElement | null>(null);
+  const openingPhotoInputRef = useRef<HTMLInputElement | null>(null);
+  const closingPhotoInputRef = useRef<HTMLInputElement | null>(null);
   const didAttemptOpeningDraftRestore = useRef(false);
   const didAttemptClosingDraftRestore = useRef(false);
   const didAttemptInventoryDraftRestore = useRef(false);
@@ -469,6 +595,9 @@ export default function EmployeePortal(props: any) {
     onError: error => toast.error(translateErrorMessage(error.message, language)),
   });
   const inventoryMutation = trpc.forms.submitInventoryUpdate.useMutation({
+    onError: error => toast.error(translateErrorMessage(error.message, language)),
+  });
+  const extractGelatoPhotosMutation = trpc.forms.extractGelatoPhotos.useMutation({
     onError: error => toast.error(translateErrorMessage(error.message, language)),
   });
   const readyMadeGelatoMutation = trpc.forms.submitReadyMadeGelato.useMutation({
@@ -624,6 +753,7 @@ export default function EmployeePortal(props: any) {
     setOpeningForm({ ...draft.data.form, businessDate: currentBusinessDate });
     setOpeningAnswers(draft.data.answers ?? {});
     setReadyMadeGelato(current => applyGelatoShiftDraft(current, "opening", draft.data.gelatoOpening ?? {}, currentBusinessDate));
+    setGelatoEntryMode(current => ({ ...current, opening: draft.data.gelatoOpeningMode ?? "manual" }));
     setDraftSavedAt(current => ({ ...current, opening: draft.savedAt }));
     toast.success(t("Saved opening draft restored."));
   }, [currentBusinessDate, portalView, t]);
@@ -640,6 +770,7 @@ export default function EmployeePortal(props: any) {
     setClosingAnswers(draft.data.answers ?? {});
     setServiceInventoryCounts(draft.data.serviceInventoryCounts ?? {});
     setReadyMadeGelato(current => applyGelatoShiftDraft(current, "closing", draft.data.gelatoClosing ?? {}, currentBusinessDate));
+    setGelatoEntryMode(current => ({ ...current, closing: draft.data.gelatoClosingMode ?? "manual" }));
     setDraftSavedAt(current => ({ ...current, closing: draft.savedAt }));
     toast.success(t("Saved closing draft restored."));
   }, [currentBusinessDate, portalView, t]);
@@ -654,6 +785,7 @@ export default function EmployeePortal(props: any) {
     hasInventoryDraftRestored.current = true;
     setServiceInventoryCounts(draft.data.serviceInventoryCounts ?? {});
     setReadyMadeGelato(current => applyGelatoShiftDraft(current, "opening", draft.data.gelatoOpening ?? {}, currentBusinessDate));
+    setGelatoEntryMode(current => ({ ...current, opening: draft.data.gelatoOpeningMode ?? "manual" }));
     setDraftSavedAt(current => ({ ...current, inventory: draft.savedAt }));
     toast.success(t("Saved inventory draft restored."));
   }, [currentBusinessDate, portalView, t]);
@@ -736,6 +868,7 @@ export default function EmployeePortal(props: any) {
       form: { ...openingForm, businessDate: currentBusinessDate, staffName: getNormalizedStaffName(openingForm.staffName, openingStaffNameRef.current?.value) },
       answers: openingAnswers,
       gelatoOpening: extractGelatoShiftDraft(readyMadeGelato, "opening"),
+      gelatoOpeningMode: gelatoEntryMode.opening,
     });
     if (!savedDraft) return;
 
@@ -750,6 +883,7 @@ export default function EmployeePortal(props: any) {
       answers: closingAnswers,
       serviceInventoryCounts,
       gelatoClosing: extractGelatoShiftDraft(readyMadeGelato, "closing"),
+      gelatoClosingMode: gelatoEntryMode.closing,
     });
     if (!savedDraft) return;
 
@@ -762,12 +896,52 @@ export default function EmployeePortal(props: any) {
     const savedDraft = savePortalDraft<InventoryDraft>(inventoryDraftKey, currentBusinessDate, {
       serviceInventoryCounts,
       gelatoOpening: extractGelatoShiftDraft(readyMadeGelato, "opening"),
+      gelatoOpeningMode: gelatoEntryMode.opening,
     });
     if (!savedDraft) return;
 
     hasInventoryDraftRestored.current = true;
     setDraftSavedAt(current => ({ ...current, inventory: savedDraft.savedAt }));
     toast.success(t("Inventory draft saved."));
+  }
+
+  function clearGelatoPhotoSelection(shiftType: ReadyMadeGelatoShiftKey) {
+    setGelatoPhotoFiles(current => ({ ...current, [shiftType]: [] }));
+    const inputRef = shiftType === "opening" ? openingPhotoInputRef : closingPhotoInputRef;
+    if (inputRef.current) {
+      inputRef.current.value = "";
+    }
+  }
+
+  async function analyzeGelatoPhotos(shiftType: ReadyMadeGelatoShiftKey) {
+    const selectedFiles = gelatoPhotoFiles[shiftType] ?? [];
+    if (selectedFiles.length === 0) {
+      toast.error(t("Add at least one scale photo before analyzing."));
+      return;
+    }
+
+    try {
+      const photos = await Promise.all(
+        selectedFiles.map(async file => ({
+          fileName: file.name,
+          mimeType: file.type || "image/jpeg",
+          dataUrl: await readFileAsDataUrl(file),
+        }))
+      );
+
+      const result = await extractGelatoPhotosMutation.mutateAsync({ shiftType, photos });
+      setReadyMadeGelato(current => applyAnalyzedPhotosToGelatoState(current, shiftType, result.extractedPhotos));
+      clearGelatoPhotoSelection(shiftType);
+
+      const analyzedCount = result.extractedPhotos.length;
+      toast.success(
+        t(
+          `Applied ${analyzedCount} analyzed photo${analyzedCount === 1 ? "" : "s"} to the gelato fields below. Review and adjust anything before submitting.`
+        )
+      );
+    } catch {
+      // Shared mutation handlers surface the error toast.
+    }
   }
 
   async function submitInventoryPayloads(payloads: Array<{ id: number; currentQuantity: number; notes: string; notifyOwner?: boolean }>) {
@@ -830,6 +1004,8 @@ export default function EmployeePortal(props: any) {
       clearPortalDraft(openingDraftKey);
       hasOpeningDraftRestored.current = false;
       setDraftSavedAt(current => ({ ...current, opening: undefined }));
+      clearGelatoPhotoSelection("opening");
+      setGelatoEntryMode(current => ({ ...current, opening: "manual" }));
       setOpeningForm(initialOpeningForm());
       setOpeningAnswers({});
       await refreshAfterSubmission();
@@ -891,6 +1067,8 @@ export default function EmployeePortal(props: any) {
       clearPortalDraft(closingDraftKey);
       hasClosingDraftRestored.current = false;
       setDraftSavedAt(current => ({ ...current, closing: undefined }));
+      clearGelatoPhotoSelection("closing");
+      setGelatoEntryMode(current => ({ ...current, closing: "manual" }));
       setClosingForm(initialClosingForm());
       setClosingAnswers({});
       await refreshAfterSubmission();
@@ -924,6 +1102,8 @@ export default function EmployeePortal(props: any) {
       clearPortalDraft(inventoryDraftKey);
       hasInventoryDraftRestored.current = false;
       setDraftSavedAt(current => ({ ...current, inventory: undefined }));
+      clearGelatoPhotoSelection("opening");
+      setGelatoEntryMode(current => ({ ...current, opening: "manual" }));
       await refreshAfterSubmission();
     } catch {
       // Shared mutation handlers surface the error toast.
@@ -971,6 +1151,11 @@ export default function EmployeePortal(props: any) {
   }
 
   function renderGelatoSection(shiftType: ReadyMadeGelatoShiftKey, allowAddFlavor = false, descriptionText?: string, weightLabel?: string) {
+    const entryMode = gelatoEntryMode[shiftType] ?? "manual";
+    const selectedFiles = gelatoPhotoFiles[shiftType] ?? [];
+    const photoInputRef = shiftType === "opening" ? openingPhotoInputRef : closingPhotoInputRef;
+    const isAnalyzingPhotos = extractGelatoPhotosMutation.isPending;
+
     return (
       <SectionCard
         icon={<Package2 className="h-5 w-5" />}
@@ -982,7 +1167,88 @@ export default function EmployeePortal(props: any) {
             : t("Count ready-made gelato for the closing form before finishing the nightly inventory section."))
         }
       >
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] p-4 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.26em] text-[#8a8176]">{t("Entry method")}</p>
+              <h3 className="mt-2 text-lg font-medium tracking-[-0.03em] text-[#2d2925]">
+                {entryMode === "photo" ? t("Photo-assisted inventory") : t("Manual inventory")}
+              </h3>
+              <p className="mt-2 max-w-2xl text-sm leading-7 text-[#625b53]">
+                {entryMode === "photo"
+                  ? t("Upload one or more scale photos, analyze them, and review the matching flavor fields below before you submit.")
+                  : t("Enter the pan counts and gross weights by hand, or switch to photo mode if staff want help filling the gelato fields.")}
+              </p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setGelatoEntryMode(current => ({ ...current, [shiftType]: "manual" }))}
+                className={`rounded-full px-5 py-3 text-sm font-medium transition ${entryMode === "manual" ? "bg-[#2f2a26] text-white" : "border border-[#ddd4c8] bg-white text-[#2f2a26] hover:bg-[#f5eee5]"}`}
+              >
+                {t("Manual entry")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setGelatoEntryMode(current => ({ ...current, [shiftType]: "photo" }))}
+                className={`rounded-full px-5 py-3 text-sm font-medium transition ${entryMode === "photo" ? "bg-[#52665f] text-white" : "border border-[#ddd4c8] bg-white text-[#2f2a26] hover:bg-[#f5eee5]"}`}
+              >
+                {t("Use photos")}
+              </button>
+            </div>
+          </div>
+
+          {entryMode === "photo" ? (
+            <div className="mt-5 rounded-[1.25rem] border border-dashed border-[#d7cec0] bg-white p-4">
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+                <label className="grid gap-2 text-sm font-medium text-[#453f39]">
+                  {t("Scale photos")}
+                  <input
+                    ref={photoInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={event =>
+                      setGelatoPhotoFiles(current => ({
+                        ...current,
+                        [shiftType]: Array.from(event.target.files ?? []),
+                      }))
+                    }
+                    className="rounded-2xl border border-dashed border-[#d7cec0] bg-[#fcfaf6] px-4 py-4 text-sm text-[#4b443d] file:mr-4 file:rounded-full file:border-0 file:bg-[#2f2a26] file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-[#1f1b18]"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => analyzeGelatoPhotos(shiftType)}
+                  disabled={isAnalyzingPhotos}
+                  className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[#52665f] px-5 text-sm font-medium text-white transition hover:bg-[#41534d] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isAnalyzingPhotos ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  {isAnalyzingPhotos ? t("Analyzing photos...") : t("Analyze photos")}
+                </button>
+              </div>
+
+              {selectedFiles.length > 0 ? (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {selectedFiles.map(file => (
+                    <span
+                      key={`${shiftType}-${file.name}-${file.size}`}
+                      className="rounded-full bg-[#f3ece2] px-3 py-2 text-xs font-medium text-[#5c544c]"
+                    >
+                      {file.name}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+
+              <p className="mt-4 text-sm leading-7 text-[#625b53]">
+                {t("Photo analysis fills the matching flavor rows below. Staff can still edit the counts and weights manually before saving the form.")}
+              </p>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
           {readyMadeGelatoFlavorNames.map(flavor => {
             const shift = readyMadeGelato.flavors[flavor]?.[shiftType] ?? initialReadyMadeGelatoShiftState();
             return (

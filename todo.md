@@ -179,3 +179,6 @@
 - [x] Add save-progress support to the gelato photo pilot so staff can preserve draft photo rows and return later without submitting
 - [x] Keep separate photo pilot actions for save progress versus save and submit, matching the other staff form workflows
 - [x] Keep cleared kilogram inputs blank in the gelato photo pilot while staff are editing, instead of snapping the field back to 0
+- [x] Integrate the gelato photo-assisted inventory workflow directly into the main opening and closing staff forms instead of keeping it as a separate pilot-only page
+- [x] Let staff choose between manual gelato inventory entry and photo-assisted gelato inventory entry inside the existing form workflow
+- [x] Evaluate whether to add a manager-facing setting for requiring photo-only gelato inventory submissions, while keeping the initial implementation flexible for a future enforcement change
