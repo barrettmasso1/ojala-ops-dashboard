@@ -12,8 +12,9 @@ type ExtractedPhoto = {
   fileName: string;
   imageUrl: string;
   flavor: string;
-  panSize: "small" | "large" | "unknown";
-  grossWeightKg: number;
+  smallPanCount: number;
+  largePanCount: number;
+  combinedGrossWeightKg: number;
   confidence: "high" | "medium" | "low";
   warning: string;
 };
@@ -22,9 +23,8 @@ type DraftEntry = {
   id: string;
   flavor: string;
   smallPanCount: number;
-  smallGrossWeightKg: number;
   largePanCount: number;
-  largeGrossWeightKg: number;
+  combinedGrossWeightKg: number;
 };
 
 function todayValue() {
@@ -36,10 +36,16 @@ function newDraftEntry(): DraftEntry {
     id: crypto.randomUUID(),
     flavor: "",
     smallPanCount: 0,
-    smallGrossWeightKg: 0,
     largePanCount: 0,
-    largeGrossWeightKg: 0,
+    combinedGrossWeightKg: 0,
   };
+}
+
+function panStateLabel(entry: Pick<ExtractedPhoto, "smallPanCount" | "largePanCount">) {
+  if (entry.smallPanCount > 0 && entry.largePanCount > 0) return "1 small + 1 large";
+  if (entry.smallPanCount > 0) return "1 small";
+  if (entry.largePanCount > 0) return "1 large";
+  return "Needs review";
 }
 
 function inputClassName() {
@@ -82,9 +88,8 @@ export default function GelatoPhotoPilot() {
           id: crypto.randomUUID(),
           flavor: entry.flavor,
           smallPanCount: entry.smallPanCount,
-          smallGrossWeightKg: entry.smallGrossWeightKg,
           largePanCount: entry.largePanCount,
-          largeGrossWeightKg: entry.largeGrossWeightKg,
+          combinedGrossWeightKg: entry.combinedGrossWeightKg,
         }))
       );
       toast.success("Photo pilot values are ready for review.");
@@ -130,14 +135,14 @@ export default function GelatoPhotoPilot() {
       .map(entry => ({
         flavor: entry.flavor.trim(),
         smallPanCount: entry.smallPanCount,
-        smallGrossWeightKg: entry.smallGrossWeightKg,
         largePanCount: entry.largePanCount,
-        largeGrossWeightKg: entry.largeGrossWeightKg,
+        combinedGrossWeightKg: entry.combinedGrossWeightKg,
       }))
       .filter(
         entry =>
           entry.flavor.length > 0 &&
-          (entry.smallPanCount > 0 || entry.largePanCount > 0 || entry.smallGrossWeightKg > 0 || entry.largeGrossWeightKg > 0)
+          (entry.smallPanCount > 0 || entry.largePanCount > 0) &&
+          entry.combinedGrossWeightKg > 0
       );
 
     if (cleanedEntries.length === 0) {
@@ -192,7 +197,7 @@ export default function GelatoPhotoPilot() {
                 <div>
                   <h2 className="text-2xl font-medium tracking-[-0.04em] text-[#2d2925]">Pilot setup</h2>
                   <p className="mt-1 text-sm leading-7 text-[#655d55]">
-                    Upload one pan-on-scale photo per image. Make sure the flavor label, scale digits, and pan size are all visible before running extraction.
+                    Upload one same-flavor scale photo per image. Each photo should show either one small pan, one large pan, or one small plus one large, with the label and scale digits visible.
                   </p>
                 </div>
               </div>
@@ -266,7 +271,7 @@ export default function GelatoPhotoPilot() {
               <h2 className="text-2xl font-medium tracking-[-0.04em] text-[#2d2925]">What to expect</h2>
               <div className="mt-5 grid gap-4">
                 {[
-                  "The pilot reads one photo at a time and estimates the flavor, pan size, and gross weight in kilograms.",
+                  "The pilot reads one photo at a time and estimates the flavor, whether the image shows one pan or a small-plus-large pair, and the combined gross weight in kilograms.",
                   "Every extracted value stays editable before it becomes official inventory data.",
                   "Warnings and confidence labels help staff spot blurry or uncertain reads before saving.",
                   "The goal is to reduce typing mistakes, not to remove employee review.",
@@ -284,7 +289,7 @@ export default function GelatoPhotoPilot() {
               <div>
                 <h2 className="text-2xl font-medium tracking-[-0.04em] text-[#2d2925]">Photo-by-photo extraction</h2>
                 <p className="mt-2 text-sm leading-7 text-[#655d55]">
-                  Review the raw photo reads first. Low-confidence items or unknown pan sizes should be corrected in the editable verification table below.
+                  Review the raw photo reads first. Low-confidence items or uncertain pan combinations should be corrected in the editable verification table below.
                 </p>
               </div>
             </div>
@@ -306,18 +311,18 @@ export default function GelatoPhotoPilot() {
                         {photo.confidence}
                       </span>
                     </div>
-                    <div className="mt-4 grid gap-3 text-sm text-[#4f473f] md:grid-cols-3">
+                      <div className="mt-4 grid gap-3 text-sm text-[#4f473f] md:grid-cols-3">
                       <div className="rounded-2xl bg-[#faf3e9] px-3 py-3">
                         <p className="text-[11px] uppercase tracking-[0.24em] text-[#8a8176]">Flavor</p>
                         <p className="mt-2 font-medium text-[#2f2a26]">{photo.flavor}</p>
                       </div>
                       <div className="rounded-2xl bg-[#faf3e9] px-3 py-3">
-                        <p className="text-[11px] uppercase tracking-[0.24em] text-[#8a8176]">Pan size</p>
-                        <p className="mt-2 font-medium capitalize text-[#2f2a26]">{photo.panSize}</p>
+                        <p className="text-[11px] uppercase tracking-[0.24em] text-[#8a8176]">Pan setup</p>
+                        <p className="mt-2 font-medium text-[#2f2a26]">{panStateLabel(photo)}</p>
                       </div>
                       <div className="rounded-2xl bg-[#faf3e9] px-3 py-3">
-                        <p className="text-[11px] uppercase tracking-[0.24em] text-[#8a8176]">Gross weight</p>
-                        <p className="mt-2 font-medium text-[#2f2a26]">{photo.grossWeightKg.toFixed(3)} kg</p>
+                        <p className="text-[11px] uppercase tracking-[0.24em] text-[#8a8176]">Combined gross weight</p>
+                        <p className="mt-2 font-medium text-[#2f2a26]">{photo.combinedGrossWeightKg.toFixed(3)} kg</p>
                       </div>
                     </div>
                     {photo.warning ? (
@@ -336,7 +341,7 @@ export default function GelatoPhotoPilot() {
               <div>
                 <h2 className="text-2xl font-medium tracking-[-0.04em] text-[#2d2925]">Verification table</h2>
                 <p className="mt-2 text-sm leading-7 text-[#655d55]">
-                  This is the editable version that becomes the official saved data. Adjust any flavor names, pan counts, or weights here before you save the pilot result.
+                  This is the editable version that becomes the official saved data. Adjust any flavor names, pan counts, or combined weights here before you save the pilot result.
                 </p>
               </div>
               <div className="rounded-full border border-[#e1d7ca] bg-white px-4 py-2 text-sm font-medium text-[#50473f] shadow-sm">
@@ -358,7 +363,7 @@ export default function GelatoPhotoPilot() {
               ) : (
                 draftEntries.map(entry => (
                   <div key={entry.id} className="rounded-[1.5rem] border border-[#e6dccf] bg-white/94 p-4 shadow-sm">
-                    <div className="grid gap-4 lg:grid-cols-[1.4fr_repeat(4,minmax(0,1fr))_auto]">
+                    <div className="grid gap-4 lg:grid-cols-[1.4fr_repeat(3,minmax(0,1fr))_auto]">
                       <label className="flex flex-col gap-2 text-sm font-medium text-[#453f39]">
                         Flavor
                         <input
@@ -395,26 +400,6 @@ export default function GelatoPhotoPilot() {
                         />
                       </label>
                       <label className="flex flex-col gap-2 text-sm font-medium text-[#453f39]">
-                        Small kg
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.001"
-                          inputMode="decimal"
-                          value={entry.smallGrossWeightKg}
-                          onChange={event =>
-                            setDraftEntries(current =>
-                              current.map(item =>
-                                item.id === entry.id
-                                  ? { ...item, smallGrossWeightKg: numberOrZero(event.target.value) }
-                                  : item
-                              )
-                            )
-                          }
-                          className={inputClassName()}
-                        />
-                      </label>
-                      <label className="flex flex-col gap-2 text-sm font-medium text-[#453f39]">
                         Large pans
                         <input
                           type="number"
@@ -434,18 +419,18 @@ export default function GelatoPhotoPilot() {
                         />
                       </label>
                       <label className="flex flex-col gap-2 text-sm font-medium text-[#453f39]">
-                        Large kg
+                        Combined kg
                         <input
                           type="number"
                           min="0"
                           step="0.001"
                           inputMode="decimal"
-                          value={entry.largeGrossWeightKg}
+                          value={entry.combinedGrossWeightKg}
                           onChange={event =>
                             setDraftEntries(current =>
                               current.map(item =>
                                 item.id === entry.id
-                                  ? { ...item, largeGrossWeightKg: numberOrZero(event.target.value) }
+                                  ? { ...item, combinedGrossWeightKg: numberOrZero(event.target.value) }
                                   : item
                               )
                             )

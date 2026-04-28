@@ -57,6 +57,7 @@ type ReadyMadeMeasurementRow = {
   smallGrossWeightKg?: number | string | null;
   largePanCount?: number | string | null;
   largeGrossWeightKg?: number | string | null;
+  combinedGrossWeightKg?: number | string | null;
   weightKg?: number | string | null;
   submittedByUserId?: number | null;
   createdAt?: Date | null;
@@ -87,11 +88,71 @@ function convertSalesToVolumeOunces(cups: { cups4oz: number; cups8oz: number; cu
   return cups.cups4oz * 4 + cups.cups8oz * 8 + cups.cupsPint * 16 + cups.cupsLiter * 32;
 }
 
+export function resolveReadyMadeGrossWeights(row?: ReadyMadeMeasurementRow) {
+  const smallPanCount = Math.max(0, Math.trunc(toNumber(row?.smallPanCount)));
+  const largePanCount = Math.max(0, Math.trunc(toNumber(row?.largePanCount)));
+  const providedSmallGrossWeightKg = Math.max(0, toNumber(row?.smallGrossWeightKg));
+  const providedLargeGrossWeightKg = Math.max(0, toNumber(row?.largeGrossWeightKg));
+  const combinedGrossWeightKg = Math.max(0, toNumber(row?.combinedGrossWeightKg));
+
+  if (combinedGrossWeightKg <= 0) {
+    return {
+      smallGrossWeightKg: providedSmallGrossWeightKg,
+      largeGrossWeightKg: providedLargeGrossWeightKg,
+      combinedGrossWeightKg: roundTo(providedSmallGrossWeightKg + providedLargeGrossWeightKg),
+    };
+  }
+
+  if (smallPanCount > 0 && largePanCount === 0) {
+    return {
+      smallGrossWeightKg: roundTo(combinedGrossWeightKg),
+      largeGrossWeightKg: 0,
+      combinedGrossWeightKg: roundTo(combinedGrossWeightKg),
+    };
+  }
+
+  if (largePanCount > 0 && smallPanCount === 0) {
+    return {
+      smallGrossWeightKg: 0,
+      largeGrossWeightKg: roundTo(combinedGrossWeightKg),
+      combinedGrossWeightKg: roundTo(combinedGrossWeightKg),
+    };
+  }
+
+  if (smallPanCount === 0 && largePanCount === 0) {
+    return {
+      smallGrossWeightKg: providedSmallGrossWeightKg,
+      largeGrossWeightKg: providedLargeGrossWeightKg,
+      combinedGrossWeightKg: roundTo(combinedGrossWeightKg),
+    };
+  }
+
+  const totalNetWeightKg = Math.max(
+    0,
+    combinedGrossWeightKg - smallPanCount * SMALL_PAN_EMPTY_KG - largePanCount * LARGE_PAN_EMPTY_KG
+  );
+  const smallCapacityWeightKg =
+    smallPanCount * (SMALL_PAN_FULL_WEIGHT_OUNCES / KG_TO_WEIGHT_OUNCES);
+  const largeCapacityWeightKg =
+    largePanCount * (LARGE_PAN_FULL_WEIGHT_OUNCES / KG_TO_WEIGHT_OUNCES);
+  const totalCapacityWeightKg = smallCapacityWeightKg + largeCapacityWeightKg;
+  const smallNetWeightKg =
+    totalCapacityWeightKg > 0
+      ? totalNetWeightKg * (smallCapacityWeightKg / totalCapacityWeightKg)
+      : 0;
+  const largeNetWeightKg = Math.max(0, totalNetWeightKg - smallNetWeightKg);
+
+  return {
+    smallGrossWeightKg: roundTo(smallPanCount * SMALL_PAN_EMPTY_KG + smallNetWeightKg),
+    largeGrossWeightKg: roundTo(largePanCount * LARGE_PAN_EMPTY_KG + largeNetWeightKg),
+    combinedGrossWeightKg: roundTo(combinedGrossWeightKg),
+  };
+}
+
 function calculateReadyMadeMeasurement(row?: ReadyMadeMeasurementRow, defaultShiftType: ReadyMadeShiftType = "opening") {
   const smallPanCount = Math.max(0, Math.trunc(toNumber(row?.smallPanCount)));
   const largePanCount = Math.max(0, Math.trunc(toNumber(row?.largePanCount)));
-  const smallGrossWeightKg = Math.max(0, toNumber(row?.smallGrossWeightKg));
-  const largeGrossWeightKg = Math.max(0, toNumber(row?.largeGrossWeightKg));
+  const { smallGrossWeightKg, largeGrossWeightKg, combinedGrossWeightKg } = resolveReadyMadeGrossWeights(row);
   const smallNetWeightKg = Math.max(0, smallGrossWeightKg - smallPanCount * SMALL_PAN_EMPTY_KG);
   const largeNetWeightKg = Math.max(0, largeGrossWeightKg - largePanCount * LARGE_PAN_EMPTY_KG);
   const totalNetWeightKg = roundTo(smallNetWeightKg + largeNetWeightKg);
@@ -112,6 +173,7 @@ function calculateReadyMadeMeasurement(row?: ReadyMadeMeasurementRow, defaultShi
     smallGrossWeightKg: roundTo(smallGrossWeightKg),
     largePanCount,
     largeGrossWeightKg: roundTo(largeGrossWeightKg),
+    combinedGrossWeightKg,
     smallNetWeightKg: roundTo(smallNetWeightKg),
     largeNetWeightKg: roundTo(largeNetWeightKg),
     netWeightKg: totalNetWeightKg,
@@ -1110,9 +1172,10 @@ export async function saveReadyMadeGelatoWeights(input: {
   entries: Array<{
     flavor: string;
     smallPanCount: number;
-    smallGrossWeightKg: string;
+    smallGrossWeightKg?: string;
     largePanCount: number;
-    largeGrossWeightKg: string;
+    largeGrossWeightKg?: string;
+    combinedGrossWeightKg?: string;
   }>;
 }) {
   const db = await getDb();
@@ -1133,6 +1196,7 @@ export async function saveReadyMadeGelatoWeights(input: {
       smallGrossWeightKg: entry.smallGrossWeightKg,
       largePanCount: entry.largePanCount,
       largeGrossWeightKg: entry.largeGrossWeightKg,
+      combinedGrossWeightKg: entry.combinedGrossWeightKg,
       submittedByUserId: input.submittedByUserId,
     }, input.shiftType);
 

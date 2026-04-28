@@ -140,9 +140,10 @@ const readyMadeGelatoShiftTypeSchema = z.enum(["opening", "closing"]);
 const readyMadeGelatoEntrySchema = z.object({
   flavor: z.string().min(1),
   smallPanCount: z.number().int().min(0),
-  smallGrossWeightKg: z.number().min(0),
+  smallGrossWeightKg: z.number().min(0).optional(),
   largePanCount: z.number().int().min(0),
-  largeGrossWeightKg: z.number().min(0),
+  largeGrossWeightKg: z.number().min(0).optional(),
+  combinedGrossWeightKg: z.number().min(0).optional(),
 });
 
 const readyMadeGelatoSchema = z.object({
@@ -304,9 +305,10 @@ export const appRouter = router({
         entries: input.entries.map(entry => ({
           flavor: entry.flavor,
           smallPanCount: entry.smallPanCount,
-          smallGrossWeightKg: entry.smallGrossWeightKg.toFixed(2),
+          smallGrossWeightKg: entry.smallGrossWeightKg?.toFixed(2),
           largePanCount: entry.largePanCount,
-          largeGrossWeightKg: entry.largeGrossWeightKg.toFixed(2),
+          largeGrossWeightKg: entry.largeGrossWeightKg?.toFixed(2),
+          combinedGrossWeightKg: entry.combinedGrossWeightKg?.toFixed(2),
         })),
       });
 

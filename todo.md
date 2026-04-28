@@ -169,3 +169,7 @@
 - [x] Adjust snapshot card typography and responsive sizing so labels and values stay on one line whenever possible instead of wrapping awkwardly
 - [x] Reflow the manager overview so the daily snapshot sits below the intro and filter controls instead of squeezed into a right-side column with excess empty space
 - [x] Remove the redundant payment summary section below the daily snapshot since those cash, card, and Venmo totals are already shown in the snapshot above
+- [x] Support gelato photo pilot scale shots that include multiple pans together, such as one small and one large pan of the same flavor on a single scale photo
+- [x] Update the gelato photo pilot so each photo can represent either one pan or one same-flavor small-plus-large pair with a single combined scale weight
+- [x] Add confirmation-friendly extraction logic for the three allowed photo states: one small pan, one large pan, or one same-flavor small-plus-large pair with one combined scale reading
+- [x] Add regression coverage for combined-weight same-flavor gelato photo extraction and save behavior before release

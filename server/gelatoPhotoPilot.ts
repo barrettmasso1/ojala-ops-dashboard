@@ -8,15 +8,15 @@ export type GelatoPhotoUploadInput = {
   dataUrl: string;
 };
 
-export type GelatoPhotoPanSize = "small" | "large" | "unknown";
 export type GelatoPhotoConfidence = "high" | "medium" | "low";
 
 export type ExtractedGelatoPhoto = {
   fileName: string;
   imageUrl: string;
   flavor: string;
-  panSize: GelatoPhotoPanSize;
-  grossWeightKg: number;
+  smallPanCount: number;
+  largePanCount: number;
+  combinedGrossWeightKg: number;
   confidence: GelatoPhotoConfidence;
   warning: string;
 };
@@ -24,9 +24,8 @@ export type ExtractedGelatoPhoto = {
 export type GroupedGelatoEntry = {
   flavor: string;
   smallPanCount: number;
-  smallGrossWeightKg: number;
   largePanCount: number;
-  largeGrossWeightKg: number;
+  combinedGrossWeightKg: number;
 };
 
 function roundTo(value: number, decimals = 3) {
@@ -57,16 +56,15 @@ function normalizeFlavorName(rawFlavor: string) {
   return canonical ?? trimmed;
 }
 
-function normalizePanSize(rawPanSize: string): GelatoPhotoPanSize {
-  const normalized = rawPanSize.trim().toLowerCase();
-  if (normalized === "small" || normalized === "large") return normalized;
-  return "unknown";
-}
-
 function normalizeConfidence(rawConfidence: string): GelatoPhotoConfidence {
   const normalized = rawConfidence.trim().toLowerCase();
   if (normalized === "high" || normalized === "medium") return normalized;
   return "low";
+}
+
+function normalizePanCount(rawCount: number) {
+  if (!Number.isFinite(rawCount) || rawCount <= 0) return 0;
+  return 1;
 }
 
 export function buildGroupedGelatoEntries(
@@ -75,30 +73,26 @@ export function buildGroupedGelatoEntries(
   const grouped = new Map<string, GroupedGelatoEntry>();
 
   for (const photo of extractedPhotos) {
-    if (photo.panSize === "unknown" || photo.grossWeightKg <= 0) continue;
+    if (
+      photo.combinedGrossWeightKg <= 0 ||
+      (photo.smallPanCount <= 0 && photo.largePanCount <= 0)
+    ) {
+      continue;
+    }
 
     const existing =
       grouped.get(photo.flavor) ?? {
         flavor: photo.flavor,
         smallPanCount: 0,
-        smallGrossWeightKg: 0,
         largePanCount: 0,
-        largeGrossWeightKg: 0,
+        combinedGrossWeightKg: 0,
       };
 
-    if (photo.panSize === "small") {
-      existing.smallPanCount += 1;
-      existing.smallGrossWeightKg = roundTo(
-        existing.smallGrossWeightKg + photo.grossWeightKg
-      );
-    }
-
-    if (photo.panSize === "large") {
-      existing.largePanCount += 1;
-      existing.largeGrossWeightKg = roundTo(
-        existing.largeGrossWeightKg + photo.grossWeightKg
-      );
-    }
+    existing.smallPanCount += photo.smallPanCount;
+    existing.largePanCount += photo.largePanCount;
+    existing.combinedGrossWeightKg = roundTo(
+      existing.combinedGrossWeightKg + photo.combinedGrossWeightKg
+    );
 
     grouped.set(photo.flavor, existing);
   }
@@ -110,7 +104,8 @@ export function buildGroupedGelatoEntries(
 
 type LlmExtractionResult = {
   flavor: string;
-  pan_size: "small" | "large" | "unknown";
+  small_pan_count: number;
+  large_pan_count: number;
   gross_weight_kg: number;
   confidence: "high" | "medium" | "low";
   warning: string;
@@ -133,14 +128,14 @@ async function extractSinglePhoto(
       {
         role: "system",
         content:
-          "You extract gelato inventory data from a single photo. Read only what is visible. Return one flavor name, one pan size, and one gross weight in kilograms. If anything is unclear, lower confidence and explain briefly in warning.",
+          "You extract gelato inventory data from a single photo. Each photo should show either one small pan, one large pan, or one small pan plus one large pan of the same flavor on a single scale. Return one flavor name, the small-pan count, the large-pan count, and the combined gross weight in kilograms. If anything is unclear, lower confidence and explain briefly in warning.",
       },
       {
         role: "user",
         content: [
           {
             type: "text",
-            text: `This is a single gelato pan photo for a pilot inventory workflow. Identify the flavor label, read the scale display in kilograms, and classify the pan as small, large, or unknown. Known common flavors include: ${READY_MADE_GELATO_FLAVORS.join(", ")}. Use a custom flavor only when the label clearly shows something else. If the scale or label is unreadable, return the best visible answer, set confidence to low, and explain the problem in warning.`,
+            text: `This is a single gelato pan photo for a pilot inventory workflow. Identify the flavor label, read the scale display in kilograms, and count whether the image shows one small pan, one large pan, or one small plus one large pan of the same flavor. Known common flavors include: ${READY_MADE_GELATO_FLAVORS.join(", ")}. Use a custom flavor only when the label clearly shows something else. If the scale, label, or pan sizes are unclear, return the best visible answer, set confidence to low, and explain the problem in warning.`,
           },
           {
             type: "image_url",
@@ -161,9 +156,15 @@ async function extractSinglePhoto(
           type: "object",
           properties: {
             flavor: { type: "string" },
-            pan_size: {
-              type: "string",
-              enum: ["small", "large", "unknown"],
+            small_pan_count: {
+              type: "number",
+              minimum: 0,
+              maximum: 1,
+            },
+            large_pan_count: {
+              type: "number",
+              minimum: 0,
+              maximum: 1,
             },
             gross_weight_kg: {
               type: "number",
@@ -177,7 +178,8 @@ async function extractSinglePhoto(
           },
           required: [
             "flavor",
-            "pan_size",
+            "small_pan_count",
+            "large_pan_count",
             "gross_weight_kg",
             "confidence",
             "warning",
@@ -199,8 +201,9 @@ async function extractSinglePhoto(
     fileName: photo.fileName,
     imageUrl: uploaded.url,
     flavor: normalizeFlavorName(parsed.flavor),
-    panSize: normalizePanSize(parsed.pan_size),
-    grossWeightKg: roundTo(parsed.gross_weight_kg),
+    smallPanCount: normalizePanCount(parsed.small_pan_count),
+    largePanCount: normalizePanCount(parsed.large_pan_count),
+    combinedGrossWeightKg: roundTo(parsed.gross_weight_kg),
     confidence: normalizeConfidence(parsed.confidence),
     warning: parsed.warning.trim(),
   };

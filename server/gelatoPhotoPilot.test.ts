@@ -2,42 +2,36 @@ import { describe, expect, it } from "vitest";
 import { buildGroupedGelatoEntries, type ExtractedGelatoPhoto } from "./gelatoPhotoPilot";
 
 describe("buildGroupedGelatoEntries", () => {
-  it("groups extracted small and large pans by flavor", () => {
+  it("groups same-flavor single-pan and combined small-plus-large photos by flavor", () => {
     const extractedPhotos: ExtractedGelatoPhoto[] = [
       {
-        fileName: "vanilla-small-1.jpg",
+        fileName: "vanilla-pair.jpg",
         imageUrl: "/manus-storage/one",
         flavor: "Vanilla",
-        panSize: "small",
-        grossWeightKg: 1.52,
+        smallPanCount: 1,
+        largePanCount: 1,
+        combinedGrossWeightKg: 3.95,
         confidence: "high",
         warning: "",
       },
       {
-        fileName: "vanilla-small-2.jpg",
+        fileName: "vanilla-large.jpg",
         imageUrl: "/manus-storage/two",
         flavor: "Vanilla",
-        panSize: "small",
-        grossWeightKg: 1.43,
+        smallPanCount: 0,
+        largePanCount: 1,
+        combinedGrossWeightKg: 3.42,
         confidence: "high",
         warning: "",
       },
       {
-        fileName: "vanilla-large-1.jpg",
+        fileName: "chocolate-small.jpg",
         imageUrl: "/manus-storage/three",
-        flavor: "Vanilla",
-        panSize: "large",
-        grossWeightKg: 3.42,
-        confidence: "medium",
-        warning: "",
-      },
-      {
-        fileName: "chocolate-large-1.jpg",
-        imageUrl: "/manus-storage/four",
         flavor: "Chocolate",
-        panSize: "large",
-        grossWeightKg: 3.91,
-        confidence: "high",
+        smallPanCount: 1,
+        largePanCount: 0,
+        combinedGrossWeightKg: 1.52,
+        confidence: "medium",
         warning: "",
       },
     ];
@@ -45,29 +39,28 @@ describe("buildGroupedGelatoEntries", () => {
     expect(buildGroupedGelatoEntries(extractedPhotos)).toEqual([
       {
         flavor: "Chocolate",
-        smallPanCount: 0,
-        smallGrossWeightKg: 0,
-        largePanCount: 1,
-        largeGrossWeightKg: 3.91,
+        smallPanCount: 1,
+        largePanCount: 0,
+        combinedGrossWeightKg: 1.52,
       },
       {
         flavor: "Vanilla",
-        smallPanCount: 2,
-        smallGrossWeightKg: 2.95,
-        largePanCount: 1,
-        largeGrossWeightKg: 3.42,
+        smallPanCount: 1,
+        largePanCount: 2,
+        combinedGrossWeightKg: 7.37,
       },
     ]);
   });
 
-  it("ignores unknown pan sizes and zero-value readings until a user corrects them", () => {
+  it("ignores unreadable photos until a user corrects them", () => {
     const extractedPhotos: ExtractedGelatoPhoto[] = [
       {
         fileName: "unclear.jpg",
         imageUrl: "/manus-storage/five",
         flavor: "Unknown flavor",
-        panSize: "unknown",
-        grossWeightKg: 0,
+        smallPanCount: 0,
+        largePanCount: 0,
+        combinedGrossWeightKg: 0,
         confidence: "low",
         warning: "Scale display was not fully readable.",
       },
@@ -75,8 +68,9 @@ describe("buildGroupedGelatoEntries", () => {
         fileName: "mint-chip.jpg",
         imageUrl: "/manus-storage/six",
         flavor: "Mint Chip",
-        panSize: "small",
-        grossWeightKg: 1.11,
+        smallPanCount: 1,
+        largePanCount: 0,
+        combinedGrossWeightKg: 1.11,
         confidence: "medium",
         warning: "",
       },
@@ -86,9 +80,8 @@ describe("buildGroupedGelatoEntries", () => {
       {
         flavor: "Mint Chip",
         smallPanCount: 1,
-        smallGrossWeightKg: 1.11,
         largePanCount: 0,
-        largeGrossWeightKg: 0,
+        combinedGrossWeightKg: 1.11,
       },
     ]);
   });
