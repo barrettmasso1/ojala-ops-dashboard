@@ -1460,7 +1460,7 @@ export default function EmployeePortal(props: any) {
                         <h3 className="text-lg font-medium tracking-[-0.03em] text-[#2d2925]">{t(department)}</h3>
                         <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                           {items.map(item => (
-                            <Field key={item.id} label={item.itemName} hint={`${t("Par level")}: ${item.parLevel}`}>
+                            <Field key={item.id} label={t(item.itemName)} hint={`${t("Par level")}: ${item.parLevel}`}>
                               <input className={smallInputClassName()} type="number" min="0" step="0.01" value={serviceInventoryCounts[item.id] ?? ""} onChange={event => updateInventoryItem(item.id, event.target.value)} />
                             </Field>
                           ))}

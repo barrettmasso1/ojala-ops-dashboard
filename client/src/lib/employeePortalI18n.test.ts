@@ -50,6 +50,18 @@ describe("employee portal translations", () => {
     expect(translatePortalText("To-Go Bags", "es")).toBe("Bolsas para llevar");
   });
 
+  it("translates dynamic full-inventory labels and prompt variants into Spanish", () => {
+    expect(translatePortalText("Ingredients", "es")).toBe("Ingredientes");
+    expect(translatePortalText("Utensils & Cleaning", "es")).toBe("Utensilios y limpieza");
+    expect(translatePortalText("Almond Base", "es")).toBe("Base de almendra");
+    expect(translatePortalText("Cacao Butter", "es")).toBe("Manteca de cacao");
+    expect(translatePortalText("Bamboo To-Go Spoons", "es")).toBe("Cucharas de bambú para llevar");
+    expect(translatePortalText("Dine-In Metal Spoons", "es")).toBe("Cucharas metálicas para comer aquí");
+    expect(translatePortalText("4oz To-Go Cups", "es")).toBe("Vasos para llevar de 4oz");
+    expect(translatePortalText("If no, explain the issue", "es")).toBe("Si no, describe el problema.");
+    expect(translatePortalText("If no, explain the issue. ", "es")).toBe("Si no, describe el problema.");
+  });
+
   it("falls back to the original text for unknown strings and error messages", () => {
     expect(translatePortalText("Unmapped phrase", "es")).toBe("Unmapped phrase");
     expect(translateErrorMessage("Server unavailable", "es")).toBe("Server unavailable");

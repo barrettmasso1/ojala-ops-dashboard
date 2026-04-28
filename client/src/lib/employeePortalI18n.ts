@@ -1,5 +1,9 @@
 export type PortalLanguage = "en" | "es";
 
+function normalizeTranslationKey(text: string) {
+  return text.trim().replace(/\s+/g, " ").replace(/\s+([?!.:,;])/g, "$1");
+}
+
 const textTranslations: Record<string, string> = {
   "Staff portal": "Portal del personal",
   "Clear daily accountability for calm operations.": "Claridad diaria para operaciones tranquilas.",
@@ -22,6 +26,8 @@ const textTranslations: Record<string, string> = {
   Spanish: "Español",
   Language: "Idioma",
   "Inventory Input": "Ingreso de inventario",
+  Ingredients: "Ingredientes",
+  "Utensils & Cleaning": "Utensilios y limpieza",
   "Employees can quickly update counted quantities without entering the manager dashboard.": "Los empleados pueden actualizar rápidamente las cantidades contadas sin entrar al panel de gerencia.",
   "Loading inventory items…": "Cargando artículos de inventario…",
   "No inventory items have been set up yet by management.": "La gerencia todavía no ha configurado artículos de inventario.",
@@ -101,6 +107,10 @@ const textTranslations: Record<string, string> = {
   "Waste Notes": "Notas de desperdicio",
   "Low-Item Notes": "Notas de artículos bajos",
   "General Notes": "Notas generales",
+  "Almond Base": "Base de almendra",
+  "Coco Base": "Base de coco",
+  Cacao: "Cacao",
+  "Cacao Butter": "Manteca de cacao",
   Vanilla: "Vainilla",
   Chocolate: "Chocolate",
   Cinnamon: "Canela",
@@ -115,6 +125,22 @@ const textTranslations: Record<string, string> = {
   Strawberry: "Fresa",
   "Sweet Potato": "Camote",
   Watermelon: "Sandía",
+  Avocado: "Aguacate",
+  Lime: "Limón verde",
+  Mint: "Menta",
+  "Mint extract": "Extracto de menta",
+  Kombucha: "Kombucha",
+  "Topo Chicos": "Topo Chicos",
+  "4oz To-Go Cups": "Vasos para llevar de 4oz",
+  "8oz To-Go Cups": "Vasos para llevar de 8oz",
+  "8oz To-Go Lids": "Tapas para llevar de 8oz",
+  "16oz To-Go Cups": "Vasos para llevar de 16oz",
+  "16oz To-Go Lids": "Tapas para llevar de 16oz",
+  "32oz To-Go Cups": "Vasos para llevar de 32oz",
+  "32oz To-Go Lids": "Tapas para llevar de 32oz",
+  "Bamboo To-Go Spoons": "Cucharas de bambú para llevar",
+  "Dine-In Metal Spoons": "Cucharas metálicas para comer aquí",
+  Napkins: "Servilletas",
   "Submit End-of-Day Report": "Enviar reporte de fin de día",
   "Opening Checklist submitted.": "Lista de apertura enviada.",
   "Closing Checklist submitted.": "Lista de cierre enviada.",
@@ -124,7 +150,9 @@ const textTranslations: Record<string, string> = {
   "If no, what is wrong?": "Si no, ¿qué está mal?",
   "If no, what needs to be stocked?": "Si no, ¿qué necesita surtirse?",
   "If no, what texture issue did you notice?": "Si no, ¿qué problema de textura notaste?",
-  "If no, describe the issue.": "Si no, describe el problema.",
+  "If no, explain the issue.": "Si no, describe el problema.",
+  "If no, explain the issue": "Si no, describe el problema.",
+
   "Counters clean": "Mostradores limpios",
   "If no, what still needs to be cleaned?": "Si no, ¿qué falta por limpiar?",
   "Floors clean": "Pisos limpios",
@@ -264,12 +292,14 @@ const textTranslations: Record<string, string> = {
   "Ready-made gelato": "Gelato listo",
 };
 
+const normalizedTextTranslations = Object.fromEntries(Object.entries(textTranslations).map(([key, value]) => [normalizeTranslationKey(key), value]));
+
 export function translatePortalText(text: string, language: PortalLanguage) {
   if (language === "en") {
     return text;
   }
 
-  return textTranslations[text] ?? text;
+  return textTranslations[text] ?? normalizedTextTranslations[normalizeTranslationKey(text)] ?? text;
 }
 
 export function translateErrorMessage(message: string, language: PortalLanguage) {
@@ -277,5 +307,5 @@ export function translateErrorMessage(message: string, language: PortalLanguage)
     return message;
   }
 
-  return textTranslations[message] ?? message;
+  return textTranslations[message] ?? normalizedTextTranslations[normalizeTranslationKey(message)] ?? message;
 }

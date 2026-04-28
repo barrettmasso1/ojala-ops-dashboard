@@ -164,3 +164,7 @@
 - [x] Remove unnecessary decimal places from ounce-based dashboard values so sold and distributed ounces display as whole ounces
 - [x] Rebuild the manager daily snapshot card order and content so payment and sales metrics are grouped exactly as requested, including conditional Venmo and Zelle cards plus for-here, to-go, and to-go-used cup totals
 - [x] Optimize the manager dashboard and related staff pages for desktop, iPad, and phone so the card grid and forms no longer overflow or feel cramped on smaller screens
+- [x] Fix the remaining untranslated English labels, prompts, and inventory text across the staff forms so Spanish mode is fully translated
+- [x] Remove the extra descriptive body text from the manager daily snapshot cards and keep the card content to concise labels and values only
+- [x] Adjust snapshot card typography and responsive sizing so labels and values stay on one line whenever possible instead of wrapping awkwardly
+- [x] Reflow the manager overview so the daily snapshot sits below the intro and filter controls instead of squeezed into a right-side column with excess empty space

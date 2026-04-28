@@ -396,8 +396,8 @@ export default function ManagerDashboard() {
     <DashboardLayout>
       <div className="mx-auto w-full max-w-[1440px] space-y-8">
         <SurfaceCard className="overflow-hidden p-0">
-          <div className="grid gap-0 lg:grid-cols-[1.12fr_0.88fr]">
-            <div className="border-b border-[#e4dccf] p-8 lg:border-b-0 lg:border-r lg:p-10">
+          <div className="grid gap-0">
+            <div className="border-b border-[#e4dccf] p-8 lg:p-10">
               <p className="text-xs uppercase tracking-[0.28em] text-[#7f857d]">
                 {isOverviewRoute
                   ? "Owner / Manager dashboard"
@@ -445,12 +445,11 @@ export default function ManagerDashboard() {
                     <StatePanel title="Unable to load the selected-day snapshot" description="The daily report data could not be loaded right now. Try another date or refresh shortly." tone="error" />
                   </div>
                 ) : (
-                  <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
                     {snapshotCards.map(card => (
-                      <div key={card.label} className="min-w-0 rounded-2xl bg-white/80 p-5 shadow-sm md:p-6">
-                        <p className="text-sm text-[#6f776f]">{card.label}</p>
-                        <p className="mt-3 break-words font-serif text-[2.2rem] leading-none text-[#1f2b27] md:text-[2.7rem]">{card.value}</p>
-                        <p className="mt-3 max-w-[24ch] text-sm leading-6 text-[#727b74]">{card.helper}</p>
+                      <div key={card.label} className="min-w-0 rounded-2xl bg-white/80 px-5 py-4 shadow-sm md:px-6 md:py-5">
+                        <p className="truncate text-[0.95rem] leading-tight text-[#6f776f] md:text-base" title={card.label}>{card.label}</p>
+                        <p className="mt-3 whitespace-nowrap font-serif text-[clamp(2rem,4vw,3.5rem)] leading-none tracking-tight text-[#1f2b27]" title={card.value}>{card.value}</p>
                       </div>
                     ))}
                   </div>
