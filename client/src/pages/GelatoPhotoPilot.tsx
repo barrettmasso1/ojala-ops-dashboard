@@ -1,13 +1,15 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { clearPortalDraft, loadPortalDraft, savePortalDraft } from "@/lib/portalDrafts";
 import { trpc } from "@/lib/trpc";
-import { ArrowRight, House, LoaderCircle, LogOut, Upload } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { ArrowRight, House, LoaderCircle, LogOut, Save, Upload } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
 import { READY_MADE_GELATO_FLAVORS } from "../../../shared/opsCatalog";
 
 type ShiftType = "opening" | "closing";
 type PanSetup = "small" | "large" | "small_large" | "needs_review";
+type PilotDraftView = "pilot-opening" | "pilot-closing";
 
 type ExtractedPhoto = {
   fileName: string;
@@ -27,9 +29,15 @@ type DraftEntry = {
   flavor: string;
   smallPanCount: number;
   largePanCount: number;
-  combinedGrossWeightKg: number;
+  combinedGrossWeightKgInput: string;
   confidence: ExtractedPhoto["confidence"];
   warning: string;
+};
+
+type PilotDraftEntry = Omit<DraftEntry, "id" | "imageUrl">;
+
+type PilotDraft = {
+  entries: PilotDraftEntry[];
 };
 
 const KG_TO_WEIGHT_OUNCES = 35.27396195;
@@ -57,7 +65,7 @@ function newDraftEntry(): DraftEntry {
     flavor: "",
     smallPanCount: 0,
     largePanCount: 0,
-    combinedGrossWeightKg: 0,
+    combinedGrossWeightKgInput: "",
     confidence: "medium",
     warning: "",
   };
@@ -71,7 +79,8 @@ export function buildDraftEntry(photo: ExtractedPhoto): DraftEntry {
     flavor: photo.flavor,
     smallPanCount: photo.smallPanCount,
     largePanCount: photo.largePanCount,
-    combinedGrossWeightKg: photo.combinedGrossWeightKg,
+    combinedGrossWeightKgInput:
+      photo.combinedGrossWeightKg > 0 ? String(roundTo(photo.combinedGrossWeightKg, 3)) : "",
     confidence: photo.confidence,
     warning: photo.warning,
   };
@@ -109,11 +118,6 @@ function inputClassName() {
   return "h-12 rounded-2xl border border-[#dbd2c5] bg-[#fcfaf6] px-4 text-sm text-[#2f2a26] shadow-sm outline-none transition focus:border-[#5b5045] focus:ring-4 focus:ring-[#5b5045]/10";
 }
 
-function numberOrZero(value: string) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-}
-
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -129,10 +133,36 @@ function confidenceClassName(confidence: ExtractedPhoto["confidence"]) {
   return "bg-[#f7d8d2] text-[#7c3428]";
 }
 
-export function estimateVolumeOunces(entry: Pick<DraftEntry, "smallPanCount" | "largePanCount" | "combinedGrossWeightKg">) {
+export function getCombinedGrossWeightKg(entry: { combinedGrossWeightKgInput: string | number }) {
+  const rawValue = entry.combinedGrossWeightKgInput;
+
+  if (typeof rawValue === "number") {
+    return Number.isFinite(rawValue) && rawValue >= 0 ? rawValue : 0;
+  }
+
+  const trimmedValue = rawValue.trim();
+  if (!trimmedValue) return 0;
+
+  const parsed = Number(trimmedValue);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+export function isDraftEntryReady(
+  entry: Pick<DraftEntry, "flavor" | "smallPanCount" | "largePanCount" | "combinedGrossWeightKgInput">
+) {
+  return (
+    entry.flavor.trim().length > 0 &&
+    (entry.smallPanCount > 0 || entry.largePanCount > 0) &&
+    getCombinedGrossWeightKg(entry) > 0
+  );
+}
+
+export function estimateVolumeOunces(
+  entry: Pick<DraftEntry, "smallPanCount" | "largePanCount" | "combinedGrossWeightKgInput">
+) {
   const smallPanCount = Math.max(0, Math.trunc(entry.smallPanCount));
   const largePanCount = Math.max(0, Math.trunc(entry.largePanCount));
-  const combinedGrossWeightKg = Math.max(0, entry.combinedGrossWeightKg);
+  const combinedGrossWeightKg = getCombinedGrossWeightKg(entry);
 
   if (combinedGrossWeightKg <= 0 || (smallPanCount <= 0 && largePanCount <= 0)) {
     return 0;
@@ -164,13 +194,34 @@ export function appendExtractedDraftEntries(current: DraftEntry[], photos: Extra
   return [...current, ...photos.map(buildDraftEntry)];
 }
 
+export function serializePilotDraftEntries(entries: DraftEntry[]): PilotDraftEntry[] {
+  return entries.map(({ id: _id, imageUrl: _imageUrl, ...entry }) => ({ ...entry }));
+}
+
+export function restorePilotDraftEntries(entries: PilotDraftEntry[]) {
+  return entries.map(entry => ({
+    ...entry,
+    id: crypto.randomUUID(),
+    imageUrl: "",
+  }));
+}
+
+function getPilotDraftView(shiftType: ShiftType): PilotDraftView {
+  return shiftType === "opening" ? "pilot-opening" : "pilot-closing";
+}
+
 export default function GelatoPhotoPilot() {
   const { logout } = useAuth({ redirectOnUnauthenticated: true, redirectPath: "/staff-login" });
   const [shiftType, setShiftType] = useState<ShiftType>("opening");
   const [businessDate, setBusinessDate] = useState(todayValue());
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [draftEntries, setDraftEntries] = useState<DraftEntry[]>([]);
+  const [draftSavedAt, setDraftSavedAt] = useState<number | undefined>();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const restoredDraftKeyRef = useRef<string | null>(null);
+
+  const draftView = getPilotDraftView(shiftType);
+  const draftRestoreKey = `${draftView}:${businessDate}`;
 
   const extractMutation = trpc.forms.extractGelatoPhotos.useMutation({
     onError: error => {
@@ -187,14 +238,28 @@ export default function GelatoPhotoPilot() {
     },
   });
 
+  useEffect(() => {
+    if (restoredDraftKeyRef.current === draftRestoreKey) return;
+    restoredDraftKeyRef.current = draftRestoreKey;
+
+    const draft = loadPortalDraft<PilotDraft>(draftView, businessDate);
+    if (!draft) {
+      setDraftSavedAt(undefined);
+      setDraftEntries([]);
+      return;
+    }
+
+    setDraftEntries(restorePilotDraftEntries(draft.data.entries ?? []));
+    setSelectedFiles([]);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+    setDraftSavedAt(draft.savedAt);
+    toast.success(`Saved ${shiftType} photo pilot draft restored.`);
+  }, [businessDate, draftRestoreKey, draftView, shiftType]);
+
   const usableEntryCount = useMemo(
-    () =>
-      draftEntries.filter(
-        entry =>
-          entry.flavor.trim().length > 0 &&
-          (entry.smallPanCount > 0 || entry.largePanCount > 0) &&
-          entry.combinedGrossWeightKg > 0
-      ).length,
+    () => draftEntries.filter(entry => isDraftEntryReady(entry)).length,
     [draftEntries]
   );
 
@@ -230,13 +295,31 @@ export default function GelatoPhotoPilot() {
     }
   }
 
-  async function handleSave() {
+  function handleSaveProgress() {
+    const serializableEntries = serializePilotDraftEntries(draftEntries);
+
+    if (serializableEntries.length === 0) {
+      toast.error("Add or analyze at least one row before saving progress.");
+      return;
+    }
+
+    const savedDraft = savePortalDraft<PilotDraft>(draftView, businessDate, {
+      entries: serializableEntries,
+    });
+
+    if (!savedDraft) return;
+
+    setDraftSavedAt(savedDraft.savedAt);
+    toast.success(`${shiftType === "opening" ? "Opening" : "Closing"} photo pilot draft saved.`);
+  }
+
+  async function handleSubmit() {
     const cleanedEntries = draftEntries
       .map(entry => ({
         flavor: entry.flavor.trim(),
         smallPanCount: entry.smallPanCount,
         largePanCount: entry.largePanCount,
-        combinedGrossWeightKg: entry.combinedGrossWeightKg,
+        combinedGrossWeightKg: getCombinedGrossWeightKg(entry),
       }))
       .filter(
         entry =>
@@ -256,6 +339,14 @@ export default function GelatoPhotoPilot() {
       notifyOwner: false,
       entries: cleanedEntries,
     });
+
+    clearPortalDraft(draftView);
+    setDraftSavedAt(undefined);
+    setDraftEntries([]);
+    setSelectedFiles([]);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   }
 
   return (
@@ -270,8 +361,9 @@ export default function GelatoPhotoPilot() {
                   Analyze gelato scale photos, review the results, then submit when everything looks right.
                 </h1>
                 <p className="mt-3 max-w-3xl text-sm leading-7 text-[#625b53] md:text-base">
-                  Each time you tap Analyze, the new photos are added below as editable rows. Staff can review the
-                  flavor, what pan setup was detected, and the estimated volume ounces before saving.
+                  Each time you tap Analyze, the new photos are added below as editable rows. Staff can save progress,
+                  come back later on the same device, and only submit once the flavor, pan setup, and estimated volume
+                  ounces all look right.
                 </p>
               </div>
               <div className="flex flex-col gap-3 sm:flex-row md:flex-col lg:flex-row">
@@ -363,7 +455,7 @@ export default function GelatoPhotoPilot() {
                 {extractMutation.isPending ? "Analyzing photos..." : "Analyze photos"}
               </button>
               <div className="flex min-h-12 items-center rounded-2xl bg-[#fcfaf6] px-4 text-sm leading-6 text-[#625b53]">
-                Analyze adds new photo results below. Nothing is submitted until you tap Save.
+                Analyze adds new photo results below. Nothing is submitted until you use the final save-and-submit button.
               </div>
             </div>
           </section>
@@ -374,7 +466,7 @@ export default function GelatoPhotoPilot() {
                 <h2 className="text-2xl font-medium tracking-[-0.04em] text-[#2d2925]">Reviewed photo entries</h2>
                 <p className="mt-2 text-sm leading-7 text-[#655d55]">
                   Each analyzed photo becomes one editable row. Fix the flavor, pan setup, or kilograms if needed,
-                  then save everything together at the end.
+                  then save progress or submit everything together at the end.
                 </p>
               </div>
               <div className="rounded-full bg-[#f3ece2] px-4 py-2 text-sm font-medium text-[#50473f]">
@@ -409,7 +501,7 @@ export default function GelatoPhotoPilot() {
                             />
                           ) : (
                             <div className="flex h-full min-h-28 items-center justify-center px-3 text-center text-xs font-medium uppercase tracking-[0.24em] text-[#8a8176]">
-                              Manual row
+                              Saved draft row
                             </div>
                           )}
                         </div>
@@ -483,12 +575,12 @@ export default function GelatoPhotoPilot() {
                                 min="0"
                                 step="0.001"
                                 inputMode="decimal"
-                                value={entry.combinedGrossWeightKg}
+                                value={entry.combinedGrossWeightKgInput}
                                 onChange={event =>
                                   setDraftEntries(current =>
                                     current.map(item =>
                                       item.id === entry.id
-                                        ? { ...item, combinedGrossWeightKg: numberOrZero(event.target.value) }
+                                        ? { ...item, combinedGrossWeightKgInput: event.target.value }
                                         : item
                                     )
                                   )
@@ -526,7 +618,7 @@ export default function GelatoPhotoPilot() {
               </div>
             )}
 
-            <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+            <div className="mt-5 flex flex-col gap-3">
               <button
                 type="button"
                 onClick={() => setDraftEntries(current => [...current, newDraftEntry()])}
@@ -534,15 +626,31 @@ export default function GelatoPhotoPilot() {
               >
                 Add manual row
               </button>
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={saveMutation.isPending}
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[#52665f] px-5 text-sm font-medium text-white transition hover:bg-[#41534d] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {saveMutation.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                {saveMutation.isPending ? "Saving verified weights..." : `Save verified ${shiftType} gelato weights`}
-              </button>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={handleSaveProgress}
+                  disabled={saveMutation.isPending || extractMutation.isPending}
+                  className="inline-flex h-12 items-center justify-center gap-2 rounded-full border border-[#ddd4c8] bg-white px-5 text-sm font-medium text-[#2f2a26] transition hover:bg-[#faf5ec] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Save className="h-4 w-4" />
+                  Save progress
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={saveMutation.isPending || extractMutation.isPending}
+                  className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[#52665f] px-5 text-sm font-medium text-white transition hover:bg-[#41534d] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {saveMutation.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  {saveMutation.isPending ? "Saving verified weights..." : `Save verified ${shiftType} gelato weights`}
+                </button>
+              </div>
+
+              {draftSavedAt ? (
+                <p className="text-xs text-[#7d756b]">Draft saved on this device for today.</p>
+              ) : null}
             </div>
           </section>
         </div>

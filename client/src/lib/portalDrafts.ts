@@ -1,4 +1,4 @@
-export type PortalDraftView = "opening" | "closing" | "inventory";
+export type PortalDraftView = "opening" | "closing" | "inventory" | "pilot-opening" | "pilot-closing";
 
 export type PortalDraftRecord<T> = {
   savedAt: number;

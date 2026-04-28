@@ -176,3 +176,6 @@
 - [x] Simplify the gelato photo pilot mobile design by removing excessive nested card layers and making the page feel cleaner on iPhone screens
 - [x] Change the gelato photo pilot so each Analyze action appends newly analyzed photos into the editable review list instead of replacing the whole form each time
 - [x] Show concise per-photo extracted results in the pilot review flow, including flavor, detected pan setup, and total volume weight, with inline editability before final submission
+- [x] Add save-progress support to the gelato photo pilot so staff can preserve draft photo rows and return later without submitting
+- [x] Keep separate photo pilot actions for save progress versus save and submit, matching the other staff form workflows
+- [x] Keep cleared kilogram inputs blank in the gelato photo pilot while staff are editing, instead of snapping the field back to 0

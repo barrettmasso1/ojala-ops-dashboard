@@ -3,7 +3,11 @@ import {
   appendExtractedDraftEntries,
   applyPanSetup,
   estimateVolumeOunces,
+  getCombinedGrossWeightKg,
   getPanSetup,
+  isDraftEntryReady,
+  restorePilotDraftEntries,
+  serializePilotDraftEntries,
 } from "./GelatoPhotoPilot";
 
 describe("gelato photo pilot helpers", () => {
@@ -50,10 +54,55 @@ describe("gelato photo pilot helpers", () => {
     const volumeOunces = estimateVolumeOunces({
       smallPanCount: 1,
       largePanCount: 1,
-      combinedGrossWeightKg: 3.95,
+      combinedGrossWeightKgInput: "3.95",
     });
 
     expect(volumeOunces).toBeGreaterThan(0);
     expect(Math.round(volumeOunces)).toBeGreaterThan(100);
+  });
+
+  it("treats a cleared kilogram field as blank instead of forcing a zero string", () => {
+    expect(getCombinedGrossWeightKg({ combinedGrossWeightKgInput: "" })).toBe(0);
+    expect(isDraftEntryReady({
+      flavor: "Ruby Port",
+      smallPanCount: 1,
+      largePanCount: 0,
+      combinedGrossWeightKgInput: "",
+    })).toBe(false);
+  });
+
+  it("serializes and restores photo pilot draft rows without requiring original image data", () => {
+    const serialized = serializePilotDraftEntries([
+      {
+        id: "row-1",
+        fileName: "IMG_7568.jpeg",
+        imageUrl: "data:image/jpeg;base64,abc123",
+        flavor: "Ruby Port",
+        smallPanCount: 1,
+        largePanCount: 0,
+        combinedGrossWeightKgInput: "1.47",
+        confidence: "high",
+        warning: "",
+      },
+    ]);
+
+    expect(serialized).toEqual([
+      {
+        fileName: "IMG_7568.jpeg",
+        flavor: "Ruby Port",
+        smallPanCount: 1,
+        largePanCount: 0,
+        combinedGrossWeightKgInput: "1.47",
+        confidence: "high",
+        warning: "",
+      },
+    ]);
+
+    const restored = restorePilotDraftEntries(serialized);
+    expect(restored).toHaveLength(1);
+    expect(restored[0].fileName).toBe("IMG_7568.jpeg");
+    expect(restored[0].imageUrl).toBe("");
+    expect(restored[0].combinedGrossWeightKgInput).toBe("1.47");
+    expect(restored[0].id).toBeTypeOf("string");
   });
 });
