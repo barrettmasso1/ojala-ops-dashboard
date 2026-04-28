@@ -1,12 +1,13 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
-import { ArrowRight, Camera, House, LoaderCircle, LogOut, Upload } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ArrowRight, House, LoaderCircle, LogOut, Upload } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
 import { READY_MADE_GELATO_FLAVORS } from "../../../shared/opsCatalog";
 
 type ShiftType = "opening" | "closing";
+type PanSetup = "small" | "large" | "small_large" | "needs_review";
 
 type ExtractedPhoto = {
   fileName: string;
@@ -21,31 +22,87 @@ type ExtractedPhoto = {
 
 type DraftEntry = {
   id: string;
+  fileName: string;
+  imageUrl: string;
   flavor: string;
   smallPanCount: number;
   largePanCount: number;
   combinedGrossWeightKg: number;
+  confidence: ExtractedPhoto["confidence"];
+  warning: string;
 };
+
+const KG_TO_WEIGHT_OUNCES = 35.27396195;
+const SMALL_PAN_EMPTY_KG = 0.286;
+const LARGE_PAN_EMPTY_KG = 0.4;
+const SMALL_PAN_FULL_WEIGHT_OUNCES = (1.9 - SMALL_PAN_EMPTY_KG) * KG_TO_WEIGHT_OUNCES;
+const LARGE_PAN_FULL_WEIGHT_OUNCES = (4.3 - LARGE_PAN_EMPTY_KG) * KG_TO_WEIGHT_OUNCES;
+const SMALL_PAN_FULL_VOLUME_OUNCES = 112;
+const LARGE_PAN_FULL_VOLUME_OUNCES = 160;
 
 function todayValue() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function roundTo(value: number, decimals = 2) {
+  const factor = 10 ** decimals;
+  return Math.round(value * factor) / factor;
+}
+
 function newDraftEntry(): DraftEntry {
   return {
     id: crypto.randomUUID(),
+    fileName: "Manual entry",
+    imageUrl: "",
     flavor: "",
     smallPanCount: 0,
     largePanCount: 0,
     combinedGrossWeightKg: 0,
+    confidence: "medium",
+    warning: "",
   };
 }
 
-function panStateLabel(entry: Pick<ExtractedPhoto, "smallPanCount" | "largePanCount">) {
-  if (entry.smallPanCount > 0 && entry.largePanCount > 0) return "1 small + 1 large";
-  if (entry.smallPanCount > 0) return "1 small";
-  if (entry.largePanCount > 0) return "1 large";
+export function buildDraftEntry(photo: ExtractedPhoto): DraftEntry {
+  return {
+    id: crypto.randomUUID(),
+    fileName: photo.fileName,
+    imageUrl: photo.imageUrl,
+    flavor: photo.flavor,
+    smallPanCount: photo.smallPanCount,
+    largePanCount: photo.largePanCount,
+    combinedGrossWeightKg: photo.combinedGrossWeightKg,
+    confidence: photo.confidence,
+    warning: photo.warning,
+  };
+}
+
+export function getPanSetup(entry: Pick<DraftEntry, "smallPanCount" | "largePanCount">): PanSetup {
+  if (entry.smallPanCount > 0 && entry.largePanCount > 0) return "small_large";
+  if (entry.smallPanCount > 0) return "small";
+  if (entry.largePanCount > 0) return "large";
+  return "needs_review";
+}
+
+function panSetupLabel(entry: Pick<DraftEntry, "smallPanCount" | "largePanCount">) {
+  const setup = getPanSetup(entry);
+  if (setup === "small_large") return "Small + large";
+  if (setup === "small") return "Small pan";
+  if (setup === "large") return "Large pan";
   return "Needs review";
+}
+
+export function applyPanSetup(setup: PanSetup) {
+  if (setup === "small") {
+    return { smallPanCount: 1, largePanCount: 0 };
+  }
+  if (setup === "large") {
+    return { smallPanCount: 0, largePanCount: 1 };
+  }
+  if (setup === "small_large") {
+    return { smallPanCount: 1, largePanCount: 1 };
+  }
+  return { smallPanCount: 0, largePanCount: 0 };
 }
 
 function inputClassName() {
@@ -72,28 +129,50 @@ function confidenceClassName(confidence: ExtractedPhoto["confidence"]) {
   return "bg-[#f7d8d2] text-[#7c3428]";
 }
 
+export function estimateVolumeOunces(entry: Pick<DraftEntry, "smallPanCount" | "largePanCount" | "combinedGrossWeightKg">) {
+  const smallPanCount = Math.max(0, Math.trunc(entry.smallPanCount));
+  const largePanCount = Math.max(0, Math.trunc(entry.largePanCount));
+  const combinedGrossWeightKg = Math.max(0, entry.combinedGrossWeightKg);
+
+  if (combinedGrossWeightKg <= 0 || (smallPanCount <= 0 && largePanCount <= 0)) {
+    return 0;
+  }
+
+  const totalNetWeightKg = Math.max(
+    0,
+    combinedGrossWeightKg - smallPanCount * SMALL_PAN_EMPTY_KG - largePanCount * LARGE_PAN_EMPTY_KG
+  );
+
+  const smallCapacityWeightKg = smallPanCount * (SMALL_PAN_FULL_WEIGHT_OUNCES / KG_TO_WEIGHT_OUNCES);
+  const largeCapacityWeightKg = largePanCount * (LARGE_PAN_FULL_WEIGHT_OUNCES / KG_TO_WEIGHT_OUNCES);
+  const totalCapacityWeightKg = smallCapacityWeightKg + largeCapacityWeightKg;
+
+  const smallNetWeightKg =
+    totalCapacityWeightKg > 0 ? totalNetWeightKg * (smallCapacityWeightKg / totalCapacityWeightKg) : 0;
+  const largeNetWeightKg = Math.max(0, totalNetWeightKg - smallNetWeightKg);
+
+  const smallWeightOunces = smallNetWeightKg * KG_TO_WEIGHT_OUNCES;
+  const largeWeightOunces = largeNetWeightKg * KG_TO_WEIGHT_OUNCES;
+
+  return roundTo(
+    smallWeightOunces * (SMALL_PAN_FULL_VOLUME_OUNCES / SMALL_PAN_FULL_WEIGHT_OUNCES) +
+      largeWeightOunces * (LARGE_PAN_FULL_VOLUME_OUNCES / LARGE_PAN_FULL_WEIGHT_OUNCES)
+  );
+}
+
+export function appendExtractedDraftEntries(current: DraftEntry[], photos: ExtractedPhoto[]) {
+  return [...current, ...photos.map(buildDraftEntry)];
+}
+
 export default function GelatoPhotoPilot() {
   const { logout } = useAuth({ redirectOnUnauthenticated: true, redirectPath: "/staff-login" });
   const [shiftType, setShiftType] = useState<ShiftType>("opening");
   const [businessDate, setBusinessDate] = useState(todayValue());
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [extractedPhotos, setExtractedPhotos] = useState<ExtractedPhoto[]>([]);
   const [draftEntries, setDraftEntries] = useState<DraftEntry[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const extractMutation = trpc.forms.extractGelatoPhotos.useMutation({
-    onSuccess: result => {
-      setExtractedPhotos(result.extractedPhotos);
-      setDraftEntries(
-        result.groupedEntries.map(entry => ({
-          id: crypto.randomUUID(),
-          flavor: entry.flavor,
-          smallPanCount: entry.smallPanCount,
-          largePanCount: entry.largePanCount,
-          combinedGrossWeightKg: entry.combinedGrossWeightKg,
-        }))
-      );
-      toast.success("Photo pilot values are ready for review.");
-    },
     onError: error => {
       toast.error(error.message || "The photos could not be analyzed.");
     },
@@ -109,7 +188,13 @@ export default function GelatoPhotoPilot() {
   });
 
   const usableEntryCount = useMemo(
-    () => draftEntries.filter(entry => entry.flavor.trim().length > 0).length,
+    () =>
+      draftEntries.filter(
+        entry =>
+          entry.flavor.trim().length > 0 &&
+          (entry.smallPanCount > 0 || entry.largePanCount > 0) &&
+          entry.combinedGrossWeightKg > 0
+      ).length,
     [draftEntries]
   );
 
@@ -119,15 +204,30 @@ export default function GelatoPhotoPilot() {
       return;
     }
 
-    const photos = await Promise.all(
-      selectedFiles.map(async file => ({
-        fileName: file.name,
-        mimeType: file.type || "image/jpeg",
-        dataUrl: await readFileAsDataUrl(file),
-      }))
-    );
+    try {
+      const photos = await Promise.all(
+        selectedFiles.map(async file => ({
+          fileName: file.name,
+          mimeType: file.type || "image/jpeg",
+          dataUrl: await readFileAsDataUrl(file),
+        }))
+      );
 
-    extractMutation.mutate({ shiftType, photos });
+      const result = await extractMutation.mutateAsync({ shiftType, photos });
+      const nextDrafts = result.extractedPhotos.map(buildDraftEntry);
+
+      setDraftEntries(current => appendExtractedDraftEntries(current, result.extractedPhotos));
+      setSelectedFiles([]);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+
+      toast.success(
+        `Added ${nextDrafts.length} analyzed photo${nextDrafts.length === 1 ? "" : "s"} below for review.`
+      );
+    } catch {
+      // Handled in mutation callbacks.
+    }
   }
 
   async function handleSave() {
@@ -146,7 +246,7 @@ export default function GelatoPhotoPilot() {
       );
 
     if (cleanedEntries.length === 0) {
-      toast.error("Review at least one extracted flavor before saving.");
+      toast.error("Review at least one analyzed photo before saving.");
       return;
     }
 
@@ -159,50 +259,44 @@ export default function GelatoPhotoPilot() {
   }
 
   return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,_#f7f1e8_0%,_#f3ece2_50%,_#f7f2ea_100%)] text-[#2d2925]">
-      <div className="container py-8 md:py-10">
-        <div className="rounded-[2.4rem] border border-white/70 bg-white/82 p-6 shadow-[0_26px_90px_rgba(95,84,69,0.10)] backdrop-blur md:p-8 lg:p-10">
-          <div className="flex flex-col gap-5 border-b border-[#e8ddd0] pb-6 md:flex-row md:items-start md:justify-between">
-            <div className="max-w-3xl">
-              <p className="text-[11px] uppercase tracking-[0.34em] text-[#7d756b]">PHOTO-ASSISTED GELATO PILOT</p>
-              <h1 className="mt-4 text-4xl font-light tracking-[-0.06em] text-[#2b2622] md:text-5xl">
-                Upload scale photos, verify the extraction, then save the confirmed gelato weights.
-              </h1>
-              <p className="mt-4 text-base leading-8 text-[#625b53] md:text-lg">
-                This pilot is separate from the current manual workflow. Staff can test whether photo-based extraction makes opening and closing gelato counts easier without replacing the existing forms yet.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <Link href="/portal" className="inline-flex items-center gap-2 rounded-full border border-[#ddd4c8] bg-white px-5 py-3 text-sm font-medium text-[#2f2a26] transition hover:bg-[#faf5ec]">
-                <House className="h-4 w-4" />
-                Portal home
-              </Link>
-              <button
-                type="button"
-                onClick={logout}
-                className="inline-flex items-center gap-2 rounded-full border border-[#ddd4c8] bg-white px-5 py-3 text-sm font-medium text-[#2f2a26] transition hover:bg-[#faf5ec]"
-              >
-                <LogOut className="h-4 w-4" />
-                Sign out
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-8 grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-            <section className="rounded-[2rem] border border-[#e7ddd1] bg-[#fbf7f1] p-6 shadow-sm">
-              <div className="flex items-center gap-3 text-[#5d544a]">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#ece4d7]">
-                  <Camera className="h-5 w-5" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-medium tracking-[-0.04em] text-[#2d2925]">Pilot setup</h2>
-                  <p className="mt-1 text-sm leading-7 text-[#655d55]">
-                    Upload one same-flavor scale photo per image. Each photo should show either one small pan, one large pan, or one small plus one large, with the label and scale digits visible.
-                  </p>
-                </div>
+    <div className="min-h-screen bg-[#f6f1e8] text-[#2d2925]">
+      <div className="container py-5 md:py-8">
+        <div className="mx-auto max-w-6xl space-y-4 md:space-y-6">
+          <section className="rounded-[2rem] border border-[#e7ddd1] bg-white p-5 shadow-sm md:p-7">
+            <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+              <div className="max-w-3xl">
+                <p className="text-[11px] uppercase tracking-[0.34em] text-[#7d756b]">PHOTO-ASSISTED GELATO PILOT</p>
+                <h1 className="mt-3 text-3xl font-light tracking-[-0.06em] text-[#2b2622] md:text-5xl">
+                  Analyze gelato scale photos, review the results, then submit when everything looks right.
+                </h1>
+                <p className="mt-3 max-w-3xl text-sm leading-7 text-[#625b53] md:text-base">
+                  Each time you tap Analyze, the new photos are added below as editable rows. Staff can review the
+                  flavor, what pan setup was detected, and the estimated volume ounces before saving.
+                </p>
               </div>
+              <div className="flex flex-col gap-3 sm:flex-row md:flex-col lg:flex-row">
+                <Link
+                  href="/portal"
+                  className="inline-flex items-center justify-center gap-2 rounded-full border border-[#ddd4c8] bg-white px-5 py-3 text-sm font-medium text-[#2f2a26] transition hover:bg-[#faf5ec]"
+                >
+                  <House className="h-4 w-4" />
+                  Portal home
+                </Link>
+                <button
+                  type="button"
+                  onClick={logout}
+                  className="inline-flex items-center justify-center gap-2 rounded-full border border-[#ddd4c8] bg-white px-5 py-3 text-sm font-medium text-[#2f2a26] transition hover:bg-[#faf5ec]"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Sign out
+                </button>
+              </div>
+            </div>
+          </section>
 
-              <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <section className="rounded-[2rem] border border-[#e7ddd1] bg-white p-5 shadow-sm md:p-7">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+              <div className="grid gap-4 md:grid-cols-2">
                 <label className="flex flex-col gap-2 text-sm font-medium text-[#453f39]">
                   Shift
                   <select
@@ -224,128 +318,67 @@ export default function GelatoPhotoPilot() {
                   />
                 </label>
               </div>
-
-              <label className="mt-6 flex flex-col gap-2 text-sm font-medium text-[#453f39]">
-                Scale photos
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={event => setSelectedFiles(Array.from(event.target.files ?? []))}
-                  className="rounded-2xl border border-dashed border-[#d7cec0] bg-white px-4 py-4 text-sm text-[#4b443d] file:mr-4 file:rounded-full file:border-0 file:bg-[#2f2a26] file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-[#1f1b18]"
-                />
-              </label>
-
-              <div className="mt-4 rounded-[1.5rem] border border-[#e6dccf] bg-white/90 p-4 text-sm leading-7 text-[#635a51]">
-                <p>
-                  The pilot saves only the values you verify here. It does not auto-submit anything from the photos, and your team can still use the current opening or closing form while testing this upload workflow.
-                </p>
-                {selectedFiles.length > 0 ? (
-                  <p className="mt-2 text-xs uppercase tracking-[0.28em] text-[#8a8176]">
-                    {selectedFiles.length} photo{selectedFiles.length === 1 ? "" : "s"} selected
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="mt-6 flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={handleAnalyze}
-                  disabled={extractMutation.isPending}
-                  className="inline-flex items-center gap-2 rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {extractMutation.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                  {extractMutation.isPending ? "Analyzing photos..." : "Analyze uploaded photos"}
-                </button>
-                <Link
-                  href={shiftType === "opening" ? "/portal/opening" : "/portal/closing"}
-                  className="inline-flex items-center gap-2 rounded-full border border-[#ddd4c8] bg-white px-5 py-3 text-sm font-medium text-[#2f2a26] transition hover:bg-[#faf5ec]"
-                >
-                  Continue to the {shiftType} form
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              </div>
-            </section>
-
-            <section className="rounded-[2rem] border border-[#e7ddd1] bg-[#faf6ef] p-6 shadow-sm">
-              <h2 className="text-2xl font-medium tracking-[-0.04em] text-[#2d2925]">What to expect</h2>
-              <div className="mt-5 grid gap-4">
-                {[
-                  "The pilot reads one photo at a time and estimates the flavor, whether the image shows one pan or a small-plus-large pair, and the combined gross weight in kilograms.",
-                  "Every extracted value stays editable before it becomes official inventory data.",
-                  "Warnings and confidence labels help staff spot blurry or uncertain reads before saving.",
-                  "The goal is to reduce typing mistakes, not to remove employee review.",
-                ].map(item => (
-                  <div key={item} className="rounded-[1.4rem] border border-[#e6dccf] bg-white/92 p-4 text-sm leading-7 text-[#645c53] shadow-sm">
-                    {item}
-                  </div>
-                ))}
-              </div>
-            </section>
-          </div>
-
-          <section className="mt-8 rounded-[2rem] border border-[#e7ddd1] bg-[#fbf7f1] p-6 shadow-sm">
-            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h2 className="text-2xl font-medium tracking-[-0.04em] text-[#2d2925]">Photo-by-photo extraction</h2>
-                <p className="mt-2 text-sm leading-7 text-[#655d55]">
-                  Review the raw photo reads first. Low-confidence items or uncertain pan combinations should be corrected in the editable verification table below.
-                </p>
-              </div>
+              <Link
+                href={shiftType === "opening" ? "/portal/opening" : "/portal/closing"}
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-full border border-[#ddd4c8] bg-[#fcfaf6] px-5 text-sm font-medium text-[#2f2a26] transition hover:bg-[#faf5ec]"
+              >
+                Continue to the {shiftType} form
+                <ArrowRight className="h-4 w-4" />
+              </Link>
             </div>
 
-            {extractedPhotos.length === 0 ? (
-              <div className="mt-6 rounded-[1.5rem] border border-dashed border-[#d8cfbf] bg-white/85 p-6 text-sm leading-7 text-[#6d645a]">
-                No photos have been analyzed yet. Upload at least one image and run the pilot to populate this review area.
-              </div>
-            ) : (
-              <div className="mt-6 grid gap-4 lg:grid-cols-2">
-                {extractedPhotos.map(photo => (
-                  <article key={`${photo.fileName}-${photo.imageUrl}`} className="rounded-[1.5rem] border border-[#e6dccf] bg-white/94 p-4 shadow-sm">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="text-sm font-medium text-[#2f2a26]">{photo.fileName}</p>
-                        <p className="mt-1 text-xs uppercase tracking-[0.24em] text-[#8a8176]">{shiftType} pilot image</p>
-                      </div>
-                      <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] ${confidenceClassName(photo.confidence)}`}>
-                        {photo.confidence}
-                      </span>
-                    </div>
-                      <div className="mt-4 grid gap-3 text-sm text-[#4f473f] md:grid-cols-3">
-                      <div className="rounded-2xl bg-[#faf3e9] px-3 py-3">
-                        <p className="text-[11px] uppercase tracking-[0.24em] text-[#8a8176]">Flavor</p>
-                        <p className="mt-2 font-medium text-[#2f2a26]">{photo.flavor}</p>
-                      </div>
-                      <div className="rounded-2xl bg-[#faf3e9] px-3 py-3">
-                        <p className="text-[11px] uppercase tracking-[0.24em] text-[#8a8176]">Pan setup</p>
-                        <p className="mt-2 font-medium text-[#2f2a26]">{panStateLabel(photo)}</p>
-                      </div>
-                      <div className="rounded-2xl bg-[#faf3e9] px-3 py-3">
-                        <p className="text-[11px] uppercase tracking-[0.24em] text-[#8a8176]">Combined gross weight</p>
-                        <p className="mt-2 font-medium text-[#2f2a26]">{photo.combinedGrossWeightKg.toFixed(3)} kg</p>
-                      </div>
-                    </div>
-                    {photo.warning ? (
-                      <p className="mt-4 rounded-2xl border border-[#efd7cf] bg-[#fff5f1] px-4 py-3 text-sm leading-7 text-[#7c3428]">
-                        {photo.warning}
-                      </p>
-                    ) : null}
-                  </article>
+            <label className="mt-5 flex flex-col gap-2 text-sm font-medium text-[#453f39]">
+              Scale photos
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={event => setSelectedFiles(Array.from(event.target.files ?? []))}
+                className="rounded-2xl border border-dashed border-[#d7cec0] bg-[#fcfaf6] px-4 py-4 text-sm text-[#4b443d] file:mr-4 file:rounded-full file:border-0 file:bg-[#2f2a26] file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-[#1f1b18]"
+              />
+            </label>
+
+            {selectedFiles.length > 0 ? (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {selectedFiles.map(file => (
+                  <span
+                    key={`${file.name}-${file.size}`}
+                    className="rounded-full bg-[#f3ece2] px-3 py-2 text-xs font-medium text-[#5c544c]"
+                  >
+                    {file.name}
+                  </span>
                 ))}
               </div>
-            )}
+            ) : null}
+
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={handleAnalyze}
+                disabled={extractMutation.isPending}
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[#2f2a26] px-5 text-sm font-medium text-white transition hover:bg-[#1f1b18] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {extractMutation.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                {extractMutation.isPending ? "Analyzing photos..." : "Analyze photos"}
+              </button>
+              <div className="flex min-h-12 items-center rounded-2xl bg-[#fcfaf6] px-4 text-sm leading-6 text-[#625b53]">
+                Analyze adds new photo results below. Nothing is submitted until you tap Save.
+              </div>
+            </div>
           </section>
 
-          <section className="mt-8 rounded-[2rem] border border-[#e7ddd1] bg-[#fbf7f1] p-6 shadow-sm">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <section className="rounded-[2rem] border border-[#e7ddd1] bg-white p-5 shadow-sm md:p-7">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <h2 className="text-2xl font-medium tracking-[-0.04em] text-[#2d2925]">Verification table</h2>
+                <h2 className="text-2xl font-medium tracking-[-0.04em] text-[#2d2925]">Reviewed photo entries</h2>
                 <p className="mt-2 text-sm leading-7 text-[#655d55]">
-                  This is the editable version that becomes the official saved data. Adjust any flavor names, pan counts, or combined weights here before you save the pilot result.
+                  Each analyzed photo becomes one editable row. Fix the flavor, pan setup, or kilograms if needed,
+                  then save everything together at the end.
                 </p>
               </div>
-              <div className="rounded-full border border-[#e1d7ca] bg-white px-4 py-2 text-sm font-medium text-[#50473f] shadow-sm">
-                {usableEntryCount} verified flavor row{usableEntryCount === 1 ? "" : "s"}
+              <div className="rounded-full bg-[#f3ece2] px-4 py-2 text-sm font-medium text-[#50473f]">
+                {usableEntryCount} ready to save
               </div>
             </div>
 
@@ -355,119 +388,157 @@ export default function GelatoPhotoPilot() {
               ))}
             </datalist>
 
-            <div className="mt-6 grid gap-4">
-              {draftEntries.length === 0 ? (
-                <div className="rounded-[1.5rem] border border-dashed border-[#d8cfbf] bg-white/85 p-6 text-sm leading-7 text-[#6d645a]">
-                  Once the photos are analyzed, the grouped flavor rows will appear here for confirmation.
-                </div>
-              ) : (
-                draftEntries.map(entry => (
-                  <div key={entry.id} className="rounded-[1.5rem] border border-[#e6dccf] bg-white/94 p-4 shadow-sm">
-                    <div className="grid gap-4 lg:grid-cols-[1.4fr_repeat(3,minmax(0,1fr))_auto]">
-                      <label className="flex flex-col gap-2 text-sm font-medium text-[#453f39]">
-                        Flavor
-                        <input
-                          list="pilot-flavor-options"
-                          value={entry.flavor}
-                          onChange={event =>
-                            setDraftEntries(current =>
-                              current.map(item =>
-                                item.id === entry.id ? { ...item, flavor: event.target.value } : item
-                              )
-                            )
-                          }
-                          className={inputClassName()}
-                          placeholder="Flavor name"
-                        />
-                      </label>
-                      <label className="flex flex-col gap-2 text-sm font-medium text-[#453f39]">
-                        Small pans
-                        <input
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={entry.smallPanCount}
-                          onChange={event =>
-                            setDraftEntries(current =>
-                              current.map(item =>
-                                item.id === entry.id
-                                  ? { ...item, smallPanCount: numberOrZero(event.target.value) }
-                                  : item
-                              )
-                            )
-                          }
-                          className={inputClassName()}
-                        />
-                      </label>
-                      <label className="flex flex-col gap-2 text-sm font-medium text-[#453f39]">
-                        Large pans
-                        <input
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={entry.largePanCount}
-                          onChange={event =>
-                            setDraftEntries(current =>
-                              current.map(item =>
-                                item.id === entry.id
-                                  ? { ...item, largePanCount: numberOrZero(event.target.value) }
-                                  : item
-                              )
-                            )
-                          }
-                          className={inputClassName()}
-                        />
-                      </label>
-                      <label className="flex flex-col gap-2 text-sm font-medium text-[#453f39]">
-                        Combined kg
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.001"
-                          inputMode="decimal"
-                          value={entry.combinedGrossWeightKg}
-                          onChange={event =>
-                            setDraftEntries(current =>
-                              current.map(item =>
-                                item.id === entry.id
-                                  ? { ...item, combinedGrossWeightKg: numberOrZero(event.target.value) }
-                                  : item
-                              )
-                            )
-                          }
-                          className={inputClassName()}
-                        />
-                      </label>
-                      <div className="flex items-end">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setDraftEntries(current => current.filter(item => item.id !== entry.id))
-                          }
-                          className="h-12 rounded-full border border-[#ddd4c8] bg-white px-4 text-sm font-medium text-[#2f2a26] transition hover:bg-[#faf5ec]"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+            {draftEntries.length === 0 ? (
+              <div className="mt-5 rounded-[1.5rem] border border-dashed border-[#d8cfbf] bg-[#fcfaf6] p-6 text-sm leading-7 text-[#6d645a]">
+                No analyzed photos yet. Upload one or more scale images, tap Analyze, and the editable results will
+                appear here.
+              </div>
+            ) : (
+              <div className="mt-5 grid gap-4">
+                {draftEntries.map(entry => {
+                  const volumeOunces = estimateVolumeOunces(entry);
+                  return (
+                    <article key={entry.id} className="rounded-[1.5rem] border border-[#e6dccf] bg-[#fcfaf6] p-4">
+                      <div className="grid gap-4 lg:grid-cols-[112px_minmax(0,1fr)]">
+                        <div className="overflow-hidden rounded-[1.25rem] border border-[#e8ded2] bg-white">
+                          {entry.imageUrl ? (
+                            <img
+                              src={entry.imageUrl}
+                              alt={entry.fileName}
+                              className="h-full min-h-28 w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full min-h-28 items-center justify-center px-3 text-center text-xs font-medium uppercase tracking-[0.24em] text-[#8a8176]">
+                              Manual row
+                            </div>
+                          )}
+                        </div>
 
-            <div className="mt-6 flex flex-wrap gap-3">
+                        <div className="space-y-4">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-[#2f2a26]">{entry.fileName}</p>
+                              <p className="mt-1 text-xs uppercase tracking-[0.24em] text-[#8a8176]">
+                                Detected {panSetupLabel(entry)}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <span
+                                className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] ${confidenceClassName(entry.confidence)}`}
+                              >
+                                {entry.confidence}
+                              </span>
+                              {volumeOunces > 0 ? (
+                                <span className="rounded-full bg-[#efe6d9] px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-[#5a5249]">
+                                  {Math.round(volumeOunces)} oz
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_auto]">
+                            <label className="flex flex-col gap-2 text-sm font-medium text-[#453f39]">
+                              Flavor
+                              <input
+                                list="pilot-flavor-options"
+                                value={entry.flavor}
+                                onChange={event =>
+                                  setDraftEntries(current =>
+                                    current.map(item =>
+                                      item.id === entry.id ? { ...item, flavor: event.target.value } : item
+                                    )
+                                  )
+                                }
+                                className={inputClassName()}
+                                placeholder="Flavor name"
+                              />
+                            </label>
+
+                            <label className="flex flex-col gap-2 text-sm font-medium text-[#453f39]">
+                              Pan setup
+                              <select
+                                value={getPanSetup(entry)}
+                                onChange={event => {
+                                  const nextSetup = event.target.value as PanSetup;
+                                  const nextCounts = applyPanSetup(nextSetup);
+                                  setDraftEntries(current =>
+                                    current.map(item =>
+                                      item.id === entry.id ? { ...item, ...nextCounts } : item
+                                    )
+                                  );
+                                }}
+                                className={inputClassName()}
+                              >
+                                <option value="needs_review">Needs review</option>
+                                <option value="small">Small pan</option>
+                                <option value="large">Large pan</option>
+                                <option value="small_large">Small + large</option>
+                              </select>
+                            </label>
+
+                            <label className="flex flex-col gap-2 text-sm font-medium text-[#453f39]">
+                              Combined kg
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.001"
+                                inputMode="decimal"
+                                value={entry.combinedGrossWeightKg}
+                                onChange={event =>
+                                  setDraftEntries(current =>
+                                    current.map(item =>
+                                      item.id === entry.id
+                                        ? { ...item, combinedGrossWeightKg: numberOrZero(event.target.value) }
+                                        : item
+                                    )
+                                  )
+                                }
+                                className={inputClassName()}
+                              />
+                            </label>
+
+                            <div className="flex flex-col justify-end gap-2">
+                              <div className="flex h-12 items-center rounded-2xl bg-white px-4 text-sm font-medium text-[#2f2a26] shadow-sm">
+                                {volumeOunces > 0 ? `${Math.round(volumeOunces)} volume oz` : "Volume pending"}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDraftEntries(current => current.filter(item => item.id !== entry.id))
+                                }
+                                className="h-10 rounded-full border border-[#ddd4c8] bg-white px-4 text-sm font-medium text-[#2f2a26] transition hover:bg-[#faf5ec]"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+
+                          {entry.warning ? (
+                            <p className="rounded-2xl border border-[#efd7cf] bg-[#fff5f1] px-4 py-3 text-sm leading-6 text-[#7c3428]">
+                              {entry.warning}
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row">
               <button
                 type="button"
                 onClick={() => setDraftEntries(current => [...current, newDraftEntry()])}
-                className="inline-flex items-center gap-2 rounded-full border border-[#ddd4c8] bg-white px-5 py-3 text-sm font-medium text-[#2f2a26] transition hover:bg-[#faf5ec]"
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-full border border-[#ddd4c8] bg-white px-5 text-sm font-medium text-[#2f2a26] transition hover:bg-[#faf5ec]"
               >
-                Add flavor row
+                Add manual row
               </button>
               <button
                 type="button"
                 onClick={handleSave}
                 disabled={saveMutation.isPending}
-                className="inline-flex items-center gap-2 rounded-full bg-[#52665f] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#41534d] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[#52665f] px-5 text-sm font-medium text-white transition hover:bg-[#41534d] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {saveMutation.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
                 {saveMutation.isPending ? "Saving verified weights..." : `Save verified ${shiftType} gelato weights`}

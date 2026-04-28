@@ -173,3 +173,6 @@
 - [x] Update the gelato photo pilot so each photo can represent either one pan or one same-flavor small-plus-large pair with a single combined scale weight
 - [x] Add confirmation-friendly extraction logic for the three allowed photo states: one small pan, one large pan, or one same-flavor small-plus-large pair with one combined scale reading
 - [x] Add regression coverage for combined-weight same-flavor gelato photo extraction and save behavior before release
+- [x] Simplify the gelato photo pilot mobile design by removing excessive nested card layers and making the page feel cleaner on iPhone screens
+- [x] Change the gelato photo pilot so each Analyze action appends newly analyzed photos into the editable review list instead of replacing the whole form each time
+- [x] Show concise per-photo extracted results in the pilot review flow, including flavor, detected pan setup, and total volume weight, with inline editability before final submission
