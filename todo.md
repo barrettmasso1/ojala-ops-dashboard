@@ -168,3 +168,4 @@
 - [x] Remove the extra descriptive body text from the manager daily snapshot cards and keep the card content to concise labels and values only
 - [x] Adjust snapshot card typography and responsive sizing so labels and values stay on one line whenever possible instead of wrapping awkwardly
 - [x] Reflow the manager overview so the daily snapshot sits below the intro and filter controls instead of squeezed into a right-side column with excess empty space
+- [x] Remove the redundant payment summary section below the daily snapshot since those cash, card, and Venmo totals are already shown in the snapshot above

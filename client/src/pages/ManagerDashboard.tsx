@@ -8,11 +8,9 @@ import {
   AlertTriangle,
   CalendarRange,
   ClipboardCheck,
-  Coins,
   CupSoda,
   PackagePlus,
   Trash2,
-  TrendingUp,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -61,31 +59,6 @@ function formatWholeOunces(value: number | null | undefined) {
 
 function SurfaceCard({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <section className={`rounded-[2rem] border border-white/70 bg-white/82 p-6 shadow-[0_24px_70px_rgba(88,83,72,0.10)] backdrop-blur ${className}`}>{children}</section>;
-}
-
-function StatCard({
-  label,
-  value,
-  helper,
-  icon,
-}: {
-  label: string;
-  value: string;
-  helper: string;
-  icon: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-[1.75rem] border border-[#e5ddd0] bg-[#fbf7f0] p-5 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">{label}</p>
-          <p className="mt-3 font-serif text-3xl tracking-tight text-[#21312c]">{value}</p>
-          <p className="mt-2 text-sm leading-6 text-[#65716a]">{helper}</p>
-        </div>
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#ece4d7] text-[#52665f]">{icon}</div>
-      </div>
-    </div>
-  );
 }
 
 function StatePanel({
@@ -312,12 +285,6 @@ export default function ManagerDashboard() {
   const totalToGoCupsUsed = reconciliationSnapshot.packaging?.toGoCupUsedCount ?? null;
   const hasZelleSales = (daily?.sales.zelle ?? 0) > 0;
   const hasVenmoSales = (daily?.sales.venmo ?? 0) > 0;
-  const paymentBreakdownCards = [
-    { label: "Cash", value: formatCurrency(daily?.sales.cash ?? 0), helper: "Cash sold for the selected day.", icon: <Coins className="h-5 w-5" /> },
-    { label: "Card", value: formatCurrency(daily?.sales.card ?? 0), helper: "Card sales for the selected day.", icon: <TrendingUp className="h-5 w-5" /> },
-    ...(hasVenmoSales ? [{ label: "Venmo", value: formatCurrency(daily?.sales.venmo ?? 0), helper: "Venmo payment total captured from reports.", icon: <Coins className="h-5 w-5" /> }] : []),
-    ...(hasZelleSales ? [{ label: "Zelle", value: formatCurrency(daily?.sales.zelle ?? 0), helper: "Zelle payment total captured from reports.", icon: <Coins className="h-5 w-5" /> }] : []),
-  ];
   const trendData = trendQuery.data ?? [];
   const wowData = wowQuery.data ?? [];
   const inventoryAlerts = alertsQuery.data ?? [];
@@ -461,12 +428,6 @@ export default function ManagerDashboard() {
 
         {isOverviewRoute ? (
           <>
-            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-              {paymentBreakdownCards.map(card => (
-                <StatCard key={card.label} label={card.label} value={card.value} helper={card.helper} icon={card.icon} />
-              ))}
-            </div>
-
             <div className="grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">
               <SurfaceCard>
                 <div className="flex items-center justify-between gap-4">
