@@ -1,7 +1,8 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { type PortalLanguage, translateErrorMessage, translatePortalText } from "@/lib/employeePortalI18n";
 import { getOpeningNapkinsQuestion, groupOpeningQuestionsForPortal } from "@/lib/openingSetup";
-import { clearPortalDraft, loadPortalDraft, savePortalDraft } from "@/lib/portalDrafts";
+import { savePortalDraft, loadPortalDraft, clearPortalDraft } from "@/lib/portalDrafts";
+import { getPacificBusinessDate } from "../../../shared/businessDate";
 import { trpc } from "@/lib/trpc";
 import { ArrowRight, ClipboardCheck, House, LoaderCircle, LogOut, MoonStar, Package2, ReceiptText, Save, SunMedium, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -150,7 +151,7 @@ const closingDraftKey = "closing" as const;
 const inventoryDraftKey = "inventory" as const;
 
 function todayValue() {
-  return new Date().toISOString().slice(0, 10);
+  return getPacificBusinessDate();
 }
 
 function displayNumberValue(value: number | string | null | undefined) {

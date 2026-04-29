@@ -182,3 +182,6 @@
 - [x] Integrate the gelato photo-assisted inventory workflow directly into the main opening and closing staff forms instead of keeping it as a separate pilot-only page
 - [x] Let staff choose between manual gelato inventory entry and photo-assisted gelato inventory entry inside the existing form workflow
 - [x] Evaluate whether to add a manager-facing setting for requiring photo-only gelato inventory submissions, while keeping the initial implementation flexible for a future enforcement change
+- [x] Fix the manager dashboard business-date labeling so yesterday's submissions show the correct business date instead of shifting forward by one day
+- [x] Verify and correct the manager dashboard sold-ounces and distributed-ounces calculations so daily snapshot numbers match the underlying opening, closing, and sales data
+- [x] Set business-date generation and manager dashboard date handling to Pacific Time so submissions are labeled on the correct local business day

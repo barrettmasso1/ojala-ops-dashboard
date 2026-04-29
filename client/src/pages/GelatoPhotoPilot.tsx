@@ -1,5 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { clearPortalDraft, loadPortalDraft, savePortalDraft } from "@/lib/portalDrafts";
+import { getPacificBusinessDate } from "../../../shared/businessDate";
 import { trpc } from "@/lib/trpc";
 import { ArrowRight, House, LoaderCircle, LogOut, Save, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -49,7 +50,7 @@ const SMALL_PAN_FULL_VOLUME_OUNCES = 112;
 const LARGE_PAN_FULL_VOLUME_OUNCES = 160;
 
 function todayValue() {
-  return new Date().toISOString().slice(0, 10);
+  return getPacificBusinessDate();
 }
 
 function roundTo(value: number, decimals = 2) {

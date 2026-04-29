@@ -4,6 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getLoginUrl } from "@/const";
 import { buildManagerReconciliationSnapshot, MANAGER_INVENTORY_TABS, type ManagerInventoryView } from "@/lib/managerReconciliation";
 import { trpc } from "@/lib/trpc";
+import { getPacificBusinessDate } from "../../../shared/businessDate";
 import {
   AlertTriangle,
   CalendarRange,
@@ -28,7 +29,7 @@ import { toast } from "sonner";
 import { useLocation } from "wouter";
 
 function todayValue() {
-  return new Date().toISOString().slice(0, 10);
+  return getPacificBusinessDate();
 }
 
 function roundTo(value: number, decimals = 2) {

@@ -19,6 +19,7 @@ import {
   recipes,
   users,
 } from "../drizzle/schema";
+import { getPacificBusinessDate, getPacificWeekStart } from "../shared/businessDate";
 import { DEFAULT_INVENTORY_ITEMS, DEFAULT_RECIPE_ITEMS, READY_MADE_GELATO_FLAVORS } from "../shared/opsCatalog";
 import { ENV } from "./_core/env";
 
@@ -32,7 +33,7 @@ function toNumber(value: unknown): number {
 
 function normalizeDate(date?: string) {
   if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
-  return new Date().toISOString().slice(0, 10);
+  return getPacificBusinessDate();
 }
 
 const KG_TO_WEIGHT_OUNCES = 35.27396195;
@@ -149,10 +150,35 @@ export function resolveReadyMadeGrossWeights(row?: ReadyMadeMeasurementRow) {
   };
 }
 
+function clampGrossWeightToCapacity(grossWeightKg: number, panCount: number, maxGrossPerPanKg: number) {
+  if (panCount <= 0) return 0;
+  return Math.min(Math.max(0, grossWeightKg), roundTo(panCount * maxGrossPerPanKg));
+}
+
+export function hasImpossibleReadyMadeGrossWeights(row?: ReadyMadeMeasurementRow) {
+  const smallPanCount = Math.max(0, Math.trunc(toNumber(row?.smallPanCount)));
+  const largePanCount = Math.max(0, Math.trunc(toNumber(row?.largePanCount)));
+  const providedSmallGrossWeightKg = Math.max(0, toNumber(row?.smallGrossWeightKg));
+  const providedLargeGrossWeightKg = Math.max(0, toNumber(row?.largeGrossWeightKg));
+  const combinedGrossWeightKg = Math.max(0, toNumber(row?.combinedGrossWeightKg));
+  const maxSmallGrossWeightKg = roundTo(smallPanCount * 1.9);
+  const maxLargeGrossWeightKg = roundTo(largePanCount * 4.3);
+  const maxCombinedGrossWeightKg = roundTo(maxSmallGrossWeightKg + maxLargeGrossWeightKg);
+
+  return (
+    providedSmallGrossWeightKg > maxSmallGrossWeightKg + 0.01 ||
+    providedLargeGrossWeightKg > maxLargeGrossWeightKg + 0.01 ||
+    combinedGrossWeightKg > maxCombinedGrossWeightKg + 0.01
+  );
+}
+
 function calculateReadyMadeMeasurement(row?: ReadyMadeMeasurementRow, defaultShiftType: ReadyMadeShiftType = "opening") {
   const smallPanCount = Math.max(0, Math.trunc(toNumber(row?.smallPanCount)));
   const largePanCount = Math.max(0, Math.trunc(toNumber(row?.largePanCount)));
-  const { smallGrossWeightKg, largeGrossWeightKg, combinedGrossWeightKg } = resolveReadyMadeGrossWeights(row);
+  const resolvedWeights = resolveReadyMadeGrossWeights(row);
+  const smallGrossWeightKg = clampGrossWeightToCapacity(resolvedWeights.smallGrossWeightKg, smallPanCount, 1.9);
+  const largeGrossWeightKg = clampGrossWeightToCapacity(resolvedWeights.largeGrossWeightKg, largePanCount, 4.3);
+  const combinedGrossWeightKg = roundTo(smallGrossWeightKg + largeGrossWeightKg);
   const smallNetWeightKg = Math.max(0, smallGrossWeightKg - smallPanCount * SMALL_PAN_EMPTY_KG);
   const largeNetWeightKg = Math.max(0, largeGrossWeightKg - largePanCount * LARGE_PAN_EMPTY_KG);
   const totalNetWeightKg = roundTo(smallNetWeightKg + largeNetWeightKg);
@@ -433,11 +459,7 @@ function buildServicePackagingReconciliation(
 }
 
 function getWeekStart(dateString: string) {
-  const date = new Date(`${dateString}T00:00:00Z`);
-  const day = date.getUTCDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  date.setUTCDate(date.getUTCDate() + diff);
-  return date.toISOString().slice(0, 10);
+  return getPacificWeekStart(dateString);
 }
 
 const defaultChecklistQuestions: Array<InsertChecklistQuestion> = [
@@ -1188,7 +1210,7 @@ export async function saveReadyMadeGelatoWeights(input: {
     const flavor = entry.flavor.trim();
     if (!flavor) continue;
 
-    const calculated = calculateReadyMadeMeasurement({
+    const rawEntry = {
       businessDate: normalizedDate,
       flavor,
       shiftType: input.shiftType,
@@ -1198,7 +1220,13 @@ export async function saveReadyMadeGelatoWeights(input: {
       largeGrossWeightKg: entry.largeGrossWeightKg,
       combinedGrossWeightKg: entry.combinedGrossWeightKg,
       submittedByUserId: input.submittedByUserId,
-    }, input.shiftType);
+    };
+
+    if (hasImpossibleReadyMadeGrossWeights(rawEntry)) {
+      throw new Error(`${flavor} has an impossible pan weight for the selected pan setup. Please double-check the kilograms entered.`);
+    }
+
+    const calculated = calculateReadyMadeMeasurement(rawEntry, input.shiftType);
 
     const values: InsertReadyMadeGelatoWeight = {
       businessDate: normalizedDate,

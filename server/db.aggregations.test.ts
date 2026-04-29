@@ -397,4 +397,61 @@ describe("db aggregation helpers", () => {
     ]);
     expect(notes[0]).toMatchObject({ detail: "Floors mopped and freezer checked" });
   });
+  it("keeps sold ounces correct and caps impossible gelato weights to pan capacity", () => {
+    const snapshot = buildDailySnapshot(
+      [],
+      [],
+      [
+        {
+          businessDate: "2026-04-29",
+          staffName: "Karol",
+          cups4oz: 8,
+          cups4ozHere: 8,
+          cups4ozToGo: 0,
+          cups8oz: 52,
+          cups8ozHere: 16,
+          cups8ozToGo: 36,
+          cupsPint: 50,
+          cupsPintHere: 38,
+          cupsPintToGo: 12,
+          cupsLiter: 38,
+          cupsLiterHere: 32,
+          cupsLiterToGo: 6,
+          cashTotal: "2050.00",
+          cardTotal: "1350.00",
+          zelleTotal: "0.00",
+          venmoTotal: "0.00",
+          createdAt: new Date("2026-04-29T08:26:34Z"),
+        },
+      ],
+      [
+        {
+          businessDate: "2026-04-29",
+          flavor: "Lemon",
+          shiftType: "opening" as const,
+          smallPanCount: 1,
+          smallGrossWeightKg: "2694.00",
+          largePanCount: 1,
+          largeGrossWeightKg: "3.94",
+        },
+        {
+          businessDate: "2026-04-29",
+          flavor: "Lemon",
+          shiftType: "closing" as const,
+          smallPanCount: 1,
+          smallGrossWeightKg: "2.62",
+          largePanCount: 0,
+          largeGrossWeightKg: "0.00",
+        },
+      ],
+      [],
+      "2026-04-29"
+    );
+
+    expect(snapshot.soldVolumeOunces).toBe(2464);
+    expect(snapshot.gelato.openingVolumeOunces).toBeCloseTo(257.23, 2);
+    expect(snapshot.gelato.closingVolumeOunces).toBeCloseTo(112, 2);
+    expect(snapshot.gelato.actualDistributedVolumeOunces).toBeCloseTo(145.23, 2);
+    expect(snapshot.gelato.actualDistributedVolumeOunces).toBeLessThan(500);
+  });
 });
