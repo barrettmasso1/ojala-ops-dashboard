@@ -185,3 +185,7 @@
 - [x] Fix the manager dashboard business-date labeling so yesterday's submissions show the correct business date instead of shifting forward by one day
 - [x] Verify and correct the manager dashboard sold-ounces and distributed-ounces calculations so daily snapshot numbers match the underlying opening, closing, and sales data
 - [x] Set business-date generation and manager dashboard date handling to Pacific Time so submissions are labeled on the correct local business day
+- [x] Clear the April 29 business-date submissions so staff can restart that operating day with fresh forms after confirming the exact deletion scope
+- [x] Add a manager-facing History section in the left dashboard navigation so managers can review past opening, closing, and inventory submissions in one place
+- [x] Show submitted photos alongside the related morning and evening form records so managers can verify exactly what staff uploaded when investigating discrepancies
+- [x] Make the submission history easy to scan by date and form type so managers can quickly find the original records behind any dashboard variance or question

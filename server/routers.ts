@@ -10,11 +10,13 @@ import {
   createClosingChecklist,
   createEndOfDayReport,
   createOpeningChecklist,
+  createSubmissionHistoryEntry,
   getDailyOperationsSnapshot,
   getInventoryAlerts,
   getRecentNotes,
   getSalesTrend,
   getWeekOverWeekSales,
+  listSubmissionHistoryEntries,
   listChecklistQuestions,
   listInventoryItems,
   listReadyMadeGelatoWeights,
@@ -165,6 +167,39 @@ const extractGelatoPhotosSchema = z.object({
   photos: z.array(gelatoPhotoUploadSchema).min(1).max(12),
 });
 
+const submissionHistoryPhotoSchema = z.object({
+  fileName: z.string().min(1),
+  imageUrl: z.string().min(1),
+  flavor: z.string().min(1),
+  smallPanCount: z.number().int().min(0),
+  largePanCount: z.number().int().min(0),
+  combinedGrossWeightKg: z.number().min(0),
+  confidence: z.enum(["high", "medium", "low"]),
+  warning: z.string().optional().default(""),
+});
+
+const submissionHistorySchema = z.object({
+  businessDate: z.string().optional(),
+  submissionType: z.enum(["opening", "closing", "inventory"]),
+  staffName: z.string().min(1),
+  payload: z.object({
+    form: z.record(z.string(), z.unknown()).optional(),
+    checklistAnswers: z.array(checklistAnswerSchema).optional(),
+    gelatoEntries: z.array(readyMadeGelatoEntrySchema).optional(),
+    gelatoEntryMode: z.enum(["manual", "photo"]).optional(),
+    analyzedPhotos: z.array(submissionHistoryPhotoSchema).optional(),
+    inventoryItems: z.array(
+      z.object({
+        itemName: z.string().min(1),
+        currentQuantity: z.number(),
+        unitType: z.string().min(1),
+        department: z.string().optional().default(""),
+      })
+    ).optional(),
+    notes: z.record(z.string(), z.string()).optional(),
+  }).passthrough(),
+});
+
 const checklistTypeSchema = z.enum(["opening", "closing"]);
 
 const checklistQuestionSchema = z.object({
@@ -286,6 +321,17 @@ export const appRouter = router({
       }
 
       return { success: true } as const;
+    }),
+    submitSubmissionHistory: protectedProcedure.input(submissionHistorySchema).mutation(async ({ ctx, input }) => {
+      const entry = await createSubmissionHistoryEntry({
+        businessDate: input.businessDate,
+        submissionType: input.submissionType,
+        staffName: input.staffName,
+        submittedByUserId: ctx.user.id,
+        payload: input.payload,
+      });
+
+      return { success: true, entry } as const;
     }),
     extractGelatoPhotos: protectedProcedure.input(extractGelatoPhotosSchema).mutation(async ({ input }) => {
       const result = await extractGelatoPhotos(input.photos);
@@ -469,6 +515,13 @@ export const appRouter = router({
         })
       )
       .query(async ({ input }) => getRecentNotes(input.limit)),
+    submissionHistory: adminProcedure
+      .input(
+        z.object({
+          businessDate: z.string().optional(),
+        }).optional()
+      )
+      .query(async ({ input }) => listSubmissionHistoryEntries(input?.businessDate)),
   }),
 });
 

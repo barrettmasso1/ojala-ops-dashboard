@@ -37,7 +37,7 @@ export const menuItems: Array<{
   { icon: PackagePlus, label: "Inventory Setup", path: "/dashboard/inventory", roles: ["admin"] },
   { icon: BookOpen, label: "Cookbook", path: "/cookbook", roles: ["admin"] },
   { icon: FileCheck, label: "Form Setup", path: "/dashboard/forms", roles: ["admin"] },
-  { icon: LineChart, label: "History & Notes", path: "/dashboard/analysis", roles: ["admin"] },
+  { icon: LineChart, label: "History", path: "/dashboard/history", roles: ["admin"] },
   { icon: ClipboardList, label: "Employee Portal", path: "/portal", roles: ["admin", "user"] },
 ];
 

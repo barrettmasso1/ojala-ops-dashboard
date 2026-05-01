@@ -17,6 +17,8 @@ const dbMocks = vi.hoisted(() => ({
   saveChecklistQuestion: vi.fn(),
   saveInventoryItem: vi.fn(),
   saveReadyMadeGelatoWeights: vi.fn(),
+  createSubmissionHistoryEntry: vi.fn(),
+  listSubmissionHistoryEntries: vi.fn(),
   updateInventoryCount: vi.fn(),
   upsertUser: vi.fn(),
 }));
@@ -386,6 +388,68 @@ describe("operations router", () => {
         content: expect.stringContaining("saved 2 opening gelato measurements"),
       })
     );
+  });
+
+  it("lets staff persist a submission-history record with saved photo evidence", async () => {
+    dbMocks.createSubmissionHistoryEntry.mockResolvedValue({
+      id: 501,
+      businessDate: "2026-04-29",
+      submissionType: "opening",
+      staffName: "Ava",
+      submittedByUserId: 1,
+      payload: {
+        gelatoEntryMode: "photo",
+        analyzedPhotos: [{ fileName: "IMG_1001.jpeg", imageUrl: "/manus-storage/example.jpg", flavor: "Ruby Port", smallPanCount: 1, largePanCount: 0, combinedGrossWeightKg: 1.47, confidence: "high" }],
+      },
+    });
+
+    const caller = appRouter.createCaller(createContext("user"));
+    const result = await caller.forms.submitSubmissionHistory({
+      businessDate: "2026-04-29",
+      submissionType: "opening",
+      staffName: "Ava",
+      payload: {
+        gelatoEntryMode: "photo",
+        analyzedPhotos: [{ fileName: "IMG_1001.jpeg", imageUrl: "/manus-storage/example.jpg", flavor: "Ruby Port", smallPanCount: 1, largePanCount: 0, combinedGrossWeightKg: 1.47, confidence: "high" }],
+      },
+    });
+
+    expect(result).toEqual({
+      success: true,
+      entry: expect.objectContaining({ id: 501, submissionType: "opening", staffName: "Ava" }),
+    });
+    expect(dbMocks.createSubmissionHistoryEntry).toHaveBeenCalledWith({
+      businessDate: "2026-04-29",
+      submissionType: "opening",
+      staffName: "Ava",
+      submittedByUserId: 1,
+      payload: expect.objectContaining({ gelatoEntryMode: "photo" }),
+    });
+  });
+
+  it("lets admin users load submission history for the selected business date", async () => {
+    dbMocks.listSubmissionHistoryEntries.mockResolvedValue([
+      {
+        id: 701,
+        businessDate: "2026-04-29",
+        submissionType: "closing",
+        staffName: "Marco",
+        createdAt: new Date("2026-04-30T05:15:00.000Z"),
+        payload: {
+          notes: { general: "Everything cleaned." },
+          analyzedPhotos: [{ fileName: "IMG_2002.jpeg", imageUrl: "/manus-storage/closing.jpg", flavor: "Chocolate", smallPanCount: 0, largePanCount: 1, combinedGrossWeightKg: 4.1, confidence: "medium" }],
+        },
+      },
+    ]);
+
+    const adminCaller = appRouter.createCaller(createContext("admin"));
+    await expect(adminCaller.dashboard.submissionHistory({ businessDate: "2026-04-29" })).resolves.toEqual([
+      expect.objectContaining({ id: 701, submissionType: "closing", staffName: "Marco" }),
+    ]);
+    expect(dbMocks.listSubmissionHistoryEntries).toHaveBeenCalledWith("2026-04-29");
+
+    const employeeCaller = appRouter.createCaller(createContext("user"));
+    await expect(employeeCaller.dashboard.submissionHistory({ businessDate: "2026-04-29" })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("allows only admin users to save checklist questions", async () => {

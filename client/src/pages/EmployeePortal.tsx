@@ -113,6 +113,7 @@ type OpeningDraft = {
   answers: ChecklistAnswerState;
   gelatoOpening: Record<string, ReadyMadeGelatoShiftState>;
   gelatoOpeningMode?: GelatoEntryMode;
+  gelatoOpeningPhotos?: ExtractedGelatoPhoto[];
 };
 
 type ClosingDraft = {
@@ -121,12 +122,14 @@ type ClosingDraft = {
   serviceInventoryCounts: Record<number, string>;
   gelatoClosing: Record<string, ReadyMadeGelatoShiftState>;
   gelatoClosingMode?: GelatoEntryMode;
+  gelatoClosingPhotos?: ExtractedGelatoPhoto[];
 };
 
 type InventoryDraft = {
   serviceInventoryCounts: Record<number, string>;
   gelatoOpening: Record<string, ReadyMadeGelatoShiftState>;
   gelatoOpeningMode?: GelatoEntryMode;
+  gelatoOpeningPhotos?: ExtractedGelatoPhoto[];
 };
 
 type DraftSavedAtState = Partial<Record<Exclude<PortalView, "hub">, number>>;
@@ -567,6 +570,10 @@ export default function EmployeePortal(props: any) {
     opening: [],
     closing: [],
   });
+  const [gelatoAnalyzedPhotos, setGelatoAnalyzedPhotos] = useState<Record<ReadyMadeGelatoShiftKey, ExtractedGelatoPhoto[]>>({
+    opening: [],
+    closing: [],
+  });
   const [otherFlavorName, setOtherFlavorName] = useState("");
   const [submissionNotice, setSubmissionNotice] = useState<SubmissionNotice | null>(null);
   const [draftSavedAt, setDraftSavedAt] = useState<DraftSavedAtState>({});
@@ -605,6 +612,9 @@ export default function EmployeePortal(props: any) {
     onError: error => toast.error(translateErrorMessage(error.message, language)),
   });
   const inventorySummaryMutation = trpc.forms.submitInventorySubmissionSummary.useMutation({
+    onError: error => toast.error(translateErrorMessage(error.message, language)),
+  });
+  const submissionHistoryMutation = trpc.forms.submitSubmissionHistory.useMutation({
     onError: error => toast.error(translateErrorMessage(error.message, language)),
   });
   const submissionOrigin = typeof window === "undefined" ? undefined : window.location.origin;
@@ -755,6 +765,7 @@ export default function EmployeePortal(props: any) {
     setOpeningAnswers(draft.data.answers ?? {});
     setReadyMadeGelato(current => applyGelatoShiftDraft(current, "opening", draft.data.gelatoOpening ?? {}, currentBusinessDate));
     setGelatoEntryMode(current => ({ ...current, opening: draft.data.gelatoOpeningMode ?? "manual" }));
+    setGelatoAnalyzedPhotos(current => ({ ...current, opening: draft.data.gelatoOpeningPhotos ?? [] }));
     setDraftSavedAt(current => ({ ...current, opening: draft.savedAt }));
     toast.success(t("Saved opening draft restored."));
   }, [currentBusinessDate, portalView, t]);
@@ -772,6 +783,7 @@ export default function EmployeePortal(props: any) {
     setServiceInventoryCounts(draft.data.serviceInventoryCounts ?? {});
     setReadyMadeGelato(current => applyGelatoShiftDraft(current, "closing", draft.data.gelatoClosing ?? {}, currentBusinessDate));
     setGelatoEntryMode(current => ({ ...current, closing: draft.data.gelatoClosingMode ?? "manual" }));
+    setGelatoAnalyzedPhotos(current => ({ ...current, closing: draft.data.gelatoClosingPhotos ?? [] }));
     setDraftSavedAt(current => ({ ...current, closing: draft.savedAt }));
     toast.success(t("Saved closing draft restored."));
   }, [currentBusinessDate, portalView, t]);
@@ -787,6 +799,7 @@ export default function EmployeePortal(props: any) {
     setServiceInventoryCounts(draft.data.serviceInventoryCounts ?? {});
     setReadyMadeGelato(current => applyGelatoShiftDraft(current, "opening", draft.data.gelatoOpening ?? {}, currentBusinessDate));
     setGelatoEntryMode(current => ({ ...current, opening: draft.data.gelatoOpeningMode ?? "manual" }));
+    setGelatoAnalyzedPhotos(current => ({ ...current, opening: draft.data.gelatoOpeningPhotos ?? [] }));
     setDraftSavedAt(current => ({ ...current, inventory: draft.savedAt }));
     toast.success(t("Saved inventory draft restored."));
   }, [currentBusinessDate, portalView, t]);
@@ -870,6 +883,7 @@ export default function EmployeePortal(props: any) {
       answers: openingAnswers,
       gelatoOpening: extractGelatoShiftDraft(readyMadeGelato, "opening"),
       gelatoOpeningMode: gelatoEntryMode.opening,
+      gelatoOpeningPhotos: gelatoAnalyzedPhotos.opening,
     });
     if (!savedDraft) return;
 
@@ -885,6 +899,7 @@ export default function EmployeePortal(props: any) {
       serviceInventoryCounts,
       gelatoClosing: extractGelatoShiftDraft(readyMadeGelato, "closing"),
       gelatoClosingMode: gelatoEntryMode.closing,
+      gelatoClosingPhotos: gelatoAnalyzedPhotos.closing,
     });
     if (!savedDraft) return;
 
@@ -898,6 +913,7 @@ export default function EmployeePortal(props: any) {
       serviceInventoryCounts,
       gelatoOpening: extractGelatoShiftDraft(readyMadeGelato, "opening"),
       gelatoOpeningMode: gelatoEntryMode.opening,
+      gelatoOpeningPhotos: gelatoAnalyzedPhotos.opening,
     });
     if (!savedDraft) return;
 
@@ -912,6 +928,10 @@ export default function EmployeePortal(props: any) {
     if (inputRef.current) {
       inputRef.current.value = "";
     }
+  }
+
+  function clearGelatoAnalyzedPhotos(shiftType: ReadyMadeGelatoShiftKey) {
+    setGelatoAnalyzedPhotos(current => ({ ...current, [shiftType]: [] }));
   }
 
   async function analyzeGelatoPhotos(shiftType: ReadyMadeGelatoShiftKey) {
@@ -932,6 +952,10 @@ export default function EmployeePortal(props: any) {
 
       const result = await extractGelatoPhotosMutation.mutateAsync({ shiftType, photos });
       setReadyMadeGelato(current => applyAnalyzedPhotosToGelatoState(current, shiftType, result.extractedPhotos));
+      setGelatoAnalyzedPhotos(current => ({
+        ...current,
+        [shiftType]: [...(current[shiftType] ?? []), ...result.extractedPhotos],
+      }));
       clearGelatoPhotoSelection(shiftType);
 
       const analyzedCount = result.extractedPhotos.length;
@@ -970,6 +994,9 @@ export default function EmployeePortal(props: any) {
     }
 
     try {
+      const openingChecklistPayload = buildAnswersPayload(openingQuestions, openingAnswers);
+      const openingGelatoEntries = buildReadyMadeEntries("opening");
+
       await openingMutation.mutateAsync({
         businessDate: currentBusinessDate,
         staffName: normalizedStaffName,
@@ -988,7 +1015,7 @@ export default function EmployeePortal(props: any) {
           spoons: Number(openingForm.stockCounts.spoons || 0),
         },
         notes: openingForm.notes,
-        checklistAnswers: buildAnswersPayload(openingQuestions, openingAnswers),
+        checklistAnswers: openingChecklistPayload,
         origin: submissionOrigin,
       });
 
@@ -996,9 +1023,23 @@ export default function EmployeePortal(props: any) {
         businessDate: currentBusinessDate,
         shiftType: "opening",
         notifyOwner: false,
-        entries: buildReadyMadeEntries("opening"),
+        entries: openingGelatoEntries,
       });
-      await submitInventoryPayloads(buildLimitedInventoryPayloads("opening").map(payload => ({ ...payload, notifyOwner: false })));
+      const openingInventoryItems = await submitInventoryPayloads(buildLimitedInventoryPayloads("opening").map(payload => ({ ...payload, notifyOwner: false })));
+      await submissionHistoryMutation.mutateAsync({
+        businessDate: currentBusinessDate,
+        submissionType: "opening",
+        staffName: normalizedStaffName,
+        payload: {
+          form: { ...openingForm, businessDate: currentBusinessDate, staffName: normalizedStaffName },
+          checklistAnswers: openingChecklistPayload,
+          gelatoEntries: openingGelatoEntries,
+          gelatoEntryMode: gelatoEntryMode.opening,
+          analyzedPhotos: gelatoAnalyzedPhotos.opening,
+          inventoryItems: openingInventoryItems,
+          notes: { general: openingForm.notes || "" },
+        },
+      });
 
       toast.success(t("Opening form submitted."));
       showSubmissionNotice("opening", t("Opening form submitted."), `${t("Saved for")} ${normalizedStaffName} · ${currentBusinessDate}. ${t("Managers can review it in the dashboard.")}`);
@@ -1006,6 +1047,7 @@ export default function EmployeePortal(props: any) {
       hasOpeningDraftRestored.current = false;
       setDraftSavedAt(current => ({ ...current, opening: undefined }));
       clearGelatoPhotoSelection("opening");
+      clearGelatoAnalyzedPhotos("opening");
       setGelatoEntryMode(current => ({ ...current, opening: "manual" }));
       setOpeningForm(initialOpeningForm());
       setOpeningAnswers({});
@@ -1024,6 +1066,9 @@ export default function EmployeePortal(props: any) {
     }
 
     try {
+      const closingChecklistPayload = buildAnswersPayload(closingQuestions, closingAnswers);
+      const closingGelatoEntries = buildReadyMadeEntries("closing");
+
       await closingMutation.mutateAsync({
         businessDate: currentBusinessDate,
         staffName: normalizedStaffName,
@@ -1031,16 +1076,16 @@ export default function EmployeePortal(props: any) {
         cashMatchesSystem: closingForm.cashMatchesSystem,
         notes: closingForm.notes,
         notifyOwner: false,
-        checklistAnswers: buildAnswersPayload(closingQuestions, closingAnswers),
+        checklistAnswers: closingChecklistPayload,
       });
 
       await readyMadeGelatoMutation.mutateAsync({
         businessDate: currentBusinessDate,
         shiftType: "closing",
         notifyOwner: false,
-        entries: buildReadyMadeEntries("closing"),
+        entries: closingGelatoEntries,
       });
-      await submitInventoryPayloads(buildLimitedInventoryPayloads("closing").map(payload => ({ ...payload, notifyOwner: false })));
+      const closingInventoryItems = await submitInventoryPayloads(buildLimitedInventoryPayloads("closing").map(payload => ({ ...payload, notifyOwner: false })));
       await endOfDayMutation.mutateAsync({
         businessDate: currentBusinessDate,
         staffName: normalizedStaffName,
@@ -1062,6 +1107,25 @@ export default function EmployeePortal(props: any) {
         generalNotes: closingForm.generalNotes,
         origin: submissionOrigin,
       });
+      await submissionHistoryMutation.mutateAsync({
+        businessDate: currentBusinessDate,
+        submissionType: "closing",
+        staffName: normalizedStaffName,
+        payload: {
+          form: { ...closingForm, businessDate: currentBusinessDate, staffName: normalizedStaffName },
+          checklistAnswers: closingChecklistPayload,
+          gelatoEntries: closingGelatoEntries,
+          gelatoEntryMode: gelatoEntryMode.closing,
+          analyzedPhotos: gelatoAnalyzedPhotos.closing,
+          inventoryItems: closingInventoryItems,
+          notes: {
+            closing: closingForm.notes || "",
+            waste: closingForm.wasteNotes || "",
+            lowItems: closingForm.lowItemNotes || "",
+            general: closingForm.generalNotes || "",
+          },
+        },
+      });
 
       toast.success(t("Closing form submitted."));
       showSubmissionNotice("closing", t("Closing form submitted."), `${t("Saved for")} ${normalizedStaffName} · ${currentBusinessDate}. ${t("Managers can review it in the dashboard.")}`);
@@ -1069,6 +1133,7 @@ export default function EmployeePortal(props: any) {
       hasClosingDraftRestored.current = false;
       setDraftSavedAt(current => ({ ...current, closing: undefined }));
       clearGelatoPhotoSelection("closing");
+      clearGelatoAnalyzedPhotos("closing");
       setGelatoEntryMode(current => ({ ...current, closing: "manual" }));
       setClosingForm(initialClosingForm());
       setClosingAnswers({});
@@ -1082,6 +1147,7 @@ export default function EmployeePortal(props: any) {
     event.preventDefault();
 
     try {
+      const inventoryGelatoEntries = buildReadyMadeEntries("opening");
       const updatedItems = await submitInventoryPayloads(
         buildFullInventoryPayloads().map(payload => ({ ...payload, notifyOwner: false }))
       );
@@ -1089,7 +1155,7 @@ export default function EmployeePortal(props: any) {
         businessDate: currentBusinessDate,
         shiftType: "opening",
         notifyOwner: false,
-        entries: buildReadyMadeEntries("opening"),
+        entries: inventoryGelatoEntries,
       });
       await inventorySummaryMutation.mutateAsync({
         businessDate: currentBusinessDate,
@@ -1098,11 +1164,24 @@ export default function EmployeePortal(props: any) {
         itemSummaries: updatedItems,
         origin: submissionOrigin,
       });
+      await submissionHistoryMutation.mutateAsync({
+        businessDate: currentBusinessDate,
+        submissionType: "inventory",
+        staffName: "Ojala Staff",
+        payload: {
+          gelatoEntries: inventoryGelatoEntries,
+          gelatoEntryMode: gelatoEntryMode.opening,
+          analyzedPhotos: gelatoAnalyzedPhotos.opening,
+          inventoryItems: updatedItems,
+          notes: { summary: `Inventory submission saved with ${gelatoResult.records.length} ready-made gelato entries.` },
+        },
+      });
       toast.success(t("Inventory and ready-made gelato updated."));
       showSubmissionNotice("inventory", t("Inventory and ready-made gelato updated."), `${t("Saved for")} ${currentBusinessDate}. ${t("Managers can review it in the dashboard.")}`);
       clearPortalDraft(inventoryDraftKey);
       hasInventoryDraftRestored.current = false;
       setDraftSavedAt(current => ({ ...current, inventory: undefined }));
+      clearGelatoAnalyzedPhotos("opening");
       clearGelatoPhotoSelection("opening");
       setGelatoEntryMode(current => ({ ...current, opening: "manual" }));
       await refreshAfterSubmission();

@@ -11,12 +11,14 @@ import {
   InsertRecipe,
   InsertRecipeIngredient,
   InsertReadyMadeGelatoWeight,
+  InsertSubmissionHistoryEntry,
   InsertUser,
   inventoryItems,
   openingChecklists,
   readyMadeGelatoWeights,
   recipeIngredients,
   recipes,
+  submissionHistoryEntries,
   users,
 } from "../drizzle/schema";
 import { getPacificBusinessDate, getPacificWeekStart } from "../shared/businessDate";
@@ -48,6 +50,15 @@ const MINOR_SERVICE_ITEM_DISCREPANCY_COUNT = 2;
 const READY_MADE_GELATO_FLAVOR_POSITION = new Map(READY_MADE_GELATO_FLAVORS.map((flavor, index) => [normalizeKey(flavor), index]));
 
 type ReadyMadeShiftType = "opening" | "closing";
+type SubmissionHistoryType = "opening" | "closing" | "inventory";
+
+function safeParseJson<T>(value: string, fallback: T): T {
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
 
 type ReadyMadeMeasurementRow = {
   id?: number;
@@ -1263,6 +1274,50 @@ export async function saveReadyMadeGelatoWeights(input: {
   }
 
   return savedRows;
+}
+
+export async function createSubmissionHistoryEntry(input: {
+  businessDate?: string;
+  submissionType: SubmissionHistoryType;
+  staffName: string;
+  submittedByUserId: number;
+  payload: unknown;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const values: InsertSubmissionHistoryEntry = {
+    businessDate: normalizeDate(input.businessDate),
+    submissionType: input.submissionType,
+    staffName: input.staffName.trim() || "Staff member",
+    payloadJson: JSON.stringify(input.payload ?? {}),
+    submittedByUserId: input.submittedByUserId,
+  };
+
+  const result = await db.insert(submissionHistoryEntries).values(values);
+
+  return {
+    id: Number(result[0]?.insertId ?? 0),
+    ...values,
+    payload: input.payload ?? {},
+  };
+}
+
+export async function listSubmissionHistoryEntries(businessDate?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const normalizedDate = normalizeDate(businessDate);
+  const rows = await db
+    .select()
+    .from(submissionHistoryEntries)
+    .where(eq(submissionHistoryEntries.businessDate, normalizedDate))
+    .orderBy(desc(submissionHistoryEntries.createdAt), desc(submissionHistoryEntries.id));
+
+  return rows.map(row => ({
+    ...row,
+    payload: safeParseJson<Record<string, unknown>>(row.payloadJson, {}),
+  }));
 }
 
 export function buildRecipeCostSummaries(

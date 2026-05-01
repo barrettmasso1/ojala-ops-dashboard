@@ -64,6 +64,13 @@
       "when": 1776972403280,
       "tag": "0008_large_inhumans",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1777674965317,
+      "tag": "0009_majestic_steel_serpent",
+      "breakpoints": true
     }
   ]
 }

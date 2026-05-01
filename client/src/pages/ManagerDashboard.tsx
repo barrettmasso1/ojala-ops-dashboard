@@ -58,6 +58,54 @@ function formatWholeOunces(value: number | null | undefined) {
   return `${formatCount(value)} oz`;
 }
 
+function formatDateTime(value: string | Date | null | undefined) {
+  if (!value) return "—";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function formatFieldLabel(key: string) {
+  return key
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, character => character.toUpperCase());
+}
+
+type SubmissionHistoryPhoto = {
+  fileName: string;
+  imageUrl: string;
+  flavor: string;
+  smallPanCount: number;
+  largePanCount: number;
+  combinedGrossWeightKg: number;
+  confidence: "high" | "medium" | "low";
+  warning?: string;
+};
+
+type SubmissionHistoryEntryRecord = {
+  id: number;
+  businessDate: string;
+  submissionType: "opening" | "closing" | "inventory";
+  staffName: string;
+  createdAt: string | Date;
+  payload: {
+    form?: Record<string, unknown>;
+    checklistAnswers?: Array<{ sectionTitle: string; prompt: string; answer: string; detail?: string }>;
+    gelatoEntries?: Array<{ flavor: string; smallPanCount: number; smallGrossWeightKg: number; largePanCount: number; largeGrossWeightKg: number }>;
+    gelatoEntryMode?: string;
+    analyzedPhotos?: SubmissionHistoryPhoto[];
+    inventoryItems?: Array<{ itemName: string; currentQuantity: number; unitType: string; department?: string }>;
+    notes?: Record<string, string>;
+  };
+};
+
 function SurfaceCard({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <section className={`rounded-[2rem] border border-white/70 bg-white/82 p-6 shadow-[0_24px_70px_rgba(88,83,72,0.10)] backdrop-blur ${className}`}>{children}</section>;
 }
@@ -108,16 +156,16 @@ export default function ManagerDashboard() {
   const isInventoryWorkspaceRoute = location.startsWith("/dashboard/inventory");
   const isCookbookRoute = location.startsWith("/cookbook");
   const isFormsRoute = location.startsWith("/dashboard/forms");
-  const isAnalysisRoute = location.startsWith("/dashboard/analysis");
-  const isOverviewRoute = !isInventoryWorkspaceRoute && !isCookbookRoute && !isFormsRoute && !isAnalysisRoute;
+  const isHistoryRoute = location.startsWith("/dashboard/history") || location.startsWith("/dashboard/analysis");
+  const isOverviewRoute = !isInventoryWorkspaceRoute && !isCookbookRoute && !isFormsRoute && !isHistoryRoute;
   const redirectPath = isInventoryWorkspaceRoute
     ? "/dashboard/inventory"
     : isCookbookRoute
       ? "/cookbook"
       : isFormsRoute
         ? "/dashboard/forms"
-        : isAnalysisRoute
-          ? "/dashboard/analysis"
+        : isHistoryRoute
+          ? "/dashboard/history"
           : "/dashboard";
 
   const { user, loading } = useAuth({
@@ -173,6 +221,7 @@ export default function ManagerDashboard() {
   const openingChecklistQuery = trpc.dashboard.checklistQuestions.useQuery({ checklistType: "opening" }, { enabled: isAdmin, refetchOnWindowFocus: false });
   const closingChecklistQuery = trpc.dashboard.checklistQuestions.useQuery({ checklistType: "closing" }, { enabled: isAdmin, refetchOnWindowFocus: false });
   const notesQuery = trpc.dashboard.recentNotes.useQuery({ limit: 10 }, { enabled: isAdmin, refetchOnWindowFocus: false });
+  const submissionHistoryQuery = trpc.dashboard.submissionHistory.useQuery({ businessDate: selectedDate }, { enabled: isAdmin, refetchOnWindowFocus: false });
 
   const saveInventoryMutation = trpc.dashboard.saveInventoryItem.useMutation({
     onSuccess: async () => {
@@ -249,6 +298,8 @@ export default function ManagerDashboard() {
     [notesQuery.data]
   );
 
+  const submissionHistory = useMemo(() => (submissionHistoryQuery.data ?? []) as SubmissionHistoryEntryRecord[], [submissionHistoryQuery.data]);
+
   const daily = dailyQuery.data;
   const reconciliationSnapshot = buildManagerReconciliationSnapshot(daily);
   const flavorRows = useMemo(() => {
@@ -309,8 +360,8 @@ export default function ManagerDashboard() {
       ? "Recipe and ingredient details live here instead of crowding the daily dashboard."
       : isFormsRoute
         ? "Manage opening and closing checklist questions in their own workspace."
-        : isAnalysisRoute
-          ? "Review history, trends, and notes without crowding the daily operations overview."
+        : isHistoryRoute
+          ? "Review every submitted form, photo, and note for the selected business date."
           : "A quick daily glance at sales, form completion, and reconciliation.";
 
   const heroCopy = isInventoryWorkspaceRoute
@@ -319,8 +370,8 @@ export default function ManagerDashboard() {
       ? "Use the cookbook to review flavor formulas, ingredient costs, and yield placeholders without putting recipe details on the main dashboard."
       : isFormsRoute
         ? "Adjust checklist prompts in one place so the staff forms stay current without mixing setup work into the manager overview."
-        : isAnalysisRoute
-          ? "Use this section for historical context and notes while the main dashboard stays focused on the current day's operating picture."
+        : isHistoryRoute
+          ? "Use this workspace to audit exactly what staff submitted, including gelato analysis photos, editable values, inventory updates, and notes, all grouped under the selected Pacific business date."
           : "Use this page to answer the core questions fast: what sold, whether opening and closing were completed, how much volume started and ended the day, and where the differences landed.";
 
   const snapshotCards = isInventoryWorkspaceRoute
@@ -341,11 +392,11 @@ export default function ManagerDashboard() {
             { label: "Closing questions", value: closingChecklistQuestions.length.toString(), helper: "Current prompts shown on the closing checklist." },
             { label: "Selected day", value: selectedDate, helper: "Reference date for manager review." },
           ]
-        : isAnalysisRoute
+        : isHistoryRoute
           ? [
-              { label: "Reports on selected day", value: String(daily?.reportCount ?? 0), helper: "End-of-day reports found for this date." },
-              { label: "Recent notes", value: recentNotes.length.toString(), helper: "Latest operational notes across submissions." },
-              { label: "Latest report staff", value: daily?.latestReportStaff ?? "—", helper: "Most recent staff name on the selected date." },
+              { label: "Submissions on selected day", value: submissionHistory.length.toString(), helper: "Opening, closing, and inventory history records available for review." },
+              { label: "Photo uploads", value: submissionHistory.reduce((sum, entry) => sum + (entry.payload.analyzedPhotos?.length ?? 0), 0).toString(), helper: "Submitted gelato evidence saved with those records." },
+              { label: "Latest submission", value: submissionHistory[0]?.staffName ?? "—", helper: "Most recent staff member recorded on the selected date." },
             ]
           : [
               { label: "Total sales", value: formatCurrency(daily?.sales.total ?? 0), helper: "What sold today." },
@@ -373,9 +424,10 @@ export default function ManagerDashboard() {
                     ? "Owner / Manager inventory workspace"
                     : isCookbookRoute
                       ? "Owner / Manager cookbook"
-                      : isFormsRoute
-                        ? "Owner / Manager form setup"
-                        : "Owner / Manager history and notes"}
+                        : isFormsRoute
+                          ? "Owner / Manager form setup"
+                          : "Owner / Manager submission history"}
+
               </p>
               <h1 className="mt-4 font-serif text-4xl tracking-tight text-[#1f2b27] md:text-5xl">{heroTitle}</h1>
               <p className="mt-5 max-w-2xl text-base leading-7 text-[#65716b]">{heroCopy}</p>
@@ -1272,8 +1324,150 @@ export default function ManagerDashboard() {
           </SurfaceCard>
         ) : null}
 
-        {isAnalysisRoute ? (
+        {isHistoryRoute ? (
           <>
+            <SurfaceCard>
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Submission history</p>
+                  <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Original records for {selectedDate}</h2>
+                  <p className="mt-3 max-w-3xl text-sm leading-7 text-[#66706a]">Review the exact opening, closing, and inventory submissions that staff saved on the selected Pacific business date, including the analyzed gelato photos and entered values behind each record.</p>
+                </div>
+                <div className="rounded-[1.5rem] border border-[#e3d8ca] bg-[#fbf7f0] px-4 py-3 text-sm text-[#68716c]">
+                  {submissionHistoryQuery.isLoading ? "Loading submission records…" : `${submissionHistory.length} records available on ${selectedDate}.`}
+                </div>
+              </div>
+              <div className="mt-6 grid gap-5">
+                {submissionHistoryQuery.isLoading ? (
+                  <StatePanel title="Loading submission history" description="Gathering the saved opening, closing, and inventory records for the selected date." />
+                ) : submissionHistoryQuery.error ? (
+                  <StatePanel title="Unable to load submission history" description="The saved form records could not be loaded right now." tone="error" />
+                ) : submissionHistory.length === 0 ? (
+                  <StatePanel title="No submissions saved for this date" description="Once staff submit opening, closing, or inventory records, they will appear here with the related photo evidence." tone="warning" />
+                ) : (
+                  submissionHistory.map(entry => (
+                    <article key={entry.id} className="rounded-[1.6rem] border border-[#e4dccf] bg-[#fcfaf6] p-5 shadow-sm">
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <span className="rounded-full bg-[#ece3d5] px-3 py-1 text-[11px] uppercase tracking-[0.24em] text-[#5f6e68]">{entry.submissionType}</span>
+                            <span className="rounded-full bg-white px-3 py-1 text-sm text-[#66706a]">{entry.staffName || "Staff member"}</span>
+                          </div>
+                          <p className="mt-3 text-sm text-[#66706a]">Saved {formatDateTime(entry.createdAt)} · Business date {entry.businessDate}</p>
+                        </div>
+                        <div className="rounded-[1.2rem] border border-[#e4dccf] bg-white/90 px-4 py-3 text-sm text-[#52665f]">
+                          {entry.payload.gelatoEntryMode ? `Gelato entry: ${entry.payload.gelatoEntryMode}` : "Manual form record"}
+                        </div>
+                      </div>
+
+                      {entry.payload.analyzedPhotos && entry.payload.analyzedPhotos.length > 0 ? (
+                        <div className="mt-5">
+                          <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">Submitted photo evidence</p>
+                          <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                            {entry.payload.analyzedPhotos.map((photo, index) => (
+                              <div key={`${entry.id}-photo-${index}`} className="overflow-hidden rounded-[1.4rem] border border-[#e5ddd0] bg-white shadow-sm">
+                                <img src={photo.imageUrl} alt={photo.fileName} className="h-48 w-full object-cover" />
+                                <div className="space-y-2 p-4 text-sm text-[#5f6a64]">
+                                  <p className="font-medium text-[#24332f]">{photo.fileName}</p>
+                                  <p>{photo.flavor}</p>
+                                  <p>{photo.smallPanCount} small pan · {photo.largePanCount} large pan</p>
+                                  <p>{photo.combinedGrossWeightKg} kg combined</p>
+                                  <p className="uppercase tracking-[0.18em] text-[#7d847d]">Confidence {photo.confidence}</p>
+                                  {photo.warning ? <p className="text-[#8a5b38]">{photo.warning}</p> : null}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <div className="mt-5 grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+                        <div className="space-y-4">
+                          {entry.payload.form ? (
+                            <div className="rounded-[1.35rem] border border-[#e5ddd0] bg-white/90 p-4">
+                              <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">Form values</p>
+                              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                                {Object.entries(entry.payload.form)
+                                  .filter(([, value]) => typeof value !== "object")
+                                  .map(([key, value]) => (
+                                    <div key={`${entry.id}-${key}`} className="rounded-2xl bg-[#f7f2ea] px-4 py-3 text-sm text-[#5f6a64]">
+                                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">{formatFieldLabel(key)}</p>
+                                      <p className="mt-2 font-medium text-[#24332f]">{String(value ?? "—")}</p>
+                                    </div>
+                                  ))}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {entry.payload.checklistAnswers && entry.payload.checklistAnswers.length > 0 ? (
+                            <div className="rounded-[1.35rem] border border-[#e5ddd0] bg-white/90 p-4">
+                              <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">Checklist answers</p>
+                              <div className="mt-3 space-y-3">
+                                {entry.payload.checklistAnswers.map((answer, index) => (
+                                  <div key={`${entry.id}-answer-${index}`} className="rounded-2xl bg-[#f7f2ea] px-4 py-3 text-sm text-[#5f6a64]">
+                                    <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">{answer.sectionTitle}</p>
+                                    <p className="mt-1 font-medium text-[#24332f]">{answer.prompt}</p>
+                                    <p className="mt-2">{answer.answer}{answer.detail ? ` — ${answer.detail}` : ""}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+
+                        <div className="space-y-4">
+                          {entry.payload.gelatoEntries && entry.payload.gelatoEntries.length > 0 ? (
+                            <div className="rounded-[1.35rem] border border-[#e5ddd0] bg-white/90 p-4">
+                              <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">Gelato rows</p>
+                              <div className="mt-3 space-y-3">
+                                {entry.payload.gelatoEntries.map((row, index) => (
+                                  <div key={`${entry.id}-gelato-${index}`} className="rounded-2xl bg-[#f7f2ea] px-4 py-3 text-sm text-[#5f6a64]">
+                                    <p className="font-medium text-[#24332f]">{row.flavor}</p>
+                                    <p className="mt-2">Small pans: {row.smallPanCount} · {row.smallGrossWeightKg} kg</p>
+                                    <p>Large pans: {row.largePanCount} · {row.largeGrossWeightKg} kg</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {entry.payload.inventoryItems && entry.payload.inventoryItems.length > 0 ? (
+                            <div className="rounded-[1.35rem] border border-[#e5ddd0] bg-white/90 p-4">
+                              <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">Inventory updates</p>
+                              <div className="mt-3 space-y-3">
+                                {entry.payload.inventoryItems.map((item, index) => (
+                                  <div key={`${entry.id}-inventory-${index}`} className="rounded-2xl bg-[#f7f2ea] px-4 py-3 text-sm text-[#5f6a64]">
+                                    <p className="font-medium text-[#24332f]">{item.itemName}</p>
+                                    <p className="mt-2">{item.currentQuantity} {item.unitType}{item.department ? ` · ${item.department}` : ""}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {entry.payload.notes && Object.keys(entry.payload.notes).length > 0 ? (
+                            <div className="rounded-[1.35rem] border border-[#e5ddd0] bg-white/90 p-4">
+                              <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">Notes</p>
+                              <div className="mt-3 space-y-3">
+                                {Object.entries(entry.payload.notes)
+                                  .filter(([, value]) => Boolean(value))
+                                  .map(([key, value]) => (
+                                    <div key={`${entry.id}-note-${key}`} className="rounded-2xl bg-[#f7f2ea] px-4 py-3 text-sm text-[#5f6a64]">
+                                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">{formatFieldLabel(key)}</p>
+                                      <p className="mt-2 leading-6 text-[#24332f]">{value}</p>
+                                    </div>
+                                  ))}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </article>
+                  ))
+                )}
+              </div>
+            </SurfaceCard>
+
             <div className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
               <SurfaceCard>
                 <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Sales trend</p>
