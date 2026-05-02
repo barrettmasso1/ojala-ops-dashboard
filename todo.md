@@ -189,3 +189,7 @@
 - [x] Add a manager-facing History section in the left dashboard navigation so managers can review past opening, closing, and inventory submissions in one place
 - [x] Show submitted photos alongside the related morning and evening form records so managers can verify exactly what staff uploaded when investigating discrepancies
 - [x] Make the submission history easy to scan by date and form type so managers can quickly find the original records behind any dashboard variance or question
+- [x] Prevent duplicate same-shift submissions so opening, closing, and inventory records for one business date cannot stack and skew totals
+- [x] Let staff save in-progress work, but require any completed same-shift resubmission to replace the previous record instead of duplicating it
+- [x] Block future business dates in the staff-form calendars so no submission can be created ahead of the current Pacific business day
+- [x] Verify the current Pacific business date and time resolve correctly for May 2 at approximately 1:30 PM

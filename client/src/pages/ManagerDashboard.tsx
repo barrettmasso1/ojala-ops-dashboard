@@ -202,12 +202,23 @@ export default function ManagerDashboard() {
   });
 
   const isAdmin = user?.role === "admin";
+  const maxBusinessDate = todayValue();
 
   useEffect(() => {
     if (!loading && user && !isAdmin) {
       setLocation("/portal");
     }
   }, [isAdmin, loading, setLocation, user]);
+
+  useEffect(() => {
+    if (selectedDate > maxBusinessDate) {
+      setSelectedDate(maxBusinessDate);
+    }
+
+    if (inventoryForm.lastCountDate && inventoryForm.lastCountDate > maxBusinessDate) {
+      setInventoryForm(current => ({ ...current, lastCountDate: maxBusinessDate }));
+    }
+  }, [inventoryForm.lastCountDate, maxBusinessDate, selectedDate]);
 
   const dailyQuery = trpc.dashboard.daily.useQuery(
     { businessDate: selectedDate },
@@ -437,7 +448,8 @@ export default function ManagerDashboard() {
                   <input
                     type="date"
                     value={selectedDate}
-                    onChange={event => setSelectedDate(event.target.value)}
+                    max={maxBusinessDate}
+                    onChange={event => setSelectedDate(event.target.value > maxBusinessDate ? maxBusinessDate : event.target.value)}
                     className="h-12 w-full rounded-full border border-[#ddd4c7] bg-[#fcfaf6] pl-11 pr-4 text-sm text-[#24332f] shadow-sm outline-none transition focus:border-[#52665f] focus:ring-4 focus:ring-[#52665f]/10"
                   />
                 </div>
@@ -783,7 +795,7 @@ export default function ManagerDashboard() {
                 <input className={inventoryFieldClassName()} type="number" min="0" step="0.01" placeholder="Reorder quantity" value={inventoryForm.reorderQuantity} onChange={event => setInventoryForm(current => ({ ...current, reorderQuantity: event.target.value }))} />
                 <input className={inventoryFieldClassName()} placeholder="Supplier" value={inventoryForm.supplier} onChange={event => setInventoryForm(current => ({ ...current, supplier: event.target.value }))} />
                 <input className={inventoryFieldClassName()} placeholder="Supplier contact" value={inventoryForm.supplierContact} onChange={event => setInventoryForm(current => ({ ...current, supplierContact: event.target.value }))} />
-                <input className={inventoryFieldClassName()} type="date" value={inventoryForm.lastCountDate} onChange={event => setInventoryForm(current => ({ ...current, lastCountDate: event.target.value }))} />
+                <input className={inventoryFieldClassName()} type="date" max={maxBusinessDate} value={inventoryForm.lastCountDate} onChange={event => setInventoryForm(current => ({ ...current, lastCountDate: event.target.value > maxBusinessDate ? maxBusinessDate : event.target.value }))} />
                 <input className={inventoryFieldClassName()} placeholder="Notes" value={inventoryForm.notes} onChange={event => setInventoryForm(current => ({ ...current, notes: event.target.value }))} />
               </div>
               <div className="flex justify-end">

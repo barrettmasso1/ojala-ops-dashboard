@@ -21,6 +21,11 @@ export function getPacificBusinessDate(date = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+export function isFuturePacificBusinessDate(dateString: string, referenceDate = new Date()) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return false;
+  return dateString > getPacificBusinessDate(referenceDate);
+}
+
 export function getPacificWeekStart(dateString: string) {
   const [year, month, day] = dateString.split("-").map(value => Number(value));
   const pacificMiddayUtc = new Date(Date.UTC(year, month - 1, day, 12));

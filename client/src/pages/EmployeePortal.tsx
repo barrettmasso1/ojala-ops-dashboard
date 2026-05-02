@@ -1635,7 +1635,8 @@ export default function EmployeePortal(props: any) {
                       {openingMutation.isPending || inventoryMutation.isPending || readyMadeGelatoMutation.isPending ? t("Submitting...") : t("Submit Opening Form")}
                     </button>
                   </div>
-                  {draftSavedAt.opening ? <p className="mt-3 text-xs text-[#7d756b]">{t("Draft saved on this device for today.")}</p> : null}
+                  <p className="mt-3 text-xs leading-5 text-[#7d756b]">{t("Submitting again for this business date replaces the previous opening record instead of adding a duplicate.")}</p>
+                  {draftSavedAt.opening ? <p className="mt-2 text-xs text-[#7d756b]">{t("Draft saved on this device for today.")}</p> : null}
                 </SectionCard>
               </form>
             ) : null}
@@ -1760,7 +1761,8 @@ export default function EmployeePortal(props: any) {
                       {closingMutation.isPending || endOfDayMutation.isPending || inventoryMutation.isPending || readyMadeGelatoMutation.isPending ? t("Submitting...") : t("Submit Closing Form")}
                     </button>
                   </div>
-                  {draftSavedAt.closing ? <p className="mt-3 text-xs text-[#7d756b]">{t("Draft saved on this device for today.")}</p> : null}
+                  <p className="mt-3 text-xs leading-5 text-[#7d756b]">{t("Submitting again for this business date replaces the previous closing record instead of adding a duplicate.")}</p>
+                  {draftSavedAt.closing ? <p className="mt-2 text-xs text-[#7d756b]">{t("Draft saved on this device for today.")}</p> : null}
                 </SectionCard>
               </form>
             ) : null}
@@ -1823,6 +1825,7 @@ export default function EmployeePortal(props: any) {
                       {inventoryMutation.isPending || readyMadeGelatoMutation.isPending ? t("Saving inventory and gelato...") : t("Save inventory and gelato updates")}
                     </button>
                   </div>
+                  <p className="mt-3 text-xs leading-5 text-[#7d756b]">{t("Saving this business-date inventory again replaces the prior inventory review record instead of duplicating it.")}</p>
                   {draftSavedAt.inventory ? <p className="mt-3 text-xs text-[#7d756b]">{t("Draft saved on this device for today.")}</p> : null}
                 </SectionCard>
               </form>

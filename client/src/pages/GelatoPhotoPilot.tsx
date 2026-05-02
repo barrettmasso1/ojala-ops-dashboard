@@ -215,6 +215,7 @@ export default function GelatoPhotoPilot() {
   const { logout } = useAuth({ redirectOnUnauthenticated: true, redirectPath: "/staff-login" });
   const [shiftType, setShiftType] = useState<ShiftType>("opening");
   const [businessDate, setBusinessDate] = useState(todayValue());
+  const maxBusinessDate = todayValue();
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [draftEntries, setDraftEntries] = useState<DraftEntry[]>([]);
   const [draftSavedAt, setDraftSavedAt] = useState<number | undefined>();
@@ -240,6 +241,11 @@ export default function GelatoPhotoPilot() {
   });
 
   useEffect(() => {
+    if (businessDate > maxBusinessDate) {
+      setBusinessDate(maxBusinessDate);
+      return;
+    }
+
     if (restoredDraftKeyRef.current === draftRestoreKey) return;
     restoredDraftKeyRef.current = draftRestoreKey;
 
@@ -257,7 +263,7 @@ export default function GelatoPhotoPilot() {
     }
     setDraftSavedAt(draft.savedAt);
     toast.success(`Saved ${shiftType} photo pilot draft restored.`);
-  }, [businessDate, draftRestoreKey, draftView, shiftType]);
+  }, [businessDate, draftRestoreKey, draftView, maxBusinessDate, shiftType]);
 
   const usableEntryCount = useMemo(
     () => draftEntries.filter(entry => isDraftEntryReady(entry)).length,
@@ -406,7 +412,8 @@ export default function GelatoPhotoPilot() {
                   <input
                     type="date"
                     value={businessDate}
-                    onChange={event => setBusinessDate(event.target.value)}
+                    max={maxBusinessDate}
+                    onChange={event => setBusinessDate(event.target.value > maxBusinessDate ? maxBusinessDate : event.target.value)}
                     className={inputClassName()}
                   />
                 </label>

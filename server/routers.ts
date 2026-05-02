@@ -29,6 +29,18 @@ import {
   upsertUser,
 } from "./db";
 import { extractGelatoPhotos } from "./gelatoPhotoPilot";
+import { isFuturePacificBusinessDate } from "../shared/businessDate";
+
+const optionalBusinessDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine(date => !isFuturePacificBusinessDate(date), "Future business dates are not allowed.")
+  .optional();
+
+const requiredBusinessDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine(date => !isFuturePacificBusinessDate(date), "Future business dates are not allowed.");
 
 const checklistAnswerSchema = z.object({
   questionId: z.number().int().positive(),
@@ -51,7 +63,7 @@ const openingStockCountsSchema = z.object({
 });
 
 const openingChecklistSchema = z.object({
-  businessDate: z.string().optional(),
+  businessDate: optionalBusinessDateSchema,
   staffName: z.string().min(1),
   startingCash: z.number().min(0),
   cashCountedAndCorrect: z.enum(["Yes", "No"]),
@@ -64,7 +76,7 @@ const openingChecklistSchema = z.object({
 });
 
 const closingChecklistSchema = z.object({
-  businessDate: z.string().optional(),
+  businessDate: optionalBusinessDateSchema,
   staffName: z.string().min(1),
   cashCounted: z.number().min(0),
   cashMatchesSystem: z.enum(["Yes", "No"]),
@@ -75,7 +87,7 @@ const closingChecklistSchema = z.object({
 });
 
 const endOfDayReportSchema = z.object({
-  businessDate: z.string().min(1),
+  businessDate: requiredBusinessDateSchema,
   staffName: z.string().min(1),
   cups4ozHere: z.number().int().min(0),
   cups4ozToGo: z.number().int().min(0),
@@ -122,7 +134,7 @@ const inventoryUpdateSchema = z.object({
 });
 
 const inventorySubmissionSummarySchema = z.object({
-  businessDate: z.string().min(1),
+  businessDate: requiredBusinessDateSchema,
   staffName: z.string().min(1),
   gelatoEntryCount: z.number().int().min(0).optional().default(0),
   itemSummaries: z.array(
@@ -149,7 +161,7 @@ const readyMadeGelatoEntrySchema = z.object({
 });
 
 const readyMadeGelatoSchema = z.object({
-  businessDate: z.string().optional(),
+  businessDate: optionalBusinessDateSchema,
   shiftType: readyMadeGelatoShiftTypeSchema,
   entries: z.array(readyMadeGelatoEntrySchema).min(1),
   notifyOwner: z.boolean().optional().default(true),
@@ -179,7 +191,7 @@ const submissionHistoryPhotoSchema = z.object({
 });
 
 const submissionHistorySchema = z.object({
-  businessDate: z.string().optional(),
+  businessDate: optionalBusinessDateSchema,
   submissionType: z.enum(["opening", "closing", "inventory"]),
   staffName: z.string().min(1),
   payload: z.object({
@@ -472,7 +484,7 @@ export const appRouter = router({
     daily: adminProcedure
       .input(
         z.object({
-          businessDate: z.string().optional(),
+          businessDate: optionalBusinessDateSchema,
         })
       )
       .query(async ({ input }) => getDailyOperationsSnapshot(input.businessDate)),
@@ -518,7 +530,7 @@ export const appRouter = router({
     submissionHistory: adminProcedure
       .input(
         z.object({
-          businessDate: z.string().optional(),
+          businessDate: optionalBusinessDateSchema,
         }).optional()
       )
       .query(async ({ input }) => listSubmissionHistoryEntries(input?.businessDate)),

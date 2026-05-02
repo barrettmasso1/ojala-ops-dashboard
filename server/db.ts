@@ -21,7 +21,7 @@ import {
   submissionHistoryEntries,
   users,
 } from "../drizzle/schema";
-import { getPacificBusinessDate, getPacificWeekStart } from "../shared/businessDate";
+import { getPacificBusinessDate, getPacificWeekStart, isFuturePacificBusinessDate } from "../shared/businessDate";
 import { DEFAULT_INVENTORY_ITEMS, DEFAULT_RECIPE_ITEMS, READY_MADE_GELATO_FLAVORS } from "../shared/opsCatalog";
 import { ENV } from "./_core/env";
 
@@ -34,8 +34,11 @@ function toNumber(value: unknown): number {
 }
 
 function normalizeDate(date?: string) {
-  if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
-  return getPacificBusinessDate();
+  const normalized = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : getPacificBusinessDate();
+  if (isFuturePacificBusinessDate(normalized)) {
+    throw new Error("Future business dates are not allowed.");
+  }
+  return normalized;
 }
 
 const KG_TO_WEIGHT_OUNCES = 35.27396195;
@@ -976,6 +979,7 @@ export async function createOpeningChecklist(input: InsertOpeningChecklist) {
     businessDate: normalizeDate(input.businessDate),
   };
 
+  await db.delete(openingChecklists).where(eq(openingChecklists.businessDate, values.businessDate));
   await db.insert(openingChecklists).values(values);
   return values;
 }
@@ -989,6 +993,7 @@ export async function createClosingChecklist(input: InsertClosingChecklist) {
     businessDate: normalizeDate(input.businessDate),
   };
 
+  await db.delete(closingChecklists).where(eq(closingChecklists.businessDate, values.businessDate));
   await db.insert(closingChecklists).values(values);
   return values;
 }
@@ -1002,6 +1007,7 @@ export async function createEndOfDayReport(input: InsertEndOfDayReport) {
     businessDate: normalizeDate(input.businessDate),
   };
 
+  await db.delete(endOfDayReports).where(eq(endOfDayReports.businessDate, values.businessDate));
   await db.insert(endOfDayReports).values(values);
   return values;
 }
@@ -1293,6 +1299,13 @@ export async function createSubmissionHistoryEntry(input: {
     payloadJson: JSON.stringify(input.payload ?? {}),
     submittedByUserId: input.submittedByUserId,
   };
+
+  await db.delete(submissionHistoryEntries).where(
+    and(
+      eq(submissionHistoryEntries.businessDate, values.businessDate),
+      eq(submissionHistoryEntries.submissionType, values.submissionType)
+    )
+  );
 
   const result = await db.insert(submissionHistoryEntries).values(values);
 

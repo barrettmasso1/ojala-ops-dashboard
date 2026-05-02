@@ -427,6 +427,43 @@ describe("operations router", () => {
     });
   });
 
+  it("rejects future business dates before creating a new opening submission", async () => {
+    const caller = appRouter.createCaller(createContext("user"));
+
+    await expect(
+      caller.forms.submitOpening({
+        businessDate: "2099-05-03",
+        staffName: "Ava",
+        startingCash: 120,
+        cashCountedAndCorrect: "Yes",
+        storeReadyToOpen: "Yes",
+        stockCounts: {
+          cups4oz: 24,
+          cups8oz: 18,
+          cupsPint: 12,
+          cupsLiter: 6,
+          lids4oz: 24,
+          lids8oz: 18,
+          lidsPint: 12,
+          lidsLiter: 6,
+          spoons: 140,
+        },
+        checklistAnswers: [
+          {
+            questionId: 1,
+            sectionTitle: "Equipment",
+            prompt: "Freezers ON and cold",
+            answer: "Yes",
+            detail: "",
+          },
+        ],
+        notes: "",
+      })
+    ).rejects.toThrow("Future business dates are not allowed.");
+
+    expect(dbMocks.createOpeningChecklist).not.toHaveBeenCalled();
+  });
+
   it("lets admin users load submission history for the selected business date", async () => {
     dbMocks.listSubmissionHistoryEntries.mockResolvedValue([
       {
