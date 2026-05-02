@@ -96,6 +96,7 @@ type ReadyMadeGelatoState = {
 };
 
 type GelatoEntryMode = "manual" | "photo";
+type AnalyzedPhotoPanSetup = "small" | "large" | "small_large" | "needs_review";
 
 type ExtractedGelatoPhoto = {
   fileName: string;
@@ -211,6 +212,35 @@ export function resolveAnalyzedPhotoGrossWeights(photo: Pick<ExtractedGelatoPhot
   };
 }
 
+export function getAnalyzedPhotoPanSetup(photo: Pick<ExtractedGelatoPhoto, "smallPanCount" | "largePanCount">): AnalyzedPhotoPanSetup {
+  if (photo.smallPanCount > 0 && photo.largePanCount > 0) return "small_large";
+  if (photo.smallPanCount > 0) return "small";
+  if (photo.largePanCount > 0) return "large";
+  return "needs_review";
+}
+
+export function applyAnalyzedPhotoPanSetup(setup: AnalyzedPhotoPanSetup) {
+  if (setup === "small") {
+    return { smallPanCount: 1, largePanCount: 0 };
+  }
+
+  if (setup === "large") {
+    return { smallPanCount: 0, largePanCount: 1 };
+  }
+
+  if (setup === "small_large") {
+    return { smallPanCount: 1, largePanCount: 1 };
+  }
+
+  return { smallPanCount: 0, largePanCount: 0 };
+}
+
+function analyzedPhotoConfidenceClassName(confidence: ExtractedGelatoPhoto["confidence"]) {
+  if (confidence === "high") return "bg-[#dbe9df] text-[#244233]";
+  if (confidence === "medium") return "bg-[#f4e6c9] text-[#6c4f1f]";
+  return "bg-[#f7d8d2] text-[#7c3428]";
+}
+
 export function applyAnalyzedPhotosToGelatoState(
   current: ReadyMadeGelatoState,
   shiftType: ReadyMadeGelatoShiftKey,
@@ -256,6 +286,31 @@ export function applyAnalyzedPhotosToGelatoState(
     ...current,
     flavors: nextFlavors,
   };
+}
+
+export function replaceAnalyzedPhotosInGelatoState(
+  current: ReadyMadeGelatoState,
+  shiftType: ReadyMadeGelatoShiftKey,
+  photos: ExtractedGelatoPhoto[]
+) {
+  const resetFlavors = Object.fromEntries(
+    Object.entries(current.flavors).map(([flavor, shifts]) => [
+      flavor,
+      {
+        ...shifts,
+        [shiftType]: initialReadyMadeGelatoShiftState(),
+      },
+    ])
+  ) as Record<string, ReadyMadeGelatoFlavorState>;
+
+  return applyAnalyzedPhotosToGelatoState(
+    {
+      ...current,
+      flavors: resetFlavors,
+    },
+    shiftType,
+    photos,
+  );
 }
 
 function cloneShiftState(shift?: Partial<ReadyMadeGelatoShiftState>): ReadyMadeGelatoShiftState {
@@ -947,6 +1002,23 @@ export default function EmployeePortal(props: any) {
     setGelatoAnalyzedPhotos(current => ({ ...current, [shiftType]: [] }));
   }
 
+  function replaceShiftAnalyzedPhotos(shiftType: ReadyMadeGelatoShiftKey, photos: ExtractedGelatoPhoto[]) {
+    setGelatoAnalyzedPhotos(current => ({ ...current, [shiftType]: photos }));
+    setReadyMadeGelato(current => replaceAnalyzedPhotosInGelatoState(current, shiftType, photos));
+  }
+
+  function updateAnalyzedPhotoReview(
+    shiftType: ReadyMadeGelatoShiftKey,
+    photoIndex: number,
+    updater: (photo: ExtractedGelatoPhoto) => ExtractedGelatoPhoto,
+  ) {
+    const nextPhotos = (gelatoAnalyzedPhotos[shiftType] ?? []).map((photo, index) =>
+      index === photoIndex ? updater(photo) : photo
+    );
+
+    replaceShiftAnalyzedPhotos(shiftType, nextPhotos);
+  }
+
   async function analyzeGelatoPhotos(shiftType: ReadyMadeGelatoShiftKey) {
     const selectedFiles = gelatoPhotoFiles[shiftType] ?? [];
     if (selectedFiles.length === 0) {
@@ -964,11 +1036,8 @@ export default function EmployeePortal(props: any) {
       );
 
       const result = await extractGelatoPhotosMutation.mutateAsync({ shiftType, photos });
-      setReadyMadeGelato(current => applyAnalyzedPhotosToGelatoState(current, shiftType, result.extractedPhotos));
-      setGelatoAnalyzedPhotos(current => ({
-        ...current,
-        [shiftType]: [...(current[shiftType] ?? []), ...result.extractedPhotos],
-      }));
+      const nextAnalyzedPhotos = [...(gelatoAnalyzedPhotos[shiftType] ?? []), ...result.extractedPhotos];
+      replaceShiftAnalyzedPhotos(shiftType, nextAnalyzedPhotos);
       clearGelatoPhotoSelection(shiftType);
 
       const analyzedCount = result.extractedPhotos.length;
@@ -1277,6 +1346,7 @@ export default function EmployeePortal(props: any) {
   function renderGelatoSection(shiftType: ReadyMadeGelatoShiftKey, allowAddFlavor = false, descriptionText?: string, weightLabel?: string) {
     const entryMode = gelatoEntryMode[shiftType] ?? "manual";
     const selectedFiles = gelatoPhotoFiles[shiftType] ?? [];
+    const analyzedPhotos = gelatoAnalyzedPhotos[shiftType] ?? [];
     const photoInputRef = shiftType === "opening" ? openingPhotoInputRef : closingPhotoInputRef;
     const isAnalyzingPhotos = extractGelatoPhotosMutation.isPending;
 
@@ -1372,37 +1442,137 @@ export default function EmployeePortal(props: any) {
           ) : null}
         </div>
 
-        <div className="mt-4 grid gap-4 lg:grid-cols-2">
-          {readyMadeGelatoFlavorNames.map(flavor => {
-            const shift = readyMadeGelato.flavors[flavor]?.[shiftType] ?? initialReadyMadeGelatoShiftState();
-            return (
-              <div key={`${shiftType}-${flavor}`} className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] p-4 shadow-sm">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <h3 className="text-lg font-medium tracking-[-0.03em] text-[#2d2925]">{t(flavor)}</h3>
-                  <span className="text-[11px] uppercase tracking-[0.26em] text-[#8a8176]">{weightLabel ?? t(shiftType === "opening" ? "Opening weights" : "Closing weights")}</span>
-                </div>
-                <div className="grid gap-3">
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <Field label={t("Small Pans")}>
-                      <input className={smallInputClassName()} type="number" min="0" step="1" value={shift.smallPanCount} onChange={event => updateGelatoField(shiftType, flavor, "smallPanCount", event.target.value)} />
-                    </Field>
-                    <Field label={t("Small Gross Weight kg")}>
-                      <input className={smallInputClassName()} type="number" min="0" step={GELATO_WEIGHT_INPUT_STEP} inputMode={GELATO_WEIGHT_INPUT_MODE} value={shift.smallGrossWeightKg} onChange={event => updateGelatoField(shiftType, flavor, "smallGrossWeightKg", event.target.value)} />
-                    </Field>
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <Field label={t("Large Pans")}>
-                      <input className={smallInputClassName()} type="number" min="0" step="1" value={shift.largePanCount} onChange={event => updateGelatoField(shiftType, flavor, "largePanCount", event.target.value)} />
-                    </Field>
-                    <Field label={t("Large Gross Weight kg")}>
-                      <input className={smallInputClassName()} type="number" min="0" step={GELATO_WEIGHT_INPUT_STEP} inputMode={GELATO_WEIGHT_INPUT_MODE} value={shift.largeGrossWeightKg} onChange={event => updateGelatoField(shiftType, flavor, "largeGrossWeightKg", event.target.value)} />
-                    </Field>
-                  </div>
-                </div>
+        {entryMode === "photo" ? (
+          <div className="mt-4 space-y-4">
+            <datalist id={`gelato-flavor-options-${shiftType}`}>
+              {READY_MADE_GELATO_FLAVORS.map(flavor => (
+                <option key={`${shiftType}-flavor-option-${flavor}`} value={flavor} />
+              ))}
+            </datalist>
+            {analyzedPhotos.length === 0 ? (
+              <div className="rounded-[1.4rem] border border-[#e5ddd0] bg-[#fcfaf6] px-5 py-4 text-sm leading-7 text-[#625b53] shadow-sm">
+                {t("Analyze one or more scale photos to review each uploaded image and its extracted flavor, pan setup, and kilogram reading here before you submit.")}
               </div>
-            );
-          })}
-        </div>
+            ) : (
+              <div className="grid gap-4">
+                {analyzedPhotos.map((photo, index) => {
+                  const panSetup = getAnalyzedPhotoPanSetup(photo);
+                  return (
+                    <article key={`${shiftType}-${photo.fileName}-${index}`} className="overflow-hidden rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] shadow-sm">
+                      <div className="grid gap-4 p-4 lg:grid-cols-[180px_minmax(0,1fr)]">
+                        <div className="overflow-hidden rounded-[1.25rem] border border-[#e5ddd0] bg-white">
+                          <img src={photo.imageUrl} alt={photo.fileName} className="h-full min-h-40 w-full object-cover" />
+                        </div>
+                        <div className="grid gap-4">
+                          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                            <div>
+                              <p className="text-sm font-medium text-[#2d2925]">{photo.fileName}</p>
+                              <p className="mt-1 text-xs uppercase tracking-[0.22em] text-[#8a8176]">{t("Photo review")}</p>
+                            </div>
+                            <span className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] ${analyzedPhotoConfidenceClassName(photo.confidence)}`}>
+                              {photo.confidence}
+                            </span>
+                          </div>
+                          <div className="grid gap-3 md:grid-cols-3">
+                            <Field label={t("Flavor")}>
+                              <input
+                                className={smallInputClassName()}
+                                value={photo.flavor}
+                                list={`gelato-flavor-options-${shiftType}`}
+                                onChange={event =>
+                                  updateAnalyzedPhotoReview(shiftType, index, current => ({
+                                    ...current,
+                                    flavor: event.target.value,
+                                  }))
+                                }
+                              />
+                            </Field>
+                            <Field label={t("Pan setup")}>
+                              <select
+                                className={smallInputClassName()}
+                                value={panSetup}
+                                onChange={event => {
+                                  const nextSetup = event.target.value as AnalyzedPhotoPanSetup;
+                                  updateAnalyzedPhotoReview(shiftType, index, current => ({
+                                    ...current,
+                                    ...applyAnalyzedPhotoPanSetup(nextSetup),
+                                  }));
+                                }}
+                              >
+                                <option value="needs_review">{t("Needs review")}</option>
+                                <option value="small">{t("Small pan")}</option>
+                                <option value="large">{t("Large pan")}</option>
+                                <option value="small_large">{t("Small + large")}</option>
+                              </select>
+                            </Field>
+                            <Field label={t("Combined Gross Weight kg")}>
+                              <input
+                                className={smallInputClassName()}
+                                type="number"
+                                min="0"
+                                step={GELATO_WEIGHT_INPUT_STEP}
+                                inputMode={GELATO_WEIGHT_INPUT_MODE}
+                                value={displayNumberValue(photo.combinedGrossWeightKg)}
+                                onChange={event =>
+                                  updateAnalyzedPhotoReview(shiftType, index, current => ({
+                                    ...current,
+                                    combinedGrossWeightKg: Number(event.target.value || 0),
+                                  }))
+                                }
+                              />
+                            </Field>
+                          </div>
+                          <div className="rounded-[1.25rem] border border-[#e5ddd0] bg-white/80 px-4 py-3 text-sm text-[#5f6a64]">
+                            <p>
+                              {photo.smallPanCount} {t("small pan")} · {photo.largePanCount} {t("large pan")} · {displayNumberValue(photo.combinedGrossWeightKg) || "0"} kg
+                            </p>
+                          </div>
+                          {photo.warning ? (
+                            <p className="rounded-[1.25rem] border border-[#efd7cf] bg-[#fff5f1] px-4 py-3 text-sm leading-6 text-[#7c3428]">
+                              {photo.warning}
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            {readyMadeGelatoFlavorNames.map(flavor => {
+              const shift = readyMadeGelato.flavors[flavor]?.[shiftType] ?? initialReadyMadeGelatoShiftState();
+              return (
+                <div key={`${shiftType}-${flavor}`} className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] p-4 shadow-sm">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <h3 className="text-lg font-medium tracking-[-0.03em] text-[#2d2925]">{t(flavor)}</h3>
+                    <span className="text-[11px] uppercase tracking-[0.26em] text-[#8a8176]">{weightLabel ?? t(shiftType === "opening" ? "Opening weights" : "Closing weights")}</span>
+                  </div>
+                  <div className="grid gap-3">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <Field label={t("Small Pans")}>
+                        <input className={smallInputClassName()} type="number" min="0" step="1" value={shift.smallPanCount} onChange={event => updateGelatoField(shiftType, flavor, "smallPanCount", event.target.value)} />
+                      </Field>
+                      <Field label={t("Small Gross Weight kg")}>
+                        <input className={smallInputClassName()} type="number" min="0" step={GELATO_WEIGHT_INPUT_STEP} inputMode={GELATO_WEIGHT_INPUT_MODE} value={shift.smallGrossWeightKg} onChange={event => updateGelatoField(shiftType, flavor, "smallGrossWeightKg", event.target.value)} />
+                      </Field>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <Field label={t("Large Pans")}>
+                        <input className={smallInputClassName()} type="number" min="0" step="1" value={shift.largePanCount} onChange={event => updateGelatoField(shiftType, flavor, "largePanCount", event.target.value)} />
+                      </Field>
+                      <Field label={t("Large Gross Weight kg")}>
+                        <input className={smallInputClassName()} type="number" min="0" step={GELATO_WEIGHT_INPUT_STEP} inputMode={GELATO_WEIGHT_INPUT_MODE} value={shift.largeGrossWeightKg} onChange={event => updateGelatoField(shiftType, flavor, "largeGrossWeightKg", event.target.value)} />
+                      </Field>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {allowAddFlavor ? (
           <div className="mt-6 flex justify-end">

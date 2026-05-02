@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyAnalyzedPhotoPanSetup,
   applyAnalyzedPhotosToGelatoState,
   GELATO_WEIGHT_INPUT_MODE,
   GELATO_WEIGHT_INPUT_STEP,
+  getAnalyzedPhotoPanSetup,
+  replaceAnalyzedPhotosInGelatoState,
   resolveAnalyzedPhotoGrossWeights,
 } from "./EmployeePortal";
 
@@ -24,6 +27,15 @@ describe("employee portal gelato helpers", () => {
     expect(resolved.smallGrossWeightKg).toBeGreaterThan(0.28);
     expect(resolved.largeGrossWeightKg).toBeGreaterThan(0.4);
     expect(Number((resolved.smallGrossWeightKg + resolved.largeGrossWeightKg).toFixed(3))).toBe(3.95);
+  });
+
+  it("maps photo-review pan setup selections back to single-pan and paired-pan counts", () => {
+    expect(applyAnalyzedPhotoPanSetup("small")).toEqual({ smallPanCount: 1, largePanCount: 0 });
+    expect(applyAnalyzedPhotoPanSetup("large")).toEqual({ smallPanCount: 0, largePanCount: 1 });
+    expect(applyAnalyzedPhotoPanSetup("small_large")).toEqual({ smallPanCount: 1, largePanCount: 1 });
+    expect(getAnalyzedPhotoPanSetup({ smallPanCount: 1, largePanCount: 0 })).toBe("small");
+    expect(getAnalyzedPhotoPanSetup({ smallPanCount: 0, largePanCount: 1 })).toBe("large");
+    expect(getAnalyzedPhotoPanSetup({ smallPanCount: 1, largePanCount: 1 })).toBe("small_large");
   });
 
   it("applies analyzed photo results into the existing portal flavor state and creates new flavors when needed", () => {
@@ -75,5 +87,59 @@ describe("employee portal gelato helpers", () => {
     expect(next.flavors["Chocolate"].opening.largePanCount).toBe("1");
     expect(Number(next.flavors["Chocolate"].opening.largeGrossWeightKg)).toBeGreaterThan(3);
     expect(next.flavors["Chocolate"].closing.largePanCount).toBe("");
+  });
+
+  it("replaces photo-derived shift values so stale manual rows do not stay hidden behind photo mode", () => {
+    const state = {
+      businessDate: "2026-05-02",
+      flavors: {
+        Vanilla: {
+          opening: {
+            smallPanCount: "2",
+            smallGrossWeightKg: "2.84",
+            largePanCount: "1",
+            largeGrossWeightKg: "3.15",
+          },
+          closing: {
+            smallPanCount: "",
+            smallGrossWeightKg: "",
+            largePanCount: "",
+            largeGrossWeightKg: "",
+          },
+        },
+        Chocolate: {
+          opening: {
+            smallPanCount: "1",
+            smallGrossWeightKg: "1.48",
+            largePanCount: "",
+            largeGrossWeightKg: "",
+          },
+          closing: {
+            smallPanCount: "",
+            smallGrossWeightKg: "",
+            largePanCount: "",
+            largeGrossWeightKg: "",
+          },
+        },
+      },
+    };
+
+    const next = replaceAnalyzedPhotosInGelatoState(state, "opening", [
+      {
+        fileName: "vanilla.jpg",
+        imageUrl: "/vanilla",
+        flavor: "Vanilla",
+        smallPanCount: 1,
+        largePanCount: 0,
+        combinedGrossWeightKg: 1.52,
+        confidence: "high",
+        warning: "",
+      },
+    ]);
+
+    expect(next.flavors.Vanilla.opening.smallPanCount).toBe("1");
+    expect(next.flavors.Vanilla.opening.largePanCount).toBe("");
+    expect(next.flavors.Chocolate.opening.smallPanCount).toBe("");
+    expect(next.flavors.Chocolate.opening.smallGrossWeightKg).toBe("");
   });
 });

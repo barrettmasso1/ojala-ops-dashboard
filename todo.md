@@ -196,3 +196,6 @@
 - [x] Show a live Pacific date and time on both the employee and manager views so staff can always see the current operating day and local time
 - [x] Add a localized duplicate-submission confirmation asking whether to replace the existing same-day record before submitting again
 - [x] Ensure the replace-confirmation message works in at least English and Spanish based on the currently selected language
+- [x] Fix the ready-made gelato photo mode so selecting Use photos hides the manual gelato-entry cards until staff switch back to Manual entry
+- [x] Keep uploaded gelato photos and extracted review rows visible after analysis on desktop and mobile so staff can edit, add more photos, or submit from the same photo workflow
+- [x] Default single-pan gelato photo detections to a small pan unless staff manually change the pan size

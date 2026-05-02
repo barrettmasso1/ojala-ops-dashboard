@@ -1,5 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { buildGroupedGelatoEntries, type ExtractedGelatoPhoto } from "./gelatoPhotoPilot";
+import { buildGroupedGelatoEntries, normalizeSinglePanPhotoCounts, type ExtractedGelatoPhoto } from "./gelatoPhotoPilot";
+
+describe("normalizeSinglePanPhotoCounts", () => {
+  it("defaults any single detected pan to the small-pan workflow", () => {
+    expect(normalizeSinglePanPhotoCounts({ smallPanCount: 0, largePanCount: 1 })).toEqual({
+      smallPanCount: 1,
+      largePanCount: 0,
+    });
+    expect(normalizeSinglePanPhotoCounts({ smallPanCount: 1, largePanCount: 0 })).toEqual({
+      smallPanCount: 1,
+      largePanCount: 0,
+    });
+    expect(normalizeSinglePanPhotoCounts({ smallPanCount: 1, largePanCount: 1 })).toEqual({
+      smallPanCount: 1,
+      largePanCount: 1,
+    });
+  });
+});
 
 describe("buildGroupedGelatoEntries", () => {
   it("groups same-flavor single-pan and combined small-plus-large photos by flavor", () => {

@@ -67,6 +67,23 @@ function normalizePanCount(rawCount: number) {
   return 1;
 }
 
+export function normalizeSinglePanPhotoCounts(input: Pick<ExtractedGelatoPhoto, "smallPanCount" | "largePanCount">) {
+  const smallPanCount = normalizePanCount(input.smallPanCount);
+  const largePanCount = normalizePanCount(input.largePanCount);
+
+  if (smallPanCount + largePanCount === 1) {
+    return {
+      smallPanCount: 1,
+      largePanCount: 0,
+    };
+  }
+
+  return {
+    smallPanCount,
+    largePanCount,
+  };
+}
+
 export function buildGroupedGelatoEntries(
   extractedPhotos: ExtractedGelatoPhoto[]
 ): GroupedGelatoEntry[] {
@@ -128,7 +145,7 @@ async function extractSinglePhoto(
       {
         role: "system",
         content:
-          "You extract gelato inventory data from a single photo. Each photo should show either one small pan, one large pan, or one small pan plus one large pan of the same flavor on a single scale. Return one flavor name, the small-pan count, the large-pan count, and the combined gross weight in kilograms. If anything is unclear, lower confidence and explain briefly in warning.",
+          "You extract gelato inventory data from a single photo. Each photo should show either one pan or one small pan plus one large pan of the same flavor on a single scale. When exactly one pan is visible, default it to a small pan unless the image is unmistakably a small-plus-large pair. Return one flavor name, the small-pan count, the large-pan count, and the combined gross weight in kilograms. If anything is unclear, lower confidence and explain briefly in warning.",
       },
       {
         role: "user",
@@ -196,13 +213,17 @@ async function extractSinglePhoto(
   }
 
   const parsed = JSON.parse(content) as LlmExtractionResult;
+  const normalizedCounts = normalizeSinglePanPhotoCounts({
+    smallPanCount: parsed.small_pan_count,
+    largePanCount: parsed.large_pan_count,
+  });
 
   return {
     fileName: photo.fileName,
     imageUrl: uploaded.url,
     flavor: normalizeFlavorName(parsed.flavor),
-    smallPanCount: normalizePanCount(parsed.small_pan_count),
-    largePanCount: normalizePanCount(parsed.large_pan_count),
+    smallPanCount: normalizedCounts.smallPanCount,
+    largePanCount: normalizedCounts.largePanCount,
     combinedGrossWeightKg: roundTo(parsed.gross_weight_kg),
     confidence: normalizeConfidence(parsed.confidence),
     warning: parsed.warning.trim(),
