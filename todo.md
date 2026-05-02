@@ -193,3 +193,6 @@
 - [x] Let staff save in-progress work, but require any completed same-shift resubmission to replace the previous record instead of duplicating it
 - [x] Block future business dates in the staff-form calendars so no submission can be created ahead of the current Pacific business day
 - [x] Verify the current Pacific business date and time resolve correctly for May 2 at approximately 1:30 PM
+- [x] Show a live Pacific date and time on both the employee and manager views so staff can always see the current operating day and local time
+- [x] Add a localized duplicate-submission confirmation asking whether to replace the existing same-day record before submitting again
+- [x] Ensure the replace-confirmation message works in at least English and Spanish based on the currently selected language

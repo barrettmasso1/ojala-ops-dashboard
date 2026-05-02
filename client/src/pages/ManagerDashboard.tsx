@@ -4,7 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getLoginUrl } from "@/const";
 import { buildManagerReconciliationSnapshot, MANAGER_INVENTORY_TABS, type ManagerInventoryView } from "@/lib/managerReconciliation";
 import { trpc } from "@/lib/trpc";
-import { getPacificBusinessDate } from "../../../shared/businessDate";
+import { formatPacificCalendarDate, formatPacificTime, getPacificBusinessDate } from "../../../shared/businessDate";
 import {
   AlertTriangle,
   CalendarRange,
@@ -173,7 +173,10 @@ export default function ManagerDashboard() {
     redirectPath: getLoginUrl(redirectPath),
   });
   const utils = trpc.useUtils();
+  const [liveNow, setLiveNow] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(todayValue());
+  const currentPacificDateLabel = useMemo(() => formatPacificCalendarDate(liveNow, "en-US"), [liveNow]);
+  const currentPacificTimeLabel = useMemo(() => formatPacificTime(liveNow, "en-US"), [liveNow]);
   const [inventoryDashboardView, setInventoryDashboardView] = useState<ManagerInventoryView>("product");
   const [inventoryForm, setInventoryForm] = useState({
     id: undefined as number | undefined,
@@ -219,6 +222,11 @@ export default function ManagerDashboard() {
       setInventoryForm(current => ({ ...current, lastCountDate: maxBusinessDate }));
     }
   }, [inventoryForm.lastCountDate, maxBusinessDate, selectedDate]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setLiveNow(new Date()), 30000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   const dailyQuery = trpc.dashboard.daily.useQuery(
     { businessDate: selectedDate },
@@ -458,6 +466,11 @@ export default function ManagerDashboard() {
                   {isOverviewRoute
                     ? `Quick day view active for ${selectedDate}.`
                     : `Manager workspace filtered by ${selectedDate}.`}
+                </div>
+                <div className="rounded-full border border-[#ded5c8] bg-white/80 px-4 py-3 text-sm text-[#4f5b55] shadow-sm">
+                  <p className="text-[10px] uppercase tracking-[0.24em] text-[#8b9088]">Live Pacific time</p>
+                  <p className="mt-1 font-medium text-[#24332f]">{currentPacificDateLabel}</p>
+                  <p className="mt-1 text-base font-semibold tracking-[-0.02em] text-[#1f2b27]">{currentPacificTimeLabel}</p>
                 </div>
               </div>
             </div>

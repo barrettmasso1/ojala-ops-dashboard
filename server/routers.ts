@@ -12,6 +12,7 @@ import {
   createOpeningChecklist,
   createSubmissionHistoryEntry,
   getDailyOperationsSnapshot,
+  getSubmissionStatusForBusinessDate,
   getInventoryAlerts,
   getRecentNotes,
   getSalesTrend,
@@ -300,6 +301,13 @@ export const appRouter = router({
     checklistQuestions: protectedProcedure.input(z.object({ checklistType: checklistTypeSchema })).query(async ({ input }) => listChecklistQuestions(input.checklistType)),
     inventoryItems: protectedProcedure.query(async () => listInventoryItems()),
     readyMadeGelatoWeights: protectedProcedure.input(z.object({ businessDate: z.string().optional() }).optional()).query(async ({ input }) => listReadyMadeGelatoWeights(input?.businessDate)),
+    submissionStatus: protectedProcedure
+      .input(
+        z.object({
+          businessDate: requiredBusinessDateSchema,
+        })
+      )
+      .query(async ({ input }) => getSubmissionStatusForBusinessDate(input.businessDate)),
     submitInventoryUpdate: protectedProcedure.input(inventoryUpdateSchema).mutation(async ({ ctx, input }) => {
       const item = await updateInventoryCount({
         id: input.id,

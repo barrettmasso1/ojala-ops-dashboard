@@ -2,7 +2,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { type PortalLanguage, translateErrorMessage, translatePortalText } from "@/lib/employeePortalI18n";
 import { getOpeningNapkinsQuestion, groupOpeningQuestionsForPortal } from "@/lib/openingSetup";
 import { savePortalDraft, loadPortalDraft, clearPortalDraft } from "@/lib/portalDrafts";
-import { getPacificBusinessDate } from "../../../shared/businessDate";
+import { formatPacificCalendarDate, formatPacificTime, getPacificBusinessDate } from "../../../shared/businessDate";
 import { trpc } from "@/lib/trpc";
 import { ArrowRight, ClipboardCheck, House, LoaderCircle, LogOut, MoonStar, Package2, ReceiptText, Save, SunMedium, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -153,8 +153,8 @@ const openingDraftKey = "opening" as const;
 const closingDraftKey = "closing" as const;
 const inventoryDraftKey = "inventory" as const;
 
-function todayValue() {
-  return getPacificBusinessDate();
+function todayValue(date = new Date()) {
+  return getPacificBusinessDate(date);
 }
 
 function displayNumberValue(value: number | string | null | undefined) {
@@ -550,8 +550,12 @@ export default function EmployeePortal(props: any) {
   const utils = trpc.useUtils();
   const [location] = useLocation();
   const [language, setLanguage] = useState<PortalLanguage>("en");
+  const [liveNow, setLiveNow] = useState(() => new Date());
   const t = (text: string) => translatePortalText(text, language);
-  const currentBusinessDate = todayValue();
+  const locale = language === "es" ? "es-US" : "en-US";
+  const currentBusinessDate = useMemo(() => todayValue(liveNow), [liveNow]);
+  const currentPacificDateLabel = useMemo(() => formatPacificCalendarDate(liveNow, locale), [liveNow, locale]);
+  const currentPacificTimeLabel = useMemo(() => formatPacificTime(liveNow, locale), [liveNow, locale]);
   const portalView: PortalView =
     defaultView ??
     (location.endsWith("/inventory") ? "inventory" : location.endsWith("/closing") ? "closing" : location.endsWith("/opening") ? "opening" : "hub");
@@ -592,6 +596,10 @@ export default function EmployeePortal(props: any) {
   const closingQuestionsQuery = trpc.forms.checklistQuestions.useQuery({ checklistType: "closing" });
   const inventoryItemsQuery = trpc.forms.inventoryItems.useQuery();
   const readyMadeGelatoQuery = trpc.forms.readyMadeGelatoWeights.useQuery({ businessDate: currentBusinessDate });
+  const submissionStatusQuery = trpc.forms.submissionStatus.useQuery(
+    { businessDate: currentBusinessDate },
+    { refetchOnWindowFocus: false }
+  );
 
   const openingMutation = trpc.forms.submitOpening.useMutation({
     onError: error => toast.error(translateErrorMessage(error.message, language)),
@@ -671,6 +679,11 @@ export default function EmployeePortal(props: any) {
     setClosingForm(current => ({ ...current, businessDate: currentBusinessDate }));
     setReadyMadeGelato(current => ({ ...current, businessDate: currentBusinessDate }));
   }, [currentBusinessDate]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setLiveNow(new Date()), 30000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (inventoryItems.length === 0) return;
@@ -985,6 +998,28 @@ export default function EmployeePortal(props: any) {
     return updatedItems;
   }
 
+  async function confirmReplacementIfNeeded(view: Exclude<PortalView, "hub">) {
+    const latestStatus = submissionStatusQuery.data?.businessDate === currentBusinessDate
+      ? submissionStatusQuery.data
+      : (await submissionStatusQuery.refetch()).data;
+
+    const alreadyExists = view === "opening"
+      ? latestStatus?.openingExists
+      : view === "closing"
+        ? latestStatus?.closingExists
+        : latestStatus?.inventoryExists;
+
+    if (!alreadyExists) return true;
+
+    const message = view === "opening"
+      ? t("An opening submission already exists for this business date. Do you want to replace it with this new opening form?")
+      : view === "closing"
+        ? t("A closing submission already exists for this business date. Do you want to replace it with this new closing form?")
+        : t("An inventory submission already exists for this business date. Do you want to replace it with this new inventory form?");
+
+    return window.confirm(`${t("Replace existing submission?")}\n\n${message}`);
+  }
+
   async function handleOpeningSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const normalizedStaffName = getNormalizedStaffName(openingForm.staffName, openingStaffNameRef.current?.value);
@@ -994,6 +1029,9 @@ export default function EmployeePortal(props: any) {
     }
 
     try {
+      const shouldReplace = await confirmReplacementIfNeeded("opening");
+      if (!shouldReplace) return;
+
       const openingChecklistPayload = buildAnswersPayload(openingQuestions, openingAnswers);
       const openingGelatoEntries = buildReadyMadeEntries("opening");
 
@@ -1066,6 +1104,9 @@ export default function EmployeePortal(props: any) {
     }
 
     try {
+      const shouldReplace = await confirmReplacementIfNeeded("closing");
+      if (!shouldReplace) return;
+
       const closingChecklistPayload = buildAnswersPayload(closingQuestions, closingAnswers);
       const closingGelatoEntries = buildReadyMadeEntries("closing");
 
@@ -1147,6 +1188,9 @@ export default function EmployeePortal(props: any) {
     event.preventDefault();
 
     try {
+      const shouldReplace = await confirmReplacementIfNeeded("inventory");
+      if (!shouldReplace) return;
+
       const inventoryGelatoEntries = buildReadyMadeEntries("opening");
       const updatedItems = await submitInventoryPayloads(
         buildFullInventoryPayloads().map(payload => ({ ...payload, notifyOwner: false }))
@@ -1447,6 +1491,12 @@ export default function EmployeePortal(props: any) {
               </div>
 
               <div className="flex flex-col gap-3">
+                <div className="rounded-[1.5rem] border border-[#d8cec1] bg-white/88 px-4 py-3 text-sm shadow-sm">
+                  <p className="text-[10px] uppercase tracking-[0.28em] text-[#8a8177]">{t("Live Pacific time")}</p>
+                  <p className="mt-2 text-sm font-medium text-[#2d2925]">{currentPacificDateLabel}</p>
+                  <p className="mt-1 text-lg font-semibold tracking-[-0.03em] text-[#2f2a26]">{currentPacificTimeLabel}</p>
+                  <p className="mt-2 text-xs text-[#7d756b]">{t("Business day")}: {currentBusinessDate}</p>
+                </div>
                 <div className="rounded-[1.5rem] border border-[#e5ddd0] bg-[#f9f4ec] p-3 shadow-sm">
                   <p className="text-[11px] uppercase tracking-[0.28em] text-[#7d756b]">{t("Language")}</p>
                   <div className="mt-3 flex flex-wrap gap-2">

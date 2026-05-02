@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   checklistQuestions,
@@ -1332,6 +1332,42 @@ export async function listSubmissionHistoryEntries(businessDate?: string) {
     payload: safeParseJson<Record<string, unknown>>(row.payloadJson, {}),
   }));
 }
+
+export async function getSubmissionStatusForBusinessDate(businessDate?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const normalizedDate = normalizeDate(businessDate);
+  const [openingRows, closingRows, inventoryRows, openingChecklistRows, closingChecklistRows, reportRows] = await Promise.all([
+    db
+      .select({ total: count() })
+      .from(submissionHistoryEntries)
+      .where(and(eq(submissionHistoryEntries.businessDate, normalizedDate), eq(submissionHistoryEntries.submissionType, "opening"))),
+    db
+      .select({ total: count() })
+      .from(submissionHistoryEntries)
+      .where(and(eq(submissionHistoryEntries.businessDate, normalizedDate), eq(submissionHistoryEntries.submissionType, "closing"))),
+    db
+      .select({ total: count() })
+      .from(submissionHistoryEntries)
+      .where(and(eq(submissionHistoryEntries.businessDate, normalizedDate), eq(submissionHistoryEntries.submissionType, "inventory"))),
+    db.select({ total: count() }).from(openingChecklists).where(eq(openingChecklists.businessDate, normalizedDate)),
+    db.select({ total: count() }).from(closingChecklists).where(eq(closingChecklists.businessDate, normalizedDate)),
+    db.select({ total: count() }).from(endOfDayReports).where(eq(endOfDayReports.businessDate, normalizedDate)),
+  ]);
+
+  const openingCount = Number(openingRows[0]?.total ?? 0) + Number(openingChecklistRows[0]?.total ?? 0);
+  const closingCount = Number(closingRows[0]?.total ?? 0) + Number(closingChecklistRows[0]?.total ?? 0);
+  const inventoryCount = Number(inventoryRows[0]?.total ?? 0) + Number(reportRows[0]?.total ?? 0);
+
+  return {
+    businessDate: normalizedDate,
+    openingExists: openingCount > 0,
+    closingExists: closingCount > 0,
+    inventoryExists: inventoryCount > 0,
+  } as const;
+}
+
 
 export function buildRecipeCostSummaries(
   recipeRows: Array<{ id: number; name: string; batchYieldOunces: string | number | null; notes?: string | null; processSteps?: string | null }>,

@@ -21,6 +21,37 @@ export function getPacificBusinessDate(date = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+export function formatPacificDateTime(
+  date = new Date(),
+  locale: Intl.LocalesArgument = "en-US",
+  options?: Intl.DateTimeFormatOptions,
+) {
+  return new Intl.DateTimeFormat(locale, {
+    timeZone: BUSINESS_TIME_ZONE,
+    dateStyle: "full",
+    timeStyle: "short",
+    ...options,
+  }).format(date);
+}
+
+export function formatPacificTime(date = new Date(), locale: Intl.LocalesArgument = "en-US") {
+  return new Intl.DateTimeFormat(locale, {
+    timeZone: BUSINESS_TIME_ZONE,
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
+export function formatPacificCalendarDate(date = new Date(), locale: Intl.LocalesArgument = "en-US") {
+  return new Intl.DateTimeFormat(locale, {
+    timeZone: BUSINESS_TIME_ZONE,
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
 export function isFuturePacificBusinessDate(dateString: string, referenceDate = new Date()) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return false;
   return dateString > getPacificBusinessDate(referenceDate);
