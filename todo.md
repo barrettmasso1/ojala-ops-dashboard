@@ -200,3 +200,7 @@
 - [x] Keep uploaded gelato photos and extracted review rows visible after analysis on desktop and mobile so staff can edit, add more photos, or submit from the same photo workflow
 - [x] Default single-pan gelato photo detections to a small pan unless staff manually change the pan size
 - [x] Add an X remove control to each uploaded gelato photo so staff can delete failed or unwanted files and retry the photo workflow before analysis or submission
+- [x] Verify the current gelato photo upload limit, determine whether it can be raised safely, and document the recommended capacity
+- [x] Investigate employee portal scrolling slowness and identify practical optimization changes for photo mode and large-form rendering
+- [x] Raise the gelato photo analysis limit from 12 to a safer higher cap with matching staff-facing validation guidance
+- [x] Improve employee portal responsiveness by reducing unnecessary rerenders and lightening the heaviest scrolling-time visual costs

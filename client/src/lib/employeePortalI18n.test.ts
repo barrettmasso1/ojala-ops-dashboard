@@ -18,6 +18,8 @@ describe("employee portal translations", () => {
     expect(translatePortalText("Saved for", "es")).toBe("Guardado para");
     expect(translatePortalText("Managers can review it in the dashboard.", "es")).toBe("La gerencia puede revisarlo en el panel.");
     expect(translatePortalText("Remove photo", "es")).toBe("Quitar foto");
+    expect(translatePortalText("Only the first 20 photos were kept for this batch.", "es")).toBe("Solo se conservaron las primeras 20 fotos para este lote.");
+    expect(translatePortalText("You can analyze up to 20 photos at a time. Remove any extras or run another batch after this one finishes.", "es")).toBe("Puedes analizar hasta 20 fotos a la vez. Quita las sobrantes o ejecuta otro lote cuando este termine.");
     expect(translatePortalText("Save progress", "es")).toBe("Guardar progreso");
     expect(translatePortalText("Opening draft saved.", "es")).toBe("Borrador de apertura guardado.");
     expect(translatePortalText("Saved inventory draft restored.", "es")).toBe("Borrador guardado de inventario restaurado.");

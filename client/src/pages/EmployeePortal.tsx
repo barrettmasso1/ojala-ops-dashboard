@@ -5,7 +5,7 @@ import { savePortalDraft, loadPortalDraft, clearPortalDraft } from "@/lib/portal
 import { formatPacificCalendarDate, formatPacificTime, getPacificBusinessDate } from "../../../shared/businessDate";
 import { trpc } from "@/lib/trpc";
 import { ArrowRight, ClipboardCheck, House, LoaderCircle, LogOut, MoonStar, Package2, ReceiptText, Save, SunMedium, Upload, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Link, useLocation } from "wouter";
 import { READY_MADE_GELATO_FLAVORS } from "../../../shared/opsCatalog";
@@ -143,6 +143,7 @@ type PairedInputConfig = {
 
 export const GELATO_WEIGHT_INPUT_STEP = "0.001";
 export const GELATO_WEIGHT_INPUT_MODE = "decimal" as const;
+export const GELATO_PHOTO_UPLOAD_LIMIT = 20;
 
 const KG_TO_WEIGHT_OUNCES = 35.27396195;
 const SMALL_PAN_EMPTY_KG = 0.286;
@@ -168,6 +169,10 @@ function displayNumberValue(value: number | string | null | undefined) {
 function roundTo(value: number, decimals = 3) {
   const factor = 10 ** decimals;
   return Math.round(value * factor) / factor;
+}
+
+export function limitGelatoPhotoBatch<T>(items: T[]) {
+  return items.slice(0, GELATO_PHOTO_UPLOAD_LIMIT);
 }
 
 function readFileAsDataUrl(file: File) {
@@ -470,7 +475,7 @@ function textareaClassName() {
   return "min-h-[120px] rounded-2xl border border-[#dbd2c5] bg-[#fcfaf6] px-4 py-3 text-sm text-[#2f2a26] shadow-sm outline-none transition focus:border-[#5b5045] focus:ring-4 focus:ring-[#5b5045]/10";
 }
 
-function SectionCard({
+const SectionCard = memo(function SectionCard({
   icon,
   title,
   description,
@@ -482,7 +487,7 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-[2rem] border border-white/70 bg-white/82 p-6 shadow-[0_24px_70px_rgba(88,83,72,0.10)] backdrop-blur md:p-8">
+    <section className="rounded-[2rem] border border-white/70 bg-white p-6 shadow-[0_16px_40px_rgba(88,83,72,0.07)] md:p-8">
       <div className="mb-6 flex items-start gap-4">
         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#ece4d7] text-[#5d544a]">{icon}</div>
         <div>
@@ -493,9 +498,9 @@ function SectionCard({
       {children}
     </section>
   );
-}
+});
 
-function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
+const Field = memo(function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   return (
     <label className="flex flex-col gap-2">
       <span className="text-sm font-medium text-[#2f2a26]">{label}</span>
@@ -503,9 +508,9 @@ function Field({ label, children, hint }: { label: string; children: React.React
       {hint ? <span className="text-xs text-[#8b8176]">{hint}</span> : null}
     </label>
   );
-}
+});
 
-function ToggleField({
+const ToggleField = memo(function ToggleField({
   label,
   value,
   onChange,
@@ -515,7 +520,7 @@ function ToggleField({
   value: YesNo;
   onChange: (next: YesNo) => void;
   language: PortalLanguage;
-}) {
+  }) {
   return (
     <div className="flex flex-col gap-2">
       <span className="text-sm font-medium text-[#2f2a26]">{label}</span>
@@ -538,9 +543,10 @@ function ToggleField({
       </div>
     </div>
   );
-}
+});
 
-function ChecklistQuestionRow({
+const ChecklistQuestionRow = memo(function ChecklistQuestionRow({
+
   question,
   state,
   onChange,
@@ -591,7 +597,7 @@ function ChecklistQuestionRow({
       ) : null}
     </div>
   );
-}
+});
 
 function buildAnswersPayload(questions: ChecklistQuestion[], answers: ChecklistAnswerState) {
   return questions.map(question => ({
@@ -1004,6 +1010,13 @@ export default function EmployeePortal(props: any) {
 
   function clearGelatoAnalyzedPhotos(shiftType: ReadyMadeGelatoShiftKey) {
     setGelatoAnalyzedPhotos(current => ({ ...current, [shiftType]: [] }));
+  }
+
+  function getLimitedGelatoPhotoFiles(files: File[]) {
+    if (files.length <= GELATO_PHOTO_UPLOAD_LIMIT) return files;
+
+    toast.error(t(`Only the first ${GELATO_PHOTO_UPLOAD_LIMIT} photos were kept for this batch.`));
+    return limitGelatoPhotoBatch(files);
   }
 
   function removeSelectedGelatoPhoto(shiftType: ReadyMadeGelatoShiftKey, photoIndex: number) {
@@ -1425,7 +1438,7 @@ export default function EmployeePortal(props: any) {
                     onChange={event =>
                       setGelatoPhotoFiles(current => ({
                         ...current,
-                        [shiftType]: Array.from(event.target.files ?? []),
+                        [shiftType]: getLimitedGelatoPhotoFiles(Array.from(event.target.files ?? [])),
                       }))
                     }
                     className="rounded-2xl border border-dashed border-[#d7cec0] bg-[#fcfaf6] px-4 py-4 text-sm text-[#4b443d] file:mr-4 file:rounded-full file:border-0 file:bg-[#2f2a26] file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-[#1f1b18]"
@@ -1465,7 +1478,7 @@ export default function EmployeePortal(props: any) {
               ) : null}
 
               <p className="mt-4 text-sm leading-7 text-[#625b53]">
-                {t("Photo analysis fills the matching flavor rows below. Staff can still edit the counts and weights manually before saving the form.")}
+                {t(`You can analyze up to ${GELATO_PHOTO_UPLOAD_LIMIT} photos at a time. Remove any extras or run another batch after this one finishes.`)}
               </p>
             </div>
           ) : null}
@@ -1666,9 +1679,9 @@ export default function EmployeePortal(props: any) {
           : t("Choose one of the three staff forms: opening, closing, or the separate full inventory form.");
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(86,111,104,0.10),_transparent_26%),linear-gradient(180deg,_#fbf8f2_0%,_#f4eee4_46%,_#f8f4ec_100%)] pb-16">
+    <div className="min-h-screen bg-[linear-gradient(180deg,_#fbf8f2_0%,_#f4eee4_46%,_#f8f4ec_100%)] pb-16">
       <div className="container max-w-[1440px] px-4 pt-6 sm:px-6 md:pt-10 lg:px-8">
-        <div className="overflow-hidden rounded-[2rem] border border-white/70 bg-white/70 shadow-[0_28px_80px_rgba(88,83,72,0.12)] backdrop-blur">
+        <div className="overflow-hidden rounded-[2rem] border border-white/70 bg-white/90 shadow-[0_20px_56px_rgba(88,83,72,0.08)]">
           <div className="border-b border-[#eadfce] p-6 md:p-8">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
               <div className="max-w-3xl">

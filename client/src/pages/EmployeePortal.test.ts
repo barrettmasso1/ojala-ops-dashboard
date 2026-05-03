@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   applyAnalyzedPhotoPanSetup,
   applyAnalyzedPhotosToGelatoState,
+  GELATO_PHOTO_UPLOAD_LIMIT,
   GELATO_WEIGHT_INPUT_MODE,
   GELATO_WEIGHT_INPUT_STEP,
   getAnalyzedPhotoPanSetup,
+  limitGelatoPhotoBatch,
   removePhotoAtIndex,
   replaceAnalyzedPhotosInGelatoState,
   resolveAnalyzedPhotoGrossWeights,
@@ -28,6 +30,13 @@ describe("employee portal gelato helpers", () => {
     expect(resolved.smallGrossWeightKg).toBeGreaterThan(0.28);
     expect(resolved.largeGrossWeightKg).toBeGreaterThan(0.4);
     expect(Number((resolved.smallGrossWeightKg + resolved.largeGrossWeightKg).toFixed(3))).toBe(3.95);
+  });
+
+  it("caps the client-side gelato photo batch to the configured upload limit", () => {
+    const files = Array.from({ length: GELATO_PHOTO_UPLOAD_LIMIT + 3 }, (_, index) => `photo-${index + 1}`);
+
+    expect(limitGelatoPhotoBatch(files)).toHaveLength(GELATO_PHOTO_UPLOAD_LIMIT);
+    expect(limitGelatoPhotoBatch(files).at(-1)).toBe(`photo-${GELATO_PHOTO_UPLOAD_LIMIT}`);
   });
 
   it("removes a selected or analyzed photo by index without disturbing the remaining order", () => {

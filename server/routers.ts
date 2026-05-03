@@ -177,7 +177,7 @@ const gelatoPhotoUploadSchema = z.object({
 
 const extractGelatoPhotosSchema = z.object({
   shiftType: readyMadeGelatoShiftTypeSchema,
-  photos: z.array(gelatoPhotoUploadSchema).min(1).max(12),
+  photos: z.array(gelatoPhotoUploadSchema).min(1).max(20),
 });
 
 const submissionHistoryPhotoSchema = z.object({

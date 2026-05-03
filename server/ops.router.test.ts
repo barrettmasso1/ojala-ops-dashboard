@@ -33,9 +33,14 @@ const sdkMocks = vi.hoisted(() => ({
   },
 }));
 
+const gelatoPhotoMocks = vi.hoisted(() => ({
+  extractGelatoPhotos: vi.fn().mockResolvedValue({ extractedPhotos: [], groupedEntries: [] }),
+}));
+
 vi.mock("./db", () => dbMocks);
 vi.mock("./_core/notification", () => notificationMocks);
 vi.mock("./_core/sdk", () => sdkMocks);
+vi.mock("./gelatoPhotoPilot", () => gelatoPhotoMocks);
 
 const { appRouter } = await import("./routers");
 
@@ -425,6 +430,25 @@ describe("operations router", () => {
       submittedByUserId: 1,
       payload: expect.objectContaining({ gelatoEntryMode: "photo" }),
     });
+  });
+
+  it("accepts up to 20 gelato photos for analysis and rejects larger batches", async () => {
+    const caller = appRouter.createCaller(createContext("user"));
+    const basePhoto = { fileName: "IMG.jpeg", mimeType: "image/jpeg", dataUrl: "data:image/jpeg;base64,abc" };
+
+    await expect(
+      caller.forms.extractGelatoPhotos({
+        shiftType: "opening",
+        photos: Array.from({ length: 20 }, (_, index) => ({ ...basePhoto, fileName: `IMG-${index + 1}.jpeg` })),
+      }),
+    ).resolves.toMatchObject({ success: true, shiftType: "opening" });
+
+    await expect(
+      caller.forms.extractGelatoPhotos({
+        shiftType: "opening",
+        photos: Array.from({ length: 21 }, (_, index) => ({ ...basePhoto, fileName: `IMG-${index + 1}.jpeg` })),
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
   it("rejects future business dates before creating a new opening submission", async () => {
