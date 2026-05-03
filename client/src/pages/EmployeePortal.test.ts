@@ -5,6 +5,7 @@ import {
   GELATO_WEIGHT_INPUT_MODE,
   GELATO_WEIGHT_INPUT_STEP,
   getAnalyzedPhotoPanSetup,
+  removePhotoAtIndex,
   replaceAnalyzedPhotosInGelatoState,
   resolveAnalyzedPhotoGrossWeights,
 } from "./EmployeePortal";
@@ -27,6 +28,11 @@ describe("employee portal gelato helpers", () => {
     expect(resolved.smallGrossWeightKg).toBeGreaterThan(0.28);
     expect(resolved.largeGrossWeightKg).toBeGreaterThan(0.4);
     expect(Number((resolved.smallGrossWeightKg + resolved.largeGrossWeightKg).toFixed(3))).toBe(3.95);
+  });
+
+  it("removes a selected or analyzed photo by index without disturbing the remaining order", () => {
+    expect(removePhotoAtIndex(["one.jpg", "two.jpg", "three.jpg"], 1)).toEqual(["one.jpg", "three.jpg"]);
+    expect(removePhotoAtIndex(["one.jpg"], 0)).toEqual([]);
   });
 
   it("maps photo-review pan setup selections back to single-pan and paired-pan counts", () => {

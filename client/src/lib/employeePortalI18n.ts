@@ -193,6 +193,7 @@ const textTranslations: Record<string, string> = {
   "Live Pacific time": "Hora del Pacífico en vivo",
   "Business day": "Día del negocio",
   "Current Pacific time": "Hora actual del Pacífico",
+  "Remove photo": "Quitar foto",
   "Photo review": "Revisión de foto",
   "Pan setup": "Configuración de charola",
   "Needs review": "Necesita revisión",

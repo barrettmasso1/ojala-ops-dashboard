@@ -199,3 +199,4 @@
 - [x] Fix the ready-made gelato photo mode so selecting Use photos hides the manual gelato-entry cards until staff switch back to Manual entry
 - [x] Keep uploaded gelato photos and extracted review rows visible after analysis on desktop and mobile so staff can edit, add more photos, or submit from the same photo workflow
 - [x] Default single-pan gelato photo detections to a small pan unless staff manually change the pan size
+- [x] Add an X remove control to each uploaded gelato photo so staff can delete failed or unwanted files and retry the photo workflow before analysis or submission

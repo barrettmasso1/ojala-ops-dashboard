@@ -4,7 +4,7 @@ import { getOpeningNapkinsQuestion, groupOpeningQuestionsForPortal } from "@/lib
 import { savePortalDraft, loadPortalDraft, clearPortalDraft } from "@/lib/portalDrafts";
 import { formatPacificCalendarDate, formatPacificTime, getPacificBusinessDate } from "../../../shared/businessDate";
 import { trpc } from "@/lib/trpc";
-import { ArrowRight, ClipboardCheck, House, LoaderCircle, LogOut, MoonStar, Package2, ReceiptText, Save, SunMedium, Upload } from "lucide-react";
+import { ArrowRight, ClipboardCheck, House, LoaderCircle, LogOut, MoonStar, Package2, ReceiptText, Save, SunMedium, Upload, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Link, useLocation } from "wouter";
@@ -286,6 +286,10 @@ export function applyAnalyzedPhotosToGelatoState(
     ...current,
     flavors: nextFlavors,
   };
+}
+
+export function removePhotoAtIndex<T>(items: T[], indexToRemove: number) {
+  return items.filter((_, index) => index !== indexToRemove);
 }
 
 export function replaceAnalyzedPhotosInGelatoState(
@@ -1002,6 +1006,18 @@ export default function EmployeePortal(props: any) {
     setGelatoAnalyzedPhotos(current => ({ ...current, [shiftType]: [] }));
   }
 
+  function removeSelectedGelatoPhoto(shiftType: ReadyMadeGelatoShiftKey, photoIndex: number) {
+    setGelatoPhotoFiles(current => ({
+      ...current,
+      [shiftType]: removePhotoAtIndex(current[shiftType] ?? [], photoIndex),
+    }));
+
+    const inputRef = shiftType === "opening" ? openingPhotoInputRef : closingPhotoInputRef;
+    if (inputRef.current) {
+      inputRef.current.value = "";
+    }
+  }
+
   function replaceShiftAnalyzedPhotos(shiftType: ReadyMadeGelatoShiftKey, photos: ExtractedGelatoPhoto[]) {
     setGelatoAnalyzedPhotos(current => ({ ...current, [shiftType]: photos }));
     setReadyMadeGelato(current => replaceAnalyzedPhotosInGelatoState(current, shiftType, photos));
@@ -1017,6 +1033,10 @@ export default function EmployeePortal(props: any) {
     );
 
     replaceShiftAnalyzedPhotos(shiftType, nextPhotos);
+  }
+
+  function removeAnalyzedPhotoReview(shiftType: ReadyMadeGelatoShiftKey, photoIndex: number) {
+    replaceShiftAnalyzedPhotos(shiftType, removePhotoAtIndex(gelatoAnalyzedPhotos[shiftType] ?? [], photoIndex));
   }
 
   async function analyzeGelatoPhotos(shiftType: ReadyMadeGelatoShiftKey) {
@@ -1424,12 +1444,21 @@ export default function EmployeePortal(props: any) {
 
               {selectedFiles.length > 0 ? (
                 <div className="mt-4 flex flex-wrap gap-2">
-                  {selectedFiles.map(file => (
+                  {selectedFiles.map((file, index) => (
                     <span
-                      key={`${shiftType}-${file.name}-${file.size}`}
-                      className="rounded-full bg-[#f3ece2] px-3 py-2 text-xs font-medium text-[#5c544c]"
+                      key={`${shiftType}-${file.name}-${file.size}-${index}`}
+                      className="inline-flex items-center gap-2 rounded-full bg-[#f3ece2] px-3 py-2 text-xs font-medium text-[#5c544c]"
                     >
-                      {file.name}
+                      <span className="max-w-[16rem] truncate">{file.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeSelectedGelatoPhoto(shiftType, index)}
+                        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[#d8cfc3] bg-white text-[#5c544c] transition hover:bg-[#efe6da]"
+                        aria-label={t("Remove photo")}
+                        title={t("Remove photo")}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
                     </span>
                   ))}
                 </div>
@@ -1469,9 +1498,20 @@ export default function EmployeePortal(props: any) {
                               <p className="text-sm font-medium text-[#2d2925]">{photo.fileName}</p>
                               <p className="mt-1 text-xs uppercase tracking-[0.22em] text-[#8a8176]">{t("Photo review")}</p>
                             </div>
-                            <span className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] ${analyzedPhotoConfidenceClassName(photo.confidence)}`}>
-                              {photo.confidence}
-                            </span>
+                            <div className="flex items-center gap-2 self-start">
+                              <span className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] ${analyzedPhotoConfidenceClassName(photo.confidence)}`}>
+                                {photo.confidence}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => removeAnalyzedPhotoReview(shiftType, index)}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#ddd4c8] bg-white text-[#5c544c] transition hover:bg-[#f5eee5]"
+                                aria-label={t("Remove photo")}
+                                title={t("Remove photo")}
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            </div>
                           </div>
                           <div className="grid gap-3 md:grid-cols-3">
                             <Field label={t("Flavor")}>

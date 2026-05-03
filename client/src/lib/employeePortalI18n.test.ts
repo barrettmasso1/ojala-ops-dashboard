@@ -17,6 +17,7 @@ describe("employee portal translations", () => {
     expect(translatePortalText("Please enter a first name before submitting.", "es")).toBe("Ingresa un nombre antes de enviar.");
     expect(translatePortalText("Saved for", "es")).toBe("Guardado para");
     expect(translatePortalText("Managers can review it in the dashboard.", "es")).toBe("La gerencia puede revisarlo en el panel.");
+    expect(translatePortalText("Remove photo", "es")).toBe("Quitar foto");
     expect(translatePortalText("Save progress", "es")).toBe("Guardar progreso");
     expect(translatePortalText("Opening draft saved.", "es")).toBe("Borrador de apertura guardado.");
     expect(translatePortalText("Saved inventory draft restored.", "es")).toBe("Borrador guardado de inventario restaurado.");
