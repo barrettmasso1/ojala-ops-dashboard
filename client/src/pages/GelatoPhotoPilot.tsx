@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { compressImageFileToDataUrl } from "@/lib/imageCompression";
 import { clearPortalDraft, loadPortalDraft, savePortalDraft } from "@/lib/portalDrafts";
 import { getPacificBusinessDate } from "../../../shared/businessDate";
 import { trpc } from "@/lib/trpc";
@@ -117,15 +118,6 @@ export function applyPanSetup(setup: PanSetup) {
 
 function inputClassName() {
   return "h-12 rounded-2xl border border-[#dbd2c5] bg-[#fcfaf6] px-4 text-sm text-[#2f2a26] shadow-sm outline-none transition focus:border-[#5b5045] focus:ring-4 focus:ring-[#5b5045]/10";
-}
-
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
-    reader.readAsDataURL(file);
-  });
 }
 
 function confidenceClassName(confidence: ExtractedPhoto["confidence"]) {
@@ -280,8 +272,8 @@ export default function GelatoPhotoPilot() {
       const photos = await Promise.all(
         selectedFiles.map(async file => ({
           fileName: file.name,
-          mimeType: file.type || "image/jpeg",
-          dataUrl: await readFileAsDataUrl(file),
+          mimeType: "image/jpeg",
+          dataUrl: await compressImageFileToDataUrl(file),
         }))
       );
 
@@ -505,6 +497,8 @@ export default function GelatoPhotoPilot() {
                             <img
                               src={entry.imageUrl}
                               alt={entry.fileName}
+                              loading="lazy"
+                              decoding="async"
                               className="h-full min-h-28 w-full object-cover"
                             />
                           ) : (

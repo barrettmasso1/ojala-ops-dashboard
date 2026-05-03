@@ -1,5 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { type PortalLanguage, translateErrorMessage, translatePortalText } from "@/lib/employeePortalI18n";
+import { compressImageFileToDataUrl } from "@/lib/imageCompression";
 import { getOpeningNapkinsQuestion, groupOpeningQuestionsForPortal } from "@/lib/openingSetup";
 import { savePortalDraft, loadPortalDraft, clearPortalDraft } from "@/lib/portalDrafts";
 import { formatPacificCalendarDate, formatPacificTime, getPacificBusinessDate } from "../../../shared/businessDate";
@@ -173,15 +174,6 @@ function roundTo(value: number, decimals = 3) {
 
 export function limitGelatoPhotoBatch<T>(items: T[]) {
   return items.slice(0, GELATO_PHOTO_UPLOAD_LIMIT);
-}
-
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
-    reader.readAsDataURL(file);
-  });
 }
 
 export function resolveAnalyzedPhotoGrossWeights(photo: Pick<ExtractedGelatoPhoto, "smallPanCount" | "largePanCount" | "combinedGrossWeightKg">) {
@@ -1063,8 +1055,8 @@ export default function EmployeePortal(props: any) {
       const photos = await Promise.all(
         selectedFiles.map(async file => ({
           fileName: file.name,
-          mimeType: file.type || "image/jpeg",
-          dataUrl: await readFileAsDataUrl(file),
+          mimeType: "image/jpeg",
+          dataUrl: await compressImageFileToDataUrl(file),
         }))
       );
 
@@ -1503,7 +1495,7 @@ export default function EmployeePortal(props: any) {
                     <article key={`${shiftType}-${photo.fileName}-${index}`} className="overflow-hidden rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] shadow-sm">
                       <div className="grid gap-4 p-4 lg:grid-cols-[180px_minmax(0,1fr)]">
                         <div className="overflow-hidden rounded-[1.25rem] border border-[#e5ddd0] bg-white">
-                          <img src={photo.imageUrl} alt={photo.fileName} className="h-full min-h-40 w-full object-cover" />
+                          <img src={photo.imageUrl} alt={photo.fileName} loading="lazy" decoding="async" className="h-full min-h-40 w-full object-cover" />
                         </div>
                         <div className="grid gap-4">
                           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">

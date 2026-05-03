@@ -204,3 +204,6 @@
 - [x] Investigate employee portal scrolling slowness and identify practical optimization changes for photo mode and large-form rendering
 - [x] Raise the gelato photo analysis limit from 12 to a safer higher cap with matching staff-facing validation guidance
 - [x] Improve employee portal responsiveness by reducing unnecessary rerenders and lightening the heaviest scrolling-time visual costs
+- [x] Add client-side image compression before gelato photo analysis so uploads finish faster and large photo batches use less memory
+- [x] Add lazy-loaded thumbnails for analyzed gelato photo cards to reduce memory use during long review sessions
+- [x] Split the employee portal into route-level opening, closing, and inventory subcomponents to reduce render work and improve scrolling responsiveness
