@@ -143,6 +143,7 @@ type DeviceDraftSummary = {
   label: string;
   savedAt: number;
   savedAtLabel: string;
+  draftKey: typeof openingDraftKey | typeof closingDraftKey | typeof inventoryDraftKey;
 };
 
 type PairedInputConfig = {
@@ -668,6 +669,7 @@ export default function EmployeePortal(props: any) {
             view: draft.view,
             href: draft.href,
             label: draft.label,
+            draftKey: draft.view === "opening" ? openingDraftKey : draft.view === "closing" ? closingDraftKey : inventoryDraftKey,
             savedAt: draft.record.savedAt,
             savedAtLabel: new Date(draft.record.savedAt).toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" }),
           }]
@@ -1013,7 +1015,6 @@ export default function EmployeePortal(props: any) {
     setDraftSavedAt(current => ({ ...current, closing: savedDraft.savedAt }));
     toast.success(`${t("Closing draft saved.")} ${t("Use Drafts on Portal Home to reopen it on this device.")}`);
   }
-
   function saveInventoryDraft() {
     const savedDraft = savePortalDraft<InventoryDraft>(inventoryDraftKey, currentBusinessDate, {
       serviceInventoryCounts,
@@ -1021,11 +1022,31 @@ export default function EmployeePortal(props: any) {
       gelatoOpeningMode: gelatoEntryMode.opening,
       gelatoOpeningPhotos: gelatoAnalyzedPhotos.opening,
     });
+
     if (!savedDraft) return;
 
     hasInventoryDraftRestored.current = true;
     setDraftSavedAt(current => ({ ...current, inventory: savedDraft.savedAt }));
     toast.success(`${t("Inventory draft saved.")} ${t("Use Drafts on Portal Home to reopen it on this device.")}`);
+  }
+
+  function deleteSavedDraft(view: Exclude<PortalView, "hub">, draftKey: typeof openingDraftKey | typeof closingDraftKey | typeof inventoryDraftKey) {
+    clearPortalDraft(draftKey);
+    setDraftSavedAt(current => {
+      const next = { ...current };
+      delete next[view];
+      return next;
+    });
+
+    if (view === "opening") {
+      hasOpeningDraftRestored.current = false;
+    } else if (view === "closing") {
+      hasClosingDraftRestored.current = false;
+    } else {
+      hasInventoryDraftRestored.current = false;
+    }
+
+    toast.success(t("Draft deleted."));
   }
 
   function clearGelatoPhotoSelection(shiftType: ReadyMadeGelatoShiftKey) {
@@ -1856,17 +1877,30 @@ export default function EmployeePortal(props: any) {
                   {currentDeviceDrafts.length > 0 ? (
                     <div className="flex flex-col gap-3">
                       {currentDeviceDrafts.map(draft => (
-                        <Link
+                        <div
                           key={draft.view}
-                          href={draft.href}
-                          className="flex items-center justify-between gap-3 rounded-[1.35rem] border border-[#ddd4c8] bg-white/90 px-4 py-3 text-sm text-[#2f2a26] transition hover:bg-white"
+                          className="flex flex-col gap-3 rounded-[1.35rem] border border-[#ddd4c8] bg-white/90 p-3 text-sm text-[#2f2a26] sm:flex-row sm:items-center sm:justify-between"
                         >
-                          <span className="min-w-0">
-                            <span className="block font-medium">{draft.label}</span>
-                            <span className="mt-1 block text-xs leading-5 text-[#7d756b]">{t("Saved on this device at")} {draft.savedAtLabel}</span>
-                          </span>
-                          <span className="shrink-0 rounded-full bg-[#2f2a26] px-3 py-2 text-xs font-medium text-white">{t("Resume draft")}</span>
-                        </Link>
+                          <Link
+                            href={draft.href}
+                            className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-[1.1rem] px-1 py-1 transition hover:bg-white/80"
+                          >
+                            <span className="min-w-0">
+                              <span className="block font-medium">{draft.label}</span>
+                              <span className="mt-1 block text-xs leading-5 text-[#7d756b]">{t("Saved on this device at")} {draft.savedAtLabel}</span>
+                            </span>
+                            <span className="shrink-0 rounded-full bg-[#2f2a26] px-3 py-2 text-xs font-medium text-white">{t("Resume draft")}</span>
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => deleteSavedDraft(draft.view, draft.draftKey)}
+                            className="inline-flex items-center justify-center gap-2 self-start rounded-full border border-[#ddd4c8] bg-white px-3 py-2 text-xs font-medium text-[#6f3b3b] transition hover:border-[#cfa8a8] hover:bg-[#fff5f5] sm:self-center"
+                            aria-label={`${t("Delete draft")} ${draft.label}`}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                            {t("Delete draft")}
+                          </button>
+                        </div>
                       ))}
                     </div>
                   ) : (

@@ -216,3 +216,4 @@
 - [x] Fix the remaining phone layout cropping in the employee portal photo-assisted inventory workflow so the right side of the UI stays fully visible
 - [x] Add a visible Drafts button so staff can find and reopen saved opening, closing, and inventory forms directly instead of relying only on automatic same-device restore
 - [x] Investigate and fix duplicate owner email notifications so one staff submission does not send multiple emails for the same business date and form
+- [x] Add a delete draft button to each saved opening, closing, and inventory draft so staff can remove outdated current-device drafts directly from the Drafts list

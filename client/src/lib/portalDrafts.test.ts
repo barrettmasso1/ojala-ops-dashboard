@@ -58,4 +58,14 @@ describe("portal draft storage", () => {
     clearPortalDraft("inventory", storage);
     expect(storage.removeItem).toHaveBeenCalledWith(getPortalDraftKey("inventory"));
   });
+
+  it("deletes a saved draft so it no longer appears in the current-device draft list", () => {
+    const storage = createStorage();
+    savePortalDraft("opening", "2026-04-26", { staffName: "Ava" }, storage);
+
+    clearPortalDraft("opening", storage);
+
+    expect(loadPortalDraft("opening", "2026-04-26", storage)).toBeNull();
+    expect(storage.removeItem).toHaveBeenCalledWith(getPortalDraftKey("opening"));
+  });
 });

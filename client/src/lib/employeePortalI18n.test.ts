@@ -28,6 +28,8 @@ describe("employee portal translations", () => {
     expect(translatePortalText("Use Drafts on Portal Home to reopen it on this device.", "es")).toBe("Usa Borradores en el inicio del portal para volver a abrirlo en este dispositivo.");
     expect(translatePortalText("Open Drafts", "es")).toBe("Abrir borradores");
     expect(translatePortalText("Resume draft", "es")).toBe("Continuar borrador");
+    expect(translatePortalText("Delete draft", "es")).toBe("Eliminar borrador");
+    expect(translatePortalText("Draft deleted.", "es")).toBe("Borrador eliminado.");
     expect(translatePortalText("Opening Cash", "es")).toBe("Caja de apertura");
     expect(translatePortalText("Nightly Money and Report", "es")).toBe("Dinero y reporte nocturnos");
     expect(translatePortalText("Utensil and Counter Inventory", "es")).toBe("Inventario de utensilios y mostrador");

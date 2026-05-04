@@ -224,6 +224,8 @@ const textTranslations: Record<string, string> = {
   "Use Drafts on Portal Home to reopen it on this device.": "Usa Borradores en el inicio del portal para volver a abrirlo en este dispositivo.",
   "Open Drafts": "Abrir borradores",
   "Resume draft": "Continuar borrador",
+  "Delete draft": "Eliminar borrador",
+  "Draft deleted.": "Borrador eliminado.",
   "Saved on this device at": "Guardado en este dispositivo a las",
   "No drafts saved on this device for today.": "No hay borradores guardados hoy en este dispositivo.",
   "Reopen saved opening, closing, or inventory work from this device for today's business date.": "Vuelve a abrir el trabajo guardado de apertura, cierre o inventario desde este dispositivo para la fecha de negocio de hoy.",
