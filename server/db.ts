@@ -24,6 +24,7 @@ import {
 import { getPacificBusinessDate, getPacificWeekStart, isFuturePacificBusinessDate } from "../shared/businessDate";
 import { DEFAULT_INVENTORY_ITEMS, DEFAULT_RECIPE_ITEMS, READY_MADE_GELATO_FLAVORS } from "../shared/opsCatalog";
 import { ENV } from "./_core/env";
+import { storageGetSignedUrl } from "./storage";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -1327,10 +1328,41 @@ export async function listSubmissionHistoryEntries(businessDate?: string) {
     .where(eq(submissionHistoryEntries.businessDate, normalizedDate))
     .orderBy(desc(submissionHistoryEntries.createdAt), desc(submissionHistoryEntries.id));
 
-  return rows.map(row => ({
-    ...row,
-    payload: safeParseJson<Record<string, unknown>>(row.payloadJson, {}),
-  }));
+  return Promise.all(
+    rows.map(async row => {
+      const payload = safeParseJson<Record<string, unknown>>(row.payloadJson, {});
+      const analyzedPhotos = Array.isArray(payload.analyzedPhotos)
+        ? await Promise.all(
+            payload.analyzedPhotos.map(async photo => {
+              if (!photo || typeof photo !== "object") return photo;
+
+              const imageKey = typeof (photo as { imageKey?: unknown }).imageKey === "string"
+                ? (photo as { imageKey: string }).imageKey
+                : "";
+
+              if (!imageKey) return photo;
+
+              try {
+                return {
+                  ...photo,
+                  imageUrl: await storageGetSignedUrl(imageKey),
+                };
+              } catch {
+                return photo;
+              }
+            })
+          )
+        : payload.analyzedPhotos;
+
+      return {
+        ...row,
+        payload: {
+          ...payload,
+          analyzedPhotos,
+        },
+      };
+    })
+  );
 }
 
 export async function getSubmissionStatusForBusinessDate(businessDate?: string) {

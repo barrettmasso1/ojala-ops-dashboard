@@ -183,6 +183,7 @@ const extractGelatoPhotosSchema = z.object({
 const submissionHistoryPhotoSchema = z.object({
   fileName: z.string().min(1),
   imageUrl: z.string().min(1),
+  imageKey: z.string().min(1).optional(),
   flavor: z.string().min(1),
   smallPanCount: z.number().int().min(0),
   largePanCount: z.number().int().min(0),

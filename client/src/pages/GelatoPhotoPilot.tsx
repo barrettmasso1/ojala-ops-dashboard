@@ -10,12 +10,13 @@ import { Link } from "wouter";
 import { READY_MADE_GELATO_FLAVORS } from "../../../shared/opsCatalog";
 
 type ShiftType = "opening" | "closing";
-type PanSetup = "small" | "large" | "small_large" | "needs_review";
+type PanSetup = "small" | "large" | "small_large" | "double_small" | "double_large" | "needs_review";
 type PilotDraftView = "pilot-opening" | "pilot-closing";
 
 type ExtractedPhoto = {
   fileName: string;
   imageUrl: string;
+  imageKey?: string;
   flavor: string;
   smallPanCount: number;
   largePanCount: number;
@@ -90,6 +91,8 @@ export function buildDraftEntry(photo: ExtractedPhoto): DraftEntry {
 
 export function getPanSetup(entry: Pick<DraftEntry, "smallPanCount" | "largePanCount">): PanSetup {
   if (entry.smallPanCount > 0 && entry.largePanCount > 0) return "small_large";
+  if (entry.smallPanCount >= 2) return "double_small";
+  if (entry.largePanCount >= 2) return "double_large";
   if (entry.smallPanCount > 0) return "small";
   if (entry.largePanCount > 0) return "large";
   return "needs_review";
@@ -98,6 +101,8 @@ export function getPanSetup(entry: Pick<DraftEntry, "smallPanCount" | "largePanC
 function panSetupLabel(entry: Pick<DraftEntry, "smallPanCount" | "largePanCount">) {
   const setup = getPanSetup(entry);
   if (setup === "small_large") return "Small + large";
+  if (setup === "double_small") return "Two small pans";
+  if (setup === "double_large") return "Two large pans";
   if (setup === "small") return "Small pan";
   if (setup === "large") return "Large pan";
   return "Needs review";
@@ -112,6 +117,12 @@ export function applyPanSetup(setup: PanSetup) {
   }
   if (setup === "small_large") {
     return { smallPanCount: 1, largePanCount: 1 };
+  }
+  if (setup === "double_small") {
+    return { smallPanCount: 2, largePanCount: 0 };
+  }
+  if (setup === "double_large") {
+    return { smallPanCount: 0, largePanCount: 2 };
   }
   return { smallPanCount: 0, largePanCount: 0 };
 }
@@ -566,6 +577,8 @@ export default function GelatoPhotoPilot() {
                                 <option value="needs_review">Needs review</option>
                                 <option value="small">Small pan</option>
                                 <option value="large">Large pan</option>
+                                <option value="double_small">Two small pans</option>
+                                <option value="double_large">Two large pans</option>
                                 <option value="small_large">Small + large</option>
                               </select>
                             </label>

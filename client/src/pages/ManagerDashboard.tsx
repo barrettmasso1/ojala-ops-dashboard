@@ -1391,7 +1391,7 @@ export default function ManagerDashboard() {
                           <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                             {entry.payload.analyzedPhotos.map((photo, index) => (
                               <div key={`${entry.id}-photo-${index}`} className="overflow-hidden rounded-[1.4rem] border border-[#e5ddd0] bg-white shadow-sm">
-                                <img src={photo.imageUrl} alt={photo.fileName} className="h-48 w-full object-cover" />
+                                <img src={photo.imageUrl} alt={photo.fileName} loading="lazy" decoding="async" className="h-48 w-full bg-[#f6f1e8] object-contain" />
                                 <div className="space-y-2 p-4 text-sm text-[#5f6a64]">
                                   <p className="font-medium text-[#24332f]">{photo.fileName}</p>
                                   <p>{photo.flavor}</p>

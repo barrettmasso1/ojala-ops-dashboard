@@ -97,11 +97,12 @@ type ReadyMadeGelatoState = {
 };
 
 type GelatoEntryMode = "manual" | "photo";
-type AnalyzedPhotoPanSetup = "small" | "large" | "small_large" | "needs_review";
+type AnalyzedPhotoPanSetup = "small" | "large" | "small_large" | "double_small" | "double_large" | "needs_review";
 
 type ExtractedGelatoPhoto = {
   fileName: string;
   imageUrl: string;
+  imageKey?: string;
   flavor: string;
   smallPanCount: number;
   largePanCount: number;
@@ -211,6 +212,8 @@ export function resolveAnalyzedPhotoGrossWeights(photo: Pick<ExtractedGelatoPhot
 
 export function getAnalyzedPhotoPanSetup(photo: Pick<ExtractedGelatoPhoto, "smallPanCount" | "largePanCount">): AnalyzedPhotoPanSetup {
   if (photo.smallPanCount > 0 && photo.largePanCount > 0) return "small_large";
+  if (photo.smallPanCount >= 2) return "double_small";
+  if (photo.largePanCount >= 2) return "double_large";
   if (photo.smallPanCount > 0) return "small";
   if (photo.largePanCount > 0) return "large";
   return "needs_review";
@@ -227,6 +230,14 @@ export function applyAnalyzedPhotoPanSetup(setup: AnalyzedPhotoPanSetup) {
 
   if (setup === "small_large") {
     return { smallPanCount: 1, largePanCount: 1 };
+  }
+
+  if (setup === "double_small") {
+    return { smallPanCount: 2, largePanCount: 0 };
+  }
+
+  if (setup === "double_large") {
+    return { smallPanCount: 0, largePanCount: 2 };
   }
 
   return { smallPanCount: 0, largePanCount: 0 };
@@ -1452,7 +1463,7 @@ export default function EmployeePortal(props: any) {
                   {selectedFiles.map((file, index) => (
                     <span
                       key={`${shiftType}-${file.name}-${file.size}-${index}`}
-                      className="inline-flex items-center gap-2 rounded-full bg-[#f3ece2] px-3 py-2 text-xs font-medium text-[#5c544c]"
+                      className="inline-flex max-w-full items-center gap-2 rounded-full bg-[#f3ece2] px-3 py-2 text-xs font-medium text-[#5c544c]"
                     >
                       <span className="max-w-[16rem] truncate">{file.name}</span>
                       <button
@@ -1492,12 +1503,12 @@ export default function EmployeePortal(props: any) {
                 {analyzedPhotos.map((photo, index) => {
                   const panSetup = getAnalyzedPhotoPanSetup(photo);
                   return (
-                    <article key={`${shiftType}-${photo.fileName}-${index}`} className="overflow-hidden rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] shadow-sm">
-                      <div className="grid gap-4 p-4 lg:grid-cols-[180px_minmax(0,1fr)]">
-                        <div className="overflow-hidden rounded-[1.25rem] border border-[#e5ddd0] bg-white">
-                          <img src={photo.imageUrl} alt={photo.fileName} loading="lazy" decoding="async" className="h-full min-h-40 w-full object-cover" />
+                    <article key={`${shiftType}-${photo.fileName}-${index}`} className="min-w-0 overflow-hidden rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] shadow-sm">
+                      <div className="grid min-w-0 gap-4 p-4 lg:grid-cols-[180px_minmax(0,1fr)]">
+                        <div className="min-w-0 overflow-hidden rounded-[1.25rem] border border-[#e5ddd0] bg-white">
+                          <img src={photo.imageUrl} alt={photo.fileName} loading="lazy" decoding="async" className="h-full min-h-40 w-full bg-[#f6f1e8] object-contain" />
                         </div>
-                        <div className="grid gap-4">
+                        <div className="grid min-w-0 gap-4">
                           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                             <div>
                               <p className="text-sm font-medium text-[#2d2925]">{photo.fileName}</p>
@@ -1547,6 +1558,8 @@ export default function EmployeePortal(props: any) {
                                 <option value="needs_review">{t("Needs review")}</option>
                                 <option value="small">{t("Small pan")}</option>
                                 <option value="large">{t("Large pan")}</option>
+                                <option value="double_small">{t("Two small pans")}</option>
+                                <option value="double_large">{t("Two large pans")}</option>
                                 <option value="small_large">{t("Small + large")}</option>
                               </select>
                             </Field>
@@ -1671,7 +1684,7 @@ export default function EmployeePortal(props: any) {
           : t("Choose one of the three staff forms: opening, closing, or the separate full inventory form.");
 
   return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,_#fbf8f2_0%,_#f4eee4_46%,_#f8f4ec_100%)] pb-16">
+    <div className="min-h-screen overflow-x-hidden bg-[linear-gradient(180deg,_#fbf8f2_0%,_#f4eee4_46%,_#f8f4ec_100%)] pb-16">
       <div className="container max-w-[1440px] px-4 pt-6 sm:px-6 md:pt-10 lg:px-8">
         <div className="overflow-hidden rounded-[2rem] border border-white/70 bg-white/90 shadow-[0_20px_56px_rgba(88,83,72,0.08)]">
           <div className="border-b border-[#eadfce] p-6 md:p-8">

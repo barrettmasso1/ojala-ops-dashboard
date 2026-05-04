@@ -207,3 +207,8 @@
 - [x] Add client-side image compression before gelato photo analysis so uploads finish faster and large photo batches use less memory
 - [x] Add lazy-loaded thumbnails for analyzed gelato photo cards to reduce memory use during long review sessions
 - [x] Split the employee portal into route-level opening, closing, and inventory subcomponents to reduce render work and improve scrolling responsiveness
+- [x] Add photo-review pan setup options for two small pans and two large pans so staff can correct rare same-size two-pan photos before submission
+- [x] Fix false impossible-pan-weight validation errors for photo-assisted gelato entries so valid submissions do not get blocked at submit time
+- [x] Fix the mobile staff form layout so the right side of photo mode and related review content is no longer cropped off-screen
+- [x] Restore visible uploaded/analyzed gelato images in the photo-review cards on mobile and desktop after compression and analysis
+- [x] Persist submitted gelato photo evidence in saved history so managers can review the original images alongside extracted values

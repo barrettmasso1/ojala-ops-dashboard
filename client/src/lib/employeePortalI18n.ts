@@ -201,6 +201,8 @@ const textTranslations: Record<string, string> = {
   "Needs review": "Necesita revisión",
   "Small pan": "Charola pequeña",
   "Large pan": "Charola grande",
+  "Two small pans": "Dos charolas pequeñas",
+  "Two large pans": "Dos charolas grandes",
   "Small + large": "Pequeña + grande",
   "Combined Gross Weight kg": "Peso bruto combinado kg",
   "Analyze one or more scale photos to review each uploaded image and its extracted flavor, pan setup, and kilogram reading here before you submit.": "Analiza una o más fotos de la báscula para revisar aquí cada imagen cargada, su sabor extraído, la configuración de charola y la lectura en kilogramos antes de enviar.",

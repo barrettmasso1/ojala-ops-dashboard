@@ -44,12 +44,16 @@ describe("employee portal gelato helpers", () => {
     expect(removePhotoAtIndex(["one.jpg"], 0)).toEqual([]);
   });
 
-  it("maps photo-review pan setup selections back to single-pan and paired-pan counts", () => {
+  it("maps photo-review pan setup selections back to single-pan, same-size two-pan, and mixed-pan counts", () => {
     expect(applyAnalyzedPhotoPanSetup("small")).toEqual({ smallPanCount: 1, largePanCount: 0 });
     expect(applyAnalyzedPhotoPanSetup("large")).toEqual({ smallPanCount: 0, largePanCount: 1 });
+    expect(applyAnalyzedPhotoPanSetup("double_small")).toEqual({ smallPanCount: 2, largePanCount: 0 });
+    expect(applyAnalyzedPhotoPanSetup("double_large")).toEqual({ smallPanCount: 0, largePanCount: 2 });
     expect(applyAnalyzedPhotoPanSetup("small_large")).toEqual({ smallPanCount: 1, largePanCount: 1 });
     expect(getAnalyzedPhotoPanSetup({ smallPanCount: 1, largePanCount: 0 })).toBe("small");
     expect(getAnalyzedPhotoPanSetup({ smallPanCount: 0, largePanCount: 1 })).toBe("large");
+    expect(getAnalyzedPhotoPanSetup({ smallPanCount: 2, largePanCount: 0 })).toBe("double_small");
+    expect(getAnalyzedPhotoPanSetup({ smallPanCount: 0, largePanCount: 2 })).toBe("double_large");
     expect(getAnalyzedPhotoPanSetup({ smallPanCount: 1, largePanCount: 1 })).toBe("small_large");
   });
 

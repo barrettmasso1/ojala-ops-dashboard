@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildGroupedGelatoEntries, normalizeSinglePanPhotoCounts, type ExtractedGelatoPhoto } from "./gelatoPhotoPilot";
 
 describe("normalizeSinglePanPhotoCounts", () => {
-  it("defaults any single detected pan to the small-pan workflow", () => {
+  it("defaults any single detected pan to the small-pan workflow while preserving valid same-size two-pan reads", () => {
     expect(normalizeSinglePanPhotoCounts({ smallPanCount: 0, largePanCount: 1 })).toEqual({
       smallPanCount: 1,
       largePanCount: 0,
@@ -10,6 +10,14 @@ describe("normalizeSinglePanPhotoCounts", () => {
     expect(normalizeSinglePanPhotoCounts({ smallPanCount: 1, largePanCount: 0 })).toEqual({
       smallPanCount: 1,
       largePanCount: 0,
+    });
+    expect(normalizeSinglePanPhotoCounts({ smallPanCount: 2, largePanCount: 0 })).toEqual({
+      smallPanCount: 2,
+      largePanCount: 0,
+    });
+    expect(normalizeSinglePanPhotoCounts({ smallPanCount: 0, largePanCount: 2 })).toEqual({
+      smallPanCount: 0,
+      largePanCount: 2,
     });
     expect(normalizeSinglePanPhotoCounts({ smallPanCount: 1, largePanCount: 1 })).toEqual({
       smallPanCount: 1,
@@ -24,6 +32,7 @@ describe("buildGroupedGelatoEntries", () => {
       {
         fileName: "vanilla-pair.jpg",
         imageUrl: "/manus-storage/one",
+        imageKey: "gelato/one.jpg",
         flavor: "Vanilla",
         smallPanCount: 1,
         largePanCount: 1,
@@ -34,6 +43,7 @@ describe("buildGroupedGelatoEntries", () => {
       {
         fileName: "vanilla-large.jpg",
         imageUrl: "/manus-storage/two",
+        imageKey: "gelato/two.jpg",
         flavor: "Vanilla",
         smallPanCount: 0,
         largePanCount: 1,
@@ -44,6 +54,7 @@ describe("buildGroupedGelatoEntries", () => {
       {
         fileName: "chocolate-small.jpg",
         imageUrl: "/manus-storage/three",
+        imageKey: "gelato/three.jpg",
         flavor: "Chocolate",
         smallPanCount: 1,
         largePanCount: 0,
@@ -74,6 +85,7 @@ describe("buildGroupedGelatoEntries", () => {
       {
         fileName: "unclear.jpg",
         imageUrl: "/manus-storage/five",
+        imageKey: "gelato/five.jpg",
         flavor: "Unknown flavor",
         smallPanCount: 0,
         largePanCount: 0,
@@ -84,6 +96,7 @@ describe("buildGroupedGelatoEntries", () => {
       {
         fileName: "mint-chip.jpg",
         imageUrl: "/manus-storage/six",
+        imageKey: "gelato/six.jpg",
         flavor: "Mint Chip",
         smallPanCount: 1,
         largePanCount: 0,

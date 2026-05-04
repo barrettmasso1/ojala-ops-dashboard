@@ -13,6 +13,7 @@ export type GelatoPhotoConfidence = "high" | "medium" | "low";
 export type ExtractedGelatoPhoto = {
   fileName: string;
   imageUrl: string;
+  imageKey: string;
   flavor: string;
   smallPanCount: number;
   largePanCount: number;
@@ -64,17 +65,39 @@ function normalizeConfidence(rawConfidence: string): GelatoPhotoConfidence {
 
 function normalizePanCount(rawCount: number) {
   if (!Number.isFinite(rawCount) || rawCount <= 0) return 0;
-  return 1;
+  return Math.min(2, Math.trunc(rawCount));
 }
 
 export function normalizeSinglePanPhotoCounts(input: Pick<ExtractedGelatoPhoto, "smallPanCount" | "largePanCount">) {
   const smallPanCount = normalizePanCount(input.smallPanCount);
   const largePanCount = normalizePanCount(input.largePanCount);
+  const totalPanCount = smallPanCount + largePanCount;
 
-  if (smallPanCount + largePanCount === 1) {
+  if (totalPanCount === 1) {
     return {
       smallPanCount: 1,
       largePanCount: 0,
+    };
+  }
+
+  if (smallPanCount > 0 && largePanCount > 0) {
+    return {
+      smallPanCount: 1,
+      largePanCount: 1,
+    };
+  }
+
+  if (smallPanCount >= 2) {
+    return {
+      smallPanCount: 2,
+      largePanCount: 0,
+    };
+  }
+
+  if (largePanCount >= 2) {
+    return {
+      smallPanCount: 0,
+      largePanCount: 2,
     };
   }
 
@@ -145,14 +168,14 @@ async function extractSinglePhoto(
       {
         role: "system",
         content:
-          "You extract gelato inventory data from a single photo. Each photo should show either one pan or one small pan plus one large pan of the same flavor on a single scale. When exactly one pan is visible, default it to a small pan unless the image is unmistakably a small-plus-large pair. Return one flavor name, the small-pan count, the large-pan count, and the combined gross weight in kilograms. If anything is unclear, lower confidence and explain briefly in warning.",
+          "You extract gelato inventory data from a single photo. Each photo can show one pan, two pans of the same flavor, or one small pan plus one large pan of the same flavor on a single scale. When exactly one pan is visible, default it to a small pan unless the image is unmistakably a large pan. When two pans are visible, report whether they are two small pans, two large pans, or one small plus one large. Return one flavor name, the small-pan count, the large-pan count, and the combined gross weight in kilograms. If anything is unclear, lower confidence and explain briefly in warning.",
       },
       {
         role: "user",
         content: [
           {
             type: "text",
-            text: `This is a single gelato pan photo for a pilot inventory workflow. Identify the flavor label, read the scale display in kilograms, and count whether the image shows one small pan, one large pan, or one small plus one large pan of the same flavor. Known common flavors include: ${READY_MADE_GELATO_FLAVORS.join(", ")}. Use a custom flavor only when the label clearly shows something else. If the scale, label, or pan sizes are unclear, return the best visible answer, set confidence to low, and explain the problem in warning.`,
+            text: `This is a single gelato pan photo for a pilot inventory workflow. Identify the flavor label, read the scale display in kilograms, and count whether the image shows one small pan, one large pan, two small pans, two large pans, or one small plus one large pan of the same flavor. Known common flavors include: ${READY_MADE_GELATO_FLAVORS.join(", ")}. Use a custom flavor only when the label clearly shows something else. If the scale, label, or pan sizes are unclear, return the best visible answer, set confidence to low, and explain the problem in warning.`,
           },
           {
             type: "image_url",
@@ -176,12 +199,12 @@ async function extractSinglePhoto(
             small_pan_count: {
               type: "number",
               minimum: 0,
-              maximum: 1,
+              maximum: 2,
             },
             large_pan_count: {
               type: "number",
               minimum: 0,
-              maximum: 1,
+              maximum: 2,
             },
             gross_weight_kg: {
               type: "number",
@@ -220,7 +243,8 @@ async function extractSinglePhoto(
 
   return {
     fileName: photo.fileName,
-    imageUrl: uploaded.url,
+    imageUrl: signedImageUrl,
+    imageKey: uploaded.key,
     flavor: normalizeFlavorName(parsed.flavor),
     smallPanCount: normalizedCounts.smallPanCount,
     largePanCount: normalizedCounts.largePanCount,
