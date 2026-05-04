@@ -395,7 +395,7 @@ describe("operations router", () => {
     );
   });
 
-  it("lets staff persist a submission-history record with saved photo evidence", async () => {
+  it("stores photo-assisted submission history entries for manager review and can send one final owner notification", async () => {
     dbMocks.createSubmissionHistoryEntry.mockResolvedValue({
       id: 501,
       businessDate: "2026-04-29",
@@ -413,6 +413,12 @@ describe("operations router", () => {
       businessDate: "2026-04-29",
       submissionType: "opening",
       staffName: "Ava",
+      notifyOwner: true,
+      origin: "https://ojaladarsh-m6piugsr.manus.space",
+      notificationSummary: {
+        title: "Opening form submitted for 2026-04-29",
+        summary: "Ava submitted the opening form. Cash counted and correct: Yes. Store ready: Yes. Failed confirmations: 0.",
+      },
       payload: {
         gelatoEntryMode: "photo",
         analyzedPhotos: [{ fileName: "IMG_1001.jpeg", imageUrl: "/manus-storage/example.jpg", flavor: "Ruby Port", smallPanCount: 1, largePanCount: 0, combinedGrossWeightKg: 1.47, confidence: "high" }],
@@ -429,6 +435,10 @@ describe("operations router", () => {
       staffName: "Ava",
       submittedByUserId: 1,
       payload: expect.objectContaining({ gelatoEntryMode: "photo" }),
+    });
+    expect(notificationMocks.notifyOwner).toHaveBeenCalledWith({
+      title: "Opening form submitted for 2026-04-29",
+      content: "Ava submitted the opening form. Cash counted and correct: Yes. Store ready: Yes. Failed confirmations: 0. Review: https://ojaladarsh-m6piugsr.manus.space/dashboard",
     });
   });
 

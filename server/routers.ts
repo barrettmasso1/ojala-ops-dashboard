@@ -196,6 +196,12 @@ const submissionHistorySchema = z.object({
   businessDate: optionalBusinessDateSchema,
   submissionType: z.enum(["opening", "closing", "inventory"]),
   staffName: z.string().min(1),
+  notifyOwner: z.boolean().optional().default(false),
+  origin: z.string().optional(),
+  notificationSummary: z.object({
+    title: z.string().min(1),
+    summary: z.string().min(1),
+  }).optional(),
   payload: z.object({
     form: z.record(z.string(), z.unknown()).optional(),
     checklistAnswers: z.array(checklistAnswerSchema).optional(),
@@ -351,6 +357,13 @@ export const appRouter = router({
         submittedByUserId: ctx.user.id,
         payload: input.payload,
       });
+
+      if (input.notifyOwner && input.notificationSummary) {
+        await notifyOwner({
+          title: input.notificationSummary.title,
+          content: `${input.notificationSummary.summary} Review: ${buildDashboardUrl(ctx.req, input.origin)}`,
+        });
+      }
 
       return { success: true, entry } as const;
     }),

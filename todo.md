@@ -214,3 +214,5 @@
 - [x] Persist submitted gelato photo evidence in saved history so managers can review the original images alongside extracted values
 - [x] Clarify and improve how saved opening drafts are recovered so staff can easily resume unfinished forms after tapping Save progress
 - [x] Fix the remaining phone layout cropping in the employee portal photo-assisted inventory workflow so the right side of the UI stays fully visible
+- [x] Add a visible Drafts button so staff can find and reopen saved opening, closing, and inventory forms directly instead of relying only on automatic same-device restore
+- [x] Investigate and fix duplicate owner email notifications so one staff submission does not send multiple emails for the same business date and form

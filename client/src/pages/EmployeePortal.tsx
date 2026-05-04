@@ -137,6 +137,14 @@ type InventoryDraft = {
 
 type DraftSavedAtState = Partial<Record<Exclude<PortalView, "hub">, number>>;
 
+type DeviceDraftSummary = {
+  view: Exclude<PortalView, "hub">;
+  href: string;
+  label: string;
+  savedAt: number;
+  savedAtLabel: string;
+};
+
 type PairedInputConfig = {
   label: string;
   stockKey?: keyof OpeningStockCounts;
@@ -649,6 +657,23 @@ export default function EmployeePortal(props: any) {
   const [otherFlavorName, setOtherFlavorName] = useState("");
   const [submissionNotice, setSubmissionNotice] = useState<SubmissionNotice | null>(null);
   const [draftSavedAt, setDraftSavedAt] = useState<DraftSavedAtState>({});
+  const currentDeviceDrafts: DeviceDraftSummary[] = [
+    { view: "opening" as const, href: "/portal/opening", label: t("Opening Form"), record: loadPortalDraft<OpeningDraft>(openingDraftKey, currentBusinessDate) },
+    { view: "closing" as const, href: "/portal/closing", label: t("Closing Form"), record: loadPortalDraft<ClosingDraft>(closingDraftKey, currentBusinessDate) },
+    { view: "inventory" as const, href: "/portal/inventory", label: t("Inventory Form"), record: loadPortalDraft<InventoryDraft>(inventoryDraftKey, currentBusinessDate) },
+  ]
+    .flatMap(draft =>
+      draft.record
+        ? [{
+            view: draft.view,
+            href: draft.href,
+            label: draft.label,
+            savedAt: draft.record.savedAt,
+            savedAtLabel: new Date(draft.record.savedAt).toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" }),
+          }]
+        : []
+    )
+    .sort((left, right) => right.savedAt - left.savedAt);
   const openingStaffNameRef = useRef<HTMLInputElement | null>(null);
   const closingStaffNameRef = useRef<HTMLInputElement | null>(null);
   const openingPhotoInputRef = useRef<HTMLInputElement | null>(null);
@@ -970,7 +995,7 @@ export default function EmployeePortal(props: any) {
 
     hasOpeningDraftRestored.current = true;
     setDraftSavedAt(current => ({ ...current, opening: savedDraft.savedAt }));
-    toast.success(t("Opening draft saved."));
+    toast.success(`${t("Opening draft saved.")} ${t("Use Drafts on Portal Home to reopen it on this device.")}`);
   }
 
   function saveClosingDraft() {
@@ -986,7 +1011,7 @@ export default function EmployeePortal(props: any) {
 
     hasClosingDraftRestored.current = true;
     setDraftSavedAt(current => ({ ...current, closing: savedDraft.savedAt }));
-    toast.success(t("Closing draft saved."));
+    toast.success(`${t("Closing draft saved.")} ${t("Use Drafts on Portal Home to reopen it on this device.")}`);
   }
 
   function saveInventoryDraft() {
@@ -1000,7 +1025,7 @@ export default function EmployeePortal(props: any) {
 
     hasInventoryDraftRestored.current = true;
     setDraftSavedAt(current => ({ ...current, inventory: savedDraft.savedAt }));
-    toast.success(t("Inventory draft saved."));
+    toast.success(`${t("Inventory draft saved.")} ${t("Use Drafts on Portal Home to reopen it on this device.")}`);
   }
 
   function clearGelatoPhotoSelection(shiftType: ReadyMadeGelatoShiftKey) {
@@ -1139,6 +1164,7 @@ export default function EmployeePortal(props: any) {
 
       const openingChecklistPayload = buildAnswersPayload(openingQuestions, openingAnswers);
       const openingGelatoEntries = buildReadyMadeEntries("opening");
+      const failedItems = openingChecklistPayload.filter(item => item.answer === "No").length;
 
       await openingMutation.mutateAsync({
         businessDate: currentBusinessDate,
@@ -1159,6 +1185,7 @@ export default function EmployeePortal(props: any) {
         },
         notes: openingForm.notes,
         checklistAnswers: openingChecklistPayload,
+        notifyOwner: false,
         origin: submissionOrigin,
       });
 
@@ -1173,6 +1200,12 @@ export default function EmployeePortal(props: any) {
         businessDate: currentBusinessDate,
         submissionType: "opening",
         staffName: normalizedStaffName,
+        notifyOwner: true,
+        origin: submissionOrigin,
+        notificationSummary: {
+          title: `Opening form submitted for ${currentBusinessDate}`,
+          summary: `${normalizedStaffName} submitted the opening form. Cash counted and correct: ${openingForm.cashCountedAndCorrect}. Store ready: ${openingAnswers[storeReadyQuestion?.id ?? -1]?.answer ?? "No"}. Failed confirmations: ${failedItems}.`,
+        },
         payload: {
           form: { ...openingForm, businessDate: currentBusinessDate, staffName: normalizedStaffName },
           checklistAnswers: openingChecklistPayload,
@@ -1709,7 +1742,7 @@ export default function EmployeePortal(props: any) {
                     {t("Photo Pilot")}
                   </Link>
                   <Link href="/portal" className="inline-flex items-center gap-2 rounded-full border border-[#ddd4c8] bg-white/88 px-5 py-3 text-sm font-medium text-[#2f2a26] transition hover:bg-white">
-                    {t("Portal Home")}
+                    {t("Drafts")}
                   </Link>
                   <Link href="/" className="inline-flex items-center gap-2 rounded-full border border-[#ddd4c8] bg-white/88 px-5 py-3 text-sm font-medium text-[#2f2a26] transition hover:bg-white">
                     <House className="h-4 w-4" />
@@ -1814,6 +1847,32 @@ export default function EmployeePortal(props: any) {
                     </Link>
                   </div>
                 </SectionCard>
+
+                <SectionCard
+                  icon={<Save className="h-5 w-5" />}
+                  title={t("Drafts")}
+                  description={t("Reopen saved opening, closing, or inventory work from this device for today's business date.")}
+                >
+                  {currentDeviceDrafts.length > 0 ? (
+                    <div className="flex flex-col gap-3">
+                      {currentDeviceDrafts.map(draft => (
+                        <Link
+                          key={draft.view}
+                          href={draft.href}
+                          className="flex items-center justify-between gap-3 rounded-[1.35rem] border border-[#ddd4c8] bg-white/90 px-4 py-3 text-sm text-[#2f2a26] transition hover:bg-white"
+                        >
+                          <span className="min-w-0">
+                            <span className="block font-medium">{draft.label}</span>
+                            <span className="mt-1 block text-xs leading-5 text-[#7d756b]">{t("Saved on this device at")} {draft.savedAtLabel}</span>
+                          </span>
+                          <span className="shrink-0 rounded-full bg-[#2f2a26] px-3 py-2 text-xs font-medium text-white">{t("Resume draft")}</span>
+                        </Link>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm leading-6 text-[#6c645a]">{t("No drafts saved on this device for today.")}</p>
+                  )}
+                </SectionCard>
               </div>
             ) : null}
 
@@ -1914,7 +1973,16 @@ export default function EmployeePortal(props: any) {
                     </button>
                   </div>
                   <p className="mt-3 text-xs leading-5 text-[#7d756b]">{t("Submitting again for this business date replaces the previous opening record instead of adding a duplicate.")}</p>
-                  {draftSavedAt.opening ? <p className="mt-2 text-xs leading-5 text-[#7d756b]">{t("Draft saved on this device for today. Reopen this same form on this device to keep working.")}</p> : null}
+                  {draftSavedAt.opening ? (
+                    <div className="mt-2 flex flex-col gap-2 text-xs leading-5 text-[#7d756b]">
+                      <p>{t("Draft saved on this device for today. Reopen this same form on this device to keep working.")}</p>
+                      <div>
+                        <Link href="/portal" className="inline-flex items-center gap-2 rounded-full border border-[#ddd4c8] bg-white px-4 py-2 text-xs font-medium text-[#2f2a26] transition hover:bg-[#f5eee5]">
+                          {t("Open Drafts")}
+                        </Link>
+                      </div>
+                    </div>
+                  ) : null}
                 </SectionCard>
               </form>
             ) : null}
@@ -2040,7 +2108,16 @@ export default function EmployeePortal(props: any) {
                     </button>
                   </div>
                   <p className="mt-3 text-xs leading-5 text-[#7d756b]">{t("Submitting again for this business date replaces the previous closing record instead of adding a duplicate.")}</p>
-                  {draftSavedAt.closing ? <p className="mt-2 text-xs leading-5 text-[#7d756b]">{t("Draft saved on this device for today. Reopen this same form on this device to keep working.")}</p> : null}
+                  {draftSavedAt.closing ? (
+                    <div className="mt-2 flex flex-col gap-2 text-xs leading-5 text-[#7d756b]">
+                      <p>{t("Draft saved on this device for today. Reopen this same form on this device to keep working.")}</p>
+                      <div>
+                        <Link href="/portal" className="inline-flex items-center gap-2 rounded-full border border-[#ddd4c8] bg-white px-4 py-2 text-xs font-medium text-[#2f2a26] transition hover:bg-[#f5eee5]">
+                          {t("Open Drafts")}
+                        </Link>
+                      </div>
+                    </div>
+                  ) : null}
                 </SectionCard>
               </form>
             ) : null}
@@ -2104,7 +2181,16 @@ export default function EmployeePortal(props: any) {
                     </button>
                   </div>
                   <p className="mt-3 text-xs leading-5 text-[#7d756b]">{t("Saving this business-date inventory again replaces the prior inventory review record instead of duplicating it.")}</p>
-                  {draftSavedAt.inventory ? <p className="mt-3 text-xs leading-5 text-[#7d756b]">{t("Draft saved on this device for today. Reopen this same form on this device to keep working.")}</p> : null}
+                  {draftSavedAt.inventory ? (
+                    <div className="mt-3 flex flex-col gap-2 text-xs leading-5 text-[#7d756b]">
+                      <p>{t("Draft saved on this device for today. Reopen this same form on this device to keep working.")}</p>
+                      <div>
+                        <Link href="/portal" className="inline-flex items-center gap-2 rounded-full border border-[#ddd4c8] bg-white px-4 py-2 text-xs font-medium text-[#2f2a26] transition hover:bg-[#f5eee5]">
+                          {t("Open Drafts")}
+                        </Link>
+                      </div>
+                    </div>
+                  ) : null}
                 </SectionCard>
               </form>
             ) : null}

@@ -8,6 +8,7 @@ describe("employee portal translations", () => {
 
   it("translates the rebuilt three-form staff workflow copy into Spanish", () => {
     expect(translatePortalText("Portal Home", "es")).toBe("Inicio del portal");
+    expect(translatePortalText("Drafts", "es")).toBe("Borradores");
     expect(translatePortalText("Opening Form", "es")).toBe("Formulario de apertura");
     expect(translatePortalText("Closing Form", "es")).toBe("Formulario de cierre");
     expect(translatePortalText("Inventory Form", "es")).toBe("Formulario de inventario");
@@ -24,6 +25,9 @@ describe("employee portal translations", () => {
     expect(translatePortalText("Opening draft saved.", "es")).toBe("Borrador de apertura guardado.");
     expect(translatePortalText("Saved inventory draft restored.", "es")).toBe("Borrador guardado de inventario restaurado.");
     expect(translatePortalText("Draft saved on this device for today. Reopen this same form on this device to keep working.", "es")).toBe("El borrador de hoy quedó guardado en este dispositivo. Vuelve a abrir este mismo formulario en este dispositivo para seguir trabajando.");
+    expect(translatePortalText("Use Drafts on Portal Home to reopen it on this device.", "es")).toBe("Usa Borradores en el inicio del portal para volver a abrirlo en este dispositivo.");
+    expect(translatePortalText("Open Drafts", "es")).toBe("Abrir borradores");
+    expect(translatePortalText("Resume draft", "es")).toBe("Continuar borrador");
     expect(translatePortalText("Opening Cash", "es")).toBe("Caja de apertura");
     expect(translatePortalText("Nightly Money and Report", "es")).toBe("Dinero y reporte nocturnos");
     expect(translatePortalText("Utensil and Counter Inventory", "es")).toBe("Inventario de utensilios y mostrador");
