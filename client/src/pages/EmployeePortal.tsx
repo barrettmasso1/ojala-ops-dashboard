@@ -490,8 +490,8 @@ const SectionCard = memo(function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-[2rem] border border-white/70 bg-white p-6 shadow-[0_16px_40px_rgba(88,83,72,0.07)] md:p-8">
-      <div className="mb-6 flex items-start gap-4">
+    <section className="min-w-0 overflow-hidden rounded-[2rem] border border-white/70 bg-white p-6 shadow-[0_16px_40px_rgba(88,83,72,0.07)] md:p-8">
+      <div className="mb-6 flex min-w-0 items-start gap-4">
         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#ece4d7] text-[#5d544a]">{icon}</div>
         <div>
           <h2 className="text-2xl font-medium tracking-[-0.04em] text-[#2d2925]">{title}</h2>
@@ -1397,20 +1397,20 @@ export default function EmployeePortal(props: any) {
             : t("Count ready-made gelato for the closing form before finishing the nightly inventory section."))
         }
       >
-        <div className="rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] p-4 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
+        <div className="min-w-0 rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] p-4 shadow-sm">
+          <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="min-w-0">
               <p className="text-[11px] uppercase tracking-[0.26em] text-[#8a8176]">{t("Entry method")}</p>
               <h3 className="mt-2 text-lg font-medium tracking-[-0.03em] text-[#2d2925]">
                 {entryMode === "photo" ? t("Photo-assisted inventory") : t("Manual inventory")}
               </h3>
-              <p className="mt-2 max-w-2xl text-sm leading-7 text-[#625b53]">
+              <p className="mt-2 max-w-2xl min-w-0 text-sm leading-7 text-[#625b53]">
                 {entryMode === "photo"
                   ? t("Upload one or more scale photos, analyze them, and review the matching flavor fields below before you submit.")
                   : t("Enter the pan counts and gross weights by hand, or switch to photo mode if staff want help filling the gelato fields.")}
               </p>
             </div>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid min-w-0 gap-2 sm:grid-cols-2">
               <button
                 type="button"
                 onClick={() => setGelatoEntryMode(current => ({ ...current, [shiftType]: "manual" }))}
@@ -1429,9 +1429,9 @@ export default function EmployeePortal(props: any) {
           </div>
 
           {entryMode === "photo" ? (
-            <div className="mt-5 rounded-[1.25rem] border border-dashed border-[#d7cec0] bg-white p-4">
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-                <label className="grid gap-2 text-sm font-medium text-[#453f39]">
+            <div className="mt-5 min-w-0 rounded-[1.25rem] border border-dashed border-[#d7cec0] bg-white p-4">
+              <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+                <label className="grid min-w-0 gap-2 text-sm font-medium text-[#453f39]">
                   {t("Scale photos")}
                   <input
                     ref={photoInputRef}
@@ -1444,7 +1444,7 @@ export default function EmployeePortal(props: any) {
                         [shiftType]: getLimitedGelatoPhotoFiles(Array.from(event.target.files ?? [])),
                       }))
                     }
-                    className="rounded-2xl border border-dashed border-[#d7cec0] bg-[#fcfaf6] px-4 py-4 text-sm text-[#4b443d] file:mr-4 file:rounded-full file:border-0 file:bg-[#2f2a26] file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-[#1f1b18]"
+                    className="block w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-dashed border-[#d7cec0] bg-[#fcfaf6] px-4 py-4 text-sm text-[#4b443d] file:mr-4 file:rounded-full file:border-0 file:bg-[#2f2a26] file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-[#1f1b18]"
                   />
                 </label>
                 <button
@@ -1459,7 +1459,7 @@ export default function EmployeePortal(props: any) {
               </div>
 
               {selectedFiles.length > 0 ? (
-                <div className="mt-4 flex flex-wrap gap-2">
+                <div className="mt-4 flex min-w-0 flex-wrap gap-2">
                   {selectedFiles.map((file, index) => (
                     <span
                       key={`${shiftType}-${file.name}-${file.size}-${index}`}
@@ -1914,7 +1914,7 @@ export default function EmployeePortal(props: any) {
                     </button>
                   </div>
                   <p className="mt-3 text-xs leading-5 text-[#7d756b]">{t("Submitting again for this business date replaces the previous opening record instead of adding a duplicate.")}</p>
-                  {draftSavedAt.opening ? <p className="mt-2 text-xs text-[#7d756b]">{t("Draft saved on this device for today.")}</p> : null}
+                  {draftSavedAt.opening ? <p className="mt-2 text-xs leading-5 text-[#7d756b]">{t("Draft saved on this device for today. Reopen this same form on this device to keep working.")}</p> : null}
                 </SectionCard>
               </form>
             ) : null}
@@ -2040,7 +2040,7 @@ export default function EmployeePortal(props: any) {
                     </button>
                   </div>
                   <p className="mt-3 text-xs leading-5 text-[#7d756b]">{t("Submitting again for this business date replaces the previous closing record instead of adding a duplicate.")}</p>
-                  {draftSavedAt.closing ? <p className="mt-2 text-xs text-[#7d756b]">{t("Draft saved on this device for today.")}</p> : null}
+                  {draftSavedAt.closing ? <p className="mt-2 text-xs leading-5 text-[#7d756b]">{t("Draft saved on this device for today. Reopen this same form on this device to keep working.")}</p> : null}
                 </SectionCard>
               </form>
             ) : null}
@@ -2104,7 +2104,7 @@ export default function EmployeePortal(props: any) {
                     </button>
                   </div>
                   <p className="mt-3 text-xs leading-5 text-[#7d756b]">{t("Saving this business-date inventory again replaces the prior inventory review record instead of duplicating it.")}</p>
-                  {draftSavedAt.inventory ? <p className="mt-3 text-xs text-[#7d756b]">{t("Draft saved on this device for today.")}</p> : null}
+                  {draftSavedAt.inventory ? <p className="mt-3 text-xs leading-5 text-[#7d756b]">{t("Draft saved on this device for today. Reopen this same form on this device to keep working.")}</p> : null}
                 </SectionCard>
               </form>
             ) : null}

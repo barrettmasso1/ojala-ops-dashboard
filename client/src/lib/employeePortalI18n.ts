@@ -219,7 +219,7 @@ const textTranslations: Record<string, string> = {
   "Saved opening draft restored.": "Borrador guardado de apertura restaurado.",
   "Saved closing draft restored.": "Borrador guardado de cierre restaurado.",
   "Saved inventory draft restored.": "Borrador guardado de inventario restaurado.",
-  "Draft saved on this device for today.": "El borrador de hoy quedó guardado en este dispositivo.",
+  "Draft saved on this device for today. Reopen this same form on this device to keep working.": "El borrador de hoy quedó guardado en este dispositivo. Vuelve a abrir este mismo formulario en este dispositivo para seguir trabajando.",
   "Submit Opening Form": "Enviar formulario de apertura",
   "Submit Closing Form": "Enviar formulario de cierre",
   "Opening form submitted.": "Formulario de apertura enviado.",

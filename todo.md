@@ -212,3 +212,5 @@
 - [x] Fix the mobile staff form layout so the right side of photo mode and related review content is no longer cropped off-screen
 - [x] Restore visible uploaded/analyzed gelato images in the photo-review cards on mobile and desktop after compression and analysis
 - [x] Persist submitted gelato photo evidence in saved history so managers can review the original images alongside extracted values
+- [x] Clarify and improve how saved opening drafts are recovered so staff can easily resume unfinished forms after tapping Save progress
+- [x] Fix the remaining phone layout cropping in the employee portal photo-assisted inventory workflow so the right side of the UI stays fully visible
