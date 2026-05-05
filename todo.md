@@ -233,3 +233,4 @@
 - [x] Show per-flavor calculated totals in each opening and closing photo-review section, including net gelato weight after pan tare and the converted volume ounces so staff can verify the math before submitting
 - [x] Resolve the remaining impossible pan-weight error that still appears when staff submit integrated opening or closing forms after photo review
 - [x] Fix weight inputs in the integrated gelato workflow so mobile users can enter two-decimal values like 6.02 reliably
+- [x] Eliminate the still-recurring false impossible pan-weight validation that continues to appear for different flavors during staff form submission after photo review

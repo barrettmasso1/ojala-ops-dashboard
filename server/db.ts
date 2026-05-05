@@ -250,17 +250,16 @@ function clampGrossWeightToCapacity(grossWeightKg: number, panCount: number, max
 export function hasImpossibleReadyMadeGrossWeights(row?: ReadyMadeMeasurementRow) {
   const smallPanCount = Math.max(0, Math.trunc(toNumber(row?.smallPanCount)));
   const largePanCount = Math.max(0, Math.trunc(toNumber(row?.largePanCount)));
-  const providedSmallGrossWeightKg = Math.max(0, toNumber(row?.smallGrossWeightKg));
-  const providedLargeGrossWeightKg = Math.max(0, toNumber(row?.largeGrossWeightKg));
-  const combinedGrossWeightKg = Math.max(0, toNumber(row?.combinedGrossWeightKg));
+  const resolvedWeights = resolveReadyMadeGrossWeights(row);
   const maxSmallGrossWeightKg = roundTo(smallPanCount * 1.9);
   const maxLargeGrossWeightKg = roundTo(largePanCount * 4.3);
   const maxCombinedGrossWeightKg = roundTo(maxSmallGrossWeightKg + maxLargeGrossWeightKg);
+  const toleranceKg = 0.03;
 
   return (
-    providedSmallGrossWeightKg > maxSmallGrossWeightKg + 0.01 ||
-    providedLargeGrossWeightKg > maxLargeGrossWeightKg + 0.01 ||
-    combinedGrossWeightKg > maxCombinedGrossWeightKg + 0.01
+    resolvedWeights.smallGrossWeightKg > maxSmallGrossWeightKg + toleranceKg ||
+    resolvedWeights.largeGrossWeightKg > maxLargeGrossWeightKg + toleranceKg ||
+    resolvedWeights.combinedGrossWeightKg > maxCombinedGrossWeightKg + toleranceKg
   );
 }
 

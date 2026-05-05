@@ -48,4 +48,14 @@ describe("resolveReadyMadeGrossWeights", () => {
       })
     ).toBe(false);
   });
+
+  it("does not falsely reject normalized combined weights that round close to the pan limits", () => {
+    expect(
+      hasImpossibleReadyMadeGrossWeights({
+        smallPanCount: 1,
+        largePanCount: 1,
+        combinedGrossWeightKg: 6.19,
+      })
+    ).toBe(false);
+  });
 });
