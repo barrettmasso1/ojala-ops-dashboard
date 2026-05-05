@@ -23,6 +23,7 @@ export default function Home() {
   const isAdmin = user?.role === "admin";
 
   const staffLinks = [
+    { label: "Portal Home", href: "/portal" },
     { label: "Opening Form", href: "/portal/opening" },
     { label: "Closing Form", href: "/portal/closing" },
     { label: "Inventory Form", href: "/portal/inventory" },
@@ -48,7 +49,7 @@ export default function Home() {
             </a>
             {user ? (
               <>
-                <ActionLink href="/portal/opening" tone="secondary">
+                <ActionLink href="/portal" tone="secondary">
                   Staff Forms
                 </ActionLink>
                 {isAdmin ? <ActionLink href="/dashboard">Manager Dashboard</ActionLink> : null}
@@ -75,8 +76,8 @@ export default function Home() {
           <section className="grid gap-4 md:grid-cols-3">
             {[
               {
-                title: "Three staff forms",
-                text: "Opening, closing, and the separate inventory form keep checklist, money, and count workflows clearly split for faster use on mobile.",
+                title: "Time clock and staff forms",
+                text: "Portal Home now includes the shared time clock first, then opening, closing, and inventory workflows for faster use on mobile.",
                 icon: <ClipboardCheck className="h-5 w-5" />,
               },
               {

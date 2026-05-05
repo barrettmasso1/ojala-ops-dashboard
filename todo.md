@@ -223,3 +223,4 @@
 - [x] Add a staff picker with the names Karol, Anhec, Jesse, and Esme to the time-clock workflow so staff can identify themselves before clocking in or out
 - [x] Record a clock-in timestamp and clock-out timestamp for each selected staff member in the shared staff portal
 - [x] Add a manager-side hours view that shows daily hours and weekly totals for Karol, Anhec, Jesse, and Esme to support payroll review
+- [x] Investigate why the new staff sign-in and sign-out timeclock is not visible on the live staff-facing website and fix the route or rendering issue so staff can access it directly
