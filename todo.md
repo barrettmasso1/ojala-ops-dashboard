@@ -217,3 +217,9 @@
 - [x] Add a visible Drafts button so staff can find and reopen saved opening, closing, and inventory forms directly instead of relying only on automatic same-device restore
 - [x] Investigate and fix duplicate owner email notifications so one staff submission does not send multiple emails for the same business date and form
 - [x] Add a delete draft button to each saved opening, closing, and inventory draft so staff can remove outdated current-device drafts directly from the Drafts list
+- [x] Add staff sign-in and sign-out actions in the staff portal that record arrival and departure timestamps for each workday
+- [x] Persist staff time-clock records so managers can review daily attendance history by employee
+- [x] Add a manager-side hours view that shows total hours worked per employee per day and supports weekly payroll review
+- [x] Add a staff picker with the names Karol, Anhec, Jesse, and Esme to the time-clock workflow so staff can identify themselves before clocking in or out
+- [x] Record a clock-in timestamp and clock-out timestamp for each selected staff member in the shared staff portal
+- [x] Add a manager-side hours view that shows daily hours and weekly totals for Karol, Anhec, Jesse, and Esme to support payroll review

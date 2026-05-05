@@ -13,6 +13,7 @@ import { READY_MADE_GELATO_FLAVORS } from "../../../shared/opsCatalog";
 
 type YesNo = "Yes" | "No";
 type PortalView = "hub" | "opening" | "closing" | "inventory";
+type TimeClockStaffName = "Karol" | "Anhec" | "Jesse" | "Esme";
 
 type SubmissionNotice = {
   view: Exclude<PortalView, "hub">;
@@ -165,6 +166,7 @@ const LARGE_PAN_FULL_WEIGHT_OUNCES = (4.3 - LARGE_PAN_EMPTY_KG) * KG_TO_WEIGHT_O
 const openingDraftKey = "opening" as const;
 const closingDraftKey = "closing" as const;
 const inventoryDraftKey = "inventory" as const;
+const TIME_CLOCK_STAFF_NAMES: TimeClockStaffName[] = ["Karol", "Anhec", "Jesse", "Esme"];
 
 function todayValue(date = new Date()) {
   return getPacificBusinessDate(date);
@@ -180,6 +182,15 @@ function displayNumberValue(value: number | string | null | undefined) {
 function roundTo(value: number, decimals = 3) {
   const factor = 10 ** decimals;
   return Math.round(value * factor) / factor;
+}
+
+function formatTimeClockLabel(timestamp: number | null | undefined, locale: Intl.LocalesArgument) {
+  if (!timestamp) return "—";
+  return new Intl.DateTimeFormat(locale, {
+    timeZone: "America/Los_Angeles",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(timestamp));
 }
 
 export function limitGelatoPhotoBatch<T>(items: T[]) {
@@ -658,6 +669,7 @@ export default function EmployeePortal(props: any) {
   const [otherFlavorName, setOtherFlavorName] = useState("");
   const [submissionNotice, setSubmissionNotice] = useState<SubmissionNotice | null>(null);
   const [draftSavedAt, setDraftSavedAt] = useState<DraftSavedAtState>({});
+  const [selectedClockStaffName, setSelectedClockStaffName] = useState<TimeClockStaffName | null>(null);
   const currentDeviceDrafts: DeviceDraftSummary[] = [
     { view: "opening" as const, href: "/portal/opening", label: t("Opening Form"), record: loadPortalDraft<OpeningDraft>(openingDraftKey, currentBusinessDate) },
     { view: "closing" as const, href: "/portal/closing", label: t("Closing Form"), record: loadPortalDraft<ClosingDraft>(closingDraftKey, currentBusinessDate) },
@@ -695,6 +707,10 @@ export default function EmployeePortal(props: any) {
     { businessDate: currentBusinessDate },
     { refetchOnWindowFocus: false }
   );
+  const timeclockStatusQuery = trpc.timeclock.todayStatus.useQuery(
+    { businessDate: currentBusinessDate },
+    { refetchOnWindowFocus: false }
+  );
 
   const openingMutation = trpc.forms.submitOpening.useMutation({
     onError: error => toast.error(translateErrorMessage(error.message, language)),
@@ -718,6 +734,20 @@ export default function EmployeePortal(props: any) {
     onError: error => toast.error(translateErrorMessage(error.message, language)),
   });
   const submissionHistoryMutation = trpc.forms.submitSubmissionHistory.useMutation({
+    onError: error => toast.error(translateErrorMessage(error.message, language)),
+  });
+  const clockInMutation = trpc.timeclock.clockIn.useMutation({
+    onSuccess: async () => {
+      toast.success(t("Signed in successfully."));
+      await utils.timeclock.todayStatus.invalidate({ businessDate: currentBusinessDate });
+    },
+    onError: error => toast.error(translateErrorMessage(error.message, language)),
+  });
+  const clockOutMutation = trpc.timeclock.clockOut.useMutation({
+    onSuccess: async () => {
+      toast.success(t("Signed out successfully."));
+      await utils.timeclock.todayStatus.invalidate({ businessDate: currentBusinessDate });
+    },
     onError: error => toast.error(translateErrorMessage(error.message, language)),
   });
   const submissionOrigin = typeof window === "undefined" ? undefined : window.location.origin;
@@ -747,6 +777,11 @@ export default function EmployeePortal(props: any) {
     );
     return [...seeded, ...custom];
   }, [readyMadeGelato.flavors]);
+  const timeclockStaff = timeclockStatusQuery.data?.staff ?? [];
+  const selectedClockStaffStatus = selectedClockStaffName
+    ? timeclockStaff.find(entry => entry.staffName === selectedClockStaffName) ?? null
+    : null;
+  const isTimeclockActionPending = clockInMutation.isPending || clockOutMutation.isPending || timeclockStatusQuery.isLoading;
 
   const openingNapkinsQuestion = useMemo(() => getOpeningNapkinsQuestion(openingQuestions), [openingQuestions]);
   const storeReadyQuestion = useMemo(() => openingQuestions.find(question => question.prompt === "Store ready to open"), [openingQuestions]);
@@ -1047,6 +1082,17 @@ export default function EmployeePortal(props: any) {
     }
 
     toast.success(t("Draft deleted."));
+  }
+
+  async function handleTimeClockAction() {
+    if (!selectedClockStaffName || isTimeclockActionPending) return;
+
+    if (selectedClockStaffStatus?.isClockedIn) {
+      await clockOutMutation.mutateAsync({ staffName: selectedClockStaffName });
+      return;
+    }
+
+    await clockInMutation.mutateAsync({ staffName: selectedClockStaffName });
   }
 
   function clearGelatoPhotoSelection(shiftType: ReadyMadeGelatoShiftKey) {
@@ -1816,97 +1862,165 @@ export default function EmployeePortal(props: any) {
 
           <div className="p-6 md:p-8">
             {portalView === "hub" ? (
-              <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+              <div className="grid gap-5">
                 <SectionCard
-                  icon={<SunMedium className="h-5 w-5" />}
-                  title={t("Opening Form")}
-                  description={t("Start the day with opening checklist questions, opening cash, and the limited utensil and ready-made gelato inventory.")}
+                  icon={<ReceiptText className="h-5 w-5" />}
+                  title={t("Time Clock")}
+                  description={t("Choose your name to record your arrival or departure for today's shift.")}
                 >
-                  <div>
-                    <Link href="/portal/opening" className="inline-flex items-center gap-2 rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]">
-                      {t("Open Opening Form")}
-                      <ArrowRight className="h-4 w-4" />
-                    </Link>
-                  </div>
-                </SectionCard>
-
-                <SectionCard
-                  icon={<MoonStar className="h-5 w-5" />}
-                  title={t("Closing Form")}
-                  description={t("End the day with closing checklist questions, nightly money and report details, and the same limited inventory counts.")}
-                >
-                  <div>
-                    <Link href="/portal/closing" className="inline-flex items-center gap-2 rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]">
-                      {t("Open Closing Form")}
-                      <ArrowRight className="h-4 w-4" />
-                    </Link>
-                  </div>
-                </SectionCard>
-
-                <SectionCard
-                  icon={<Package2 className="h-5 w-5" />}
-                  title={t("Inventory Form")}
-                  description={t("Use the independent inventory form when the team needs the full store count beyond the opening and closing workflows.")}
-                >
-                  <div>
-                    <Link href="/portal/inventory" className="inline-flex items-center gap-2 rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]">
-                      {t("Open Inventory Form")}
-                      <ArrowRight className="h-4 w-4" />
-                    </Link>
-                  </div>
-                </SectionCard>
-
-                <SectionCard
-                  icon={<Package2 className="h-5 w-5" />}
-                  title={t("Photo Pilot")}
-                  description={t("Test the separate photo-assisted gelato workflow by uploading pan-on-scale images, reviewing the extracted values, and saving only the verified weights.")}
-                >
-                  <div>
-                    <Link href="/portal/photo-pilot" className="inline-flex items-center gap-2 rounded-full bg-[#52665f] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#41534d]">
-                      {t("Open Photo Pilot")}
-                      <ArrowRight className="h-4 w-4" />
-                    </Link>
-                  </div>
-                </SectionCard>
-
-                <SectionCard
-                  icon={<Save className="h-5 w-5" />}
-                  title={t("Drafts")}
-                  description={t("Reopen saved opening, closing, or inventory work from this device for today's business date.")}
-                >
-                  {currentDeviceDrafts.length > 0 ? (
-                    <div className="flex flex-col gap-3">
-                      {currentDeviceDrafts.map(draft => (
-                        <div
-                          key={draft.view}
-                          className="flex flex-col gap-3 rounded-[1.35rem] border border-[#ddd4c8] bg-white/90 p-3 text-sm text-[#2f2a26] sm:flex-row sm:items-center sm:justify-between"
-                        >
-                          <Link
-                            href={draft.href}
-                            className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-[1.1rem] px-1 py-1 transition hover:bg-white/80"
-                          >
-                            <span className="min-w-0">
-                              <span className="block font-medium">{draft.label}</span>
-                              <span className="mt-1 block text-xs leading-5 text-[#7d756b]">{t("Saved on this device at")} {draft.savedAtLabel}</span>
-                            </span>
-                            <span className="shrink-0 rounded-full bg-[#2f2a26] px-3 py-2 text-xs font-medium text-white">{t("Resume draft")}</span>
-                          </Link>
-                          <button
-                            type="button"
-                            onClick={() => deleteSavedDraft(draft.view, draft.draftKey)}
-                            className="inline-flex items-center justify-center gap-2 self-start rounded-full border border-[#ddd4c8] bg-white px-3 py-2 text-xs font-medium text-[#6f3b3b] transition hover:border-[#cfa8a8] hover:bg-[#fff5f5] sm:self-center"
-                            aria-label={`${t("Delete draft")} ${draft.label}`}
-                          >
-                            <X className="h-3.5 w-3.5" />
-                            {t("Delete draft")}
-                          </button>
+                  <div className="grid gap-6 lg:grid-cols-[1.4fr_0.9fr]">
+                    <div className="space-y-4">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{t("Select your name")}</p>
+                        <div className="mt-3 flex flex-wrap gap-3">
+                          {TIME_CLOCK_STAFF_NAMES.map(staffName => {
+                            const isSelected = selectedClockStaffName === staffName;
+                            return (
+                              <button
+                                key={staffName}
+                                type="button"
+                                onClick={() => setSelectedClockStaffName(staffName)}
+                                className={`rounded-full px-4 py-2.5 text-sm font-medium transition ${
+                                  isSelected
+                                    ? "bg-[#2f2a26] text-white shadow-[0_10px_24px_rgba(47,42,38,0.18)]"
+                                    : "border border-[#ddd4c8] bg-[#fcfaf6] text-[#2f2a26] hover:bg-white"
+                                }`}
+                              >
+                                {staffName}
+                              </button>
+                            );
+                          })}
                         </div>
-                      ))}
+                      </div>
+                      <p className="text-sm leading-6 text-[#6b6258]">{t("Tap Sign In when you arrive and Sign Out when you leave.")}</p>
                     </div>
-                  ) : (
-                    <p className="text-sm leading-6 text-[#6c645a]">{t("No drafts saved on this device for today.")}</p>
-                  )}
+                    <div className="rounded-[1.5rem] border border-[#e2d7c9] bg-[#fbf7f0] p-5 shadow-sm">
+                      <p className="text-xs uppercase tracking-[0.24em] text-[#8a8176]">{selectedClockStaffName ?? t("Select your name")}</p>
+                      <div className="mt-3 space-y-2 text-sm text-[#5f584f]">
+                        {selectedClockStaffStatus ? (
+                          <>
+                            <p>
+                              {selectedClockStaffStatus.isClockedIn
+                                ? `${t("Currently signed in since")} ${formatTimeClockLabel(selectedClockStaffStatus.activeEntry?.clockInAt, locale)}`
+                                : selectedClockStaffStatus.latestEntry?.clockOutAt
+                                  ? `${t("Signed out at")} ${formatTimeClockLabel(selectedClockStaffStatus.latestEntry.clockOutAt, locale)}`
+                                  : t("Not signed in yet.")}
+                            </p>
+                            <p className="text-xs uppercase tracking-[0.16em] text-[#8a8176]">
+                              {t("Today's hours")}: {selectedClockStaffStatus.totalHoursToday.toFixed(2)}
+                            </p>
+                            {selectedClockStaffStatus.activeEntry ? (
+                              <p className="text-xs text-[#7d756b]">{t("Signed in at")} {formatTimeClockLabel(selectedClockStaffStatus.activeEntry.clockInAt, locale)}</p>
+                            ) : null}
+                          </>
+                        ) : (
+                          <p>{t("Not signed in yet.")}</p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleTimeClockAction()}
+                        disabled={!selectedClockStaffName || isTimeclockActionPending}
+                        className="mt-5 inline-flex items-center gap-2 rounded-full bg-[#52665f] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#41534d] disabled:cursor-not-allowed disabled:bg-[#b8b0a4]"
+                      >
+                        {isTimeclockActionPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
+                        {selectedClockStaffStatus?.isClockedIn ? t("Sign Out") : t("Sign In")}
+                      </button>
+                    </div>
+                  </div>
                 </SectionCard>
+                <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+                  <SectionCard
+                    icon={<SunMedium className="h-5 w-5" />}
+                    title={t("Opening Form")}
+                    description={t("Start the day with opening checklist questions, opening cash, and the limited utensil and ready-made gelato inventory.")}
+                  >
+                    <div>
+                      <Link href="/portal/opening" className="inline-flex items-center gap-2 rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]">
+                        {t("Open Opening Form")}
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                    </div>
+                  </SectionCard>
+
+                  <SectionCard
+                    icon={<MoonStar className="h-5 w-5" />}
+                    title={t("Closing Form")}
+                    description={t("End the day with closing checklist questions, nightly money and report details, and the same limited inventory counts.")}
+                  >
+                    <div>
+                      <Link href="/portal/closing" className="inline-flex items-center gap-2 rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]">
+                        {t("Open Closing Form")}
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                    </div>
+                  </SectionCard>
+
+                  <SectionCard
+                    icon={<Package2 className="h-5 w-5" />}
+                    title={t("Inventory Form")}
+                    description={t("Use the independent inventory form when the team needs the full store count beyond the opening and closing workflows.")}
+                  >
+                    <div>
+                      <Link href="/portal/inventory" className="inline-flex items-center gap-2 rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]">
+                        {t("Open Inventory Form")}
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                    </div>
+                  </SectionCard>
+
+                  <SectionCard
+                    icon={<Package2 className="h-5 w-5" />}
+                    title={t("Photo Pilot")}
+                    description={t("Test the separate photo-assisted gelato workflow by uploading pan-on-scale images, reviewing the extracted values, and saving only the verified weights.")}
+                  >
+                    <div>
+                      <Link href="/portal/photo-pilot" className="inline-flex items-center gap-2 rounded-full bg-[#52665f] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#41534d]">
+                        {t("Open Photo Pilot")}
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                    </div>
+                  </SectionCard>
+
+                  <SectionCard
+                    icon={<Save className="h-5 w-5" />}
+                    title={t("Drafts")}
+                    description={t("Reopen saved opening, closing, or inventory work from this device for today's business date.")}
+                  >
+                    {currentDeviceDrafts.length > 0 ? (
+                      <div className="flex flex-col gap-3">
+                        {currentDeviceDrafts.map(draft => (
+                          <div
+                            key={draft.view}
+                            className="flex flex-col gap-3 rounded-[1.35rem] border border-[#ddd4c8] bg-white/90 p-3 text-sm text-[#2f2a26] sm:flex-row sm:items-center sm:justify-between"
+                          >
+                            <Link
+                              href={draft.href}
+                              className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-[1.1rem] px-1 py-1 transition hover:bg-white/80"
+                            >
+                              <span className="min-w-0">
+                                <span className="block font-medium">{draft.label}</span>
+                                <span className="mt-1 block text-xs leading-5 text-[#7d756b]">{t("Saved on this device at")} {draft.savedAtLabel}</span>
+                              </span>
+                              <span className="shrink-0 rounded-full bg-[#2f2a26] px-3 py-2 text-xs font-medium text-white">{t("Resume draft")}</span>
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={() => deleteSavedDraft(draft.view, draft.draftKey)}
+                              className="inline-flex items-center justify-center gap-2 self-start rounded-full border border-[#ddd4c8] bg-white px-3 py-2 text-xs font-medium text-[#6f3b3b] transition hover:border-[#cfa8a8] hover:bg-[#fff5f5] sm:self-center"
+                              aria-label={`${t("Delete draft")} ${draft.label}`}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                              {t("Delete draft")}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm leading-6 text-[#6c645a]">{t("No drafts saved on this device for today.")}</p>
+                    )}
+                  </SectionCard>
+                </div>
               </div>
             ) : null}
 

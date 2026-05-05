@@ -1,4 +1,6 @@
-import { decimal, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { bigint, decimal, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+
+export const staffAttendanceNameEnum = mysqlEnum("staffAttendanceName", ["Karol", "Anhec", "Jesse", "Esme"]);
 
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
@@ -127,6 +129,17 @@ export const submissionHistoryEntries = mysqlTable("submissionHistoryEntries", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const staffAttendance = mysqlTable("staffAttendance", {
+  id: int("id").autoincrement().primaryKey(),
+  businessDate: varchar("businessDate", { length: 10 }).notNull(),
+  staffName: staffAttendanceNameEnum.notNull(),
+  clockInAt: bigint("clockInAt", { mode: "number" }).notNull(),
+  clockOutAt: bigint("clockOutAt", { mode: "number" }),
+  submittedByUserId: int("submittedByUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export const recipes = mysqlTable("recipes", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 160 }).notNull().unique(),
@@ -168,6 +181,8 @@ export type ReadyMadeGelatoWeight = typeof readyMadeGelatoWeights.$inferSelect;
 export type InsertReadyMadeGelatoWeight = typeof readyMadeGelatoWeights.$inferInsert;
 export type SubmissionHistoryEntry = typeof submissionHistoryEntries.$inferSelect;
 export type InsertSubmissionHistoryEntry = typeof submissionHistoryEntries.$inferInsert;
+export type StaffAttendance = typeof staffAttendance.$inferSelect;
+export type InsertStaffAttendance = typeof staffAttendance.$inferInsert;
 export type Recipe = typeof recipes.$inferSelect;
 export type InsertRecipe = typeof recipes.$inferInsert;
 export type RecipeIngredient = typeof recipeIngredients.$inferSelect;

@@ -4,7 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getLoginUrl } from "@/const";
 import { buildManagerReconciliationSnapshot, MANAGER_INVENTORY_TABS, type ManagerInventoryView } from "@/lib/managerReconciliation";
 import { trpc } from "@/lib/trpc";
-import { formatPacificCalendarDate, formatPacificTime, getPacificBusinessDate } from "../../../shared/businessDate";
+import { formatPacificCalendarDate, formatPacificTime, getPacificBusinessDate, getPacificWeekStart } from "../../../shared/businessDate";
 import {
   AlertTriangle,
   CalendarRange,
@@ -69,6 +69,26 @@ function formatDateTime(value: string | Date | null | undefined) {
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
+}
+
+function addDaysToBusinessDate(dateString: string, dayOffset: number) {
+  const [year, month, day] = dateString.split("-").map(Number);
+  const utcMidday = new Date(Date.UTC(year, month - 1, day, 12));
+  utcMidday.setUTCDate(utcMidday.getUTCDate() + dayOffset);
+  return utcMidday.toISOString().slice(0, 10);
+}
+
+function buildBusinessDateRange(startDate: string, endDate: string) {
+  if (!startDate || !endDate || startDate > endDate) return [] as string[];
+  const dates: string[] = [];
+  let current = startDate;
+
+  while (current <= endDate && dates.length < 31) {
+    dates.push(current);
+    current = addDaysToBusinessDate(current, 1);
+  }
+
+  return dates;
 }
 
 function formatFieldLabel(key: string) {
@@ -175,6 +195,8 @@ export default function ManagerDashboard() {
   const utils = trpc.useUtils();
   const [liveNow, setLiveNow] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(todayValue());
+  const [hoursRangeStart, setHoursRangeStart] = useState(() => getPacificWeekStart(todayValue()));
+  const [hoursRangeEnd, setHoursRangeEnd] = useState(todayValue());
   const currentPacificDateLabel = useMemo(() => formatPacificCalendarDate(liveNow, "en-US"), [liveNow]);
   const currentPacificTimeLabel = useMemo(() => formatPacificTime(liveNow, "en-US"), [liveNow]);
   const [inventoryDashboardView, setInventoryDashboardView] = useState<ManagerInventoryView>("product");
@@ -218,10 +240,18 @@ export default function ManagerDashboard() {
       setSelectedDate(maxBusinessDate);
     }
 
+    if (hoursRangeEnd > maxBusinessDate) {
+      setHoursRangeEnd(maxBusinessDate);
+    }
+
+    if (hoursRangeStart > hoursRangeEnd) {
+      setHoursRangeStart(getPacificWeekStart(hoursRangeEnd));
+    }
+
     if (inventoryForm.lastCountDate && inventoryForm.lastCountDate > maxBusinessDate) {
       setInventoryForm(current => ({ ...current, lastCountDate: maxBusinessDate }));
     }
-  }, [inventoryForm.lastCountDate, maxBusinessDate, selectedDate]);
+  }, [hoursRangeEnd, hoursRangeStart, inventoryForm.lastCountDate, maxBusinessDate, selectedDate]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setLiveNow(new Date()), 30000);
@@ -241,6 +271,10 @@ export default function ManagerDashboard() {
   const closingChecklistQuery = trpc.dashboard.checklistQuestions.useQuery({ checklistType: "closing" }, { enabled: isAdmin, refetchOnWindowFocus: false });
   const notesQuery = trpc.dashboard.recentNotes.useQuery({ limit: 10 }, { enabled: isAdmin, refetchOnWindowFocus: false });
   const submissionHistoryQuery = trpc.dashboard.submissionHistory.useQuery({ businessDate: selectedDate }, { enabled: isAdmin, refetchOnWindowFocus: false });
+  const payrollHoursQuery = trpc.timeclock.weeklyHours.useQuery(
+    { startDate: hoursRangeStart, endDate: hoursRangeEnd },
+    { enabled: isAdmin, refetchOnWindowFocus: false }
+  );
 
   const saveInventoryMutation = trpc.dashboard.saveInventoryItem.useMutation({
     onSuccess: async () => {
@@ -318,6 +352,8 @@ export default function ManagerDashboard() {
   );
 
   const submissionHistory = useMemo(() => (submissionHistoryQuery.data ?? []) as SubmissionHistoryEntryRecord[], [submissionHistoryQuery.data]);
+  const payrollDateRange = useMemo(() => buildBusinessDateRange(hoursRangeStart, hoursRangeEnd), [hoursRangeStart, hoursRangeEnd]);
+  const payrollSummary = payrollHoursQuery.data;
 
   const daily = dailyQuery.data;
   const reconciliationSnapshot = buildManagerReconciliationSnapshot(daily);
@@ -625,6 +661,116 @@ export default function ManagerDashboard() {
                 </div>
               </SurfaceCard>
             </div>
+
+            <SurfaceCard>
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Payroll hours</p>
+                  <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Daily staff hours and payroll totals</h2>
+                  <p className="mt-3 max-w-3xl text-sm leading-7 text-[#6b6258]">Review each employee's daily hours across the selected date range, then use the totals tab for a cleaner payroll-ready weekly summary.</p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:w-[360px]">
+                  <label className="flex flex-col gap-2 text-sm text-[#5f6a64]">
+                    <span className="text-xs uppercase tracking-[0.18em] text-[#8a9089]">Start date</span>
+                    <input
+                      type="date"
+                      value={hoursRangeStart}
+                      max={hoursRangeEnd}
+                      onChange={event => setHoursRangeStart(event.target.value > hoursRangeEnd ? hoursRangeEnd : event.target.value)}
+                      className={inventoryFieldClassName()}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-2 text-sm text-[#5f6a64]">
+                    <span className="text-xs uppercase tracking-[0.18em] text-[#8a9089]">End date</span>
+                    <input
+                      type="date"
+                      value={hoursRangeEnd}
+                      min={hoursRangeStart}
+                      max={maxBusinessDate}
+                      onChange={event => setHoursRangeEnd(event.target.value > maxBusinessDate ? maxBusinessDate : event.target.value)}
+                      className={inventoryFieldClassName()}
+                    />
+                  </label>
+                </div>
+              </div>
+              <Tabs defaultValue="daily" className="mt-6 w-full gap-4">
+                <TabsList className="h-auto w-full flex-wrap rounded-[1.25rem] border border-[#ddd4c7] bg-[#f4ede2] p-1.5">
+                  <TabsTrigger value="daily" className="rounded-[1rem] px-4 py-2 data-[state=active]:bg-white data-[state=active]:text-[#1f2b27]">Daily hours</TabsTrigger>
+                  <TabsTrigger value="totals" className="rounded-[1rem] px-4 py-2 data-[state=active]:bg-white data-[state=active]:text-[#1f2b27]">Payroll totals</TabsTrigger>
+                </TabsList>
+                <TabsContent value="daily" className="mt-4 overflow-hidden rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6]">
+                  {payrollHoursQuery.isLoading ? (
+                    <div className="p-5">
+                      <StatePanel title="Loading payroll hours" description="Gathering the selected date range of sign-in and sign-out records." />
+                    </div>
+                  ) : payrollHoursQuery.error ? (
+                    <div className="p-5">
+                      <StatePanel title="Unable to load payroll hours" description="The staff attendance summary could not be loaded right now." tone="error" />
+                    </div>
+                  ) : !payrollSummary ? (
+                    <div className="p-5">
+                      <StatePanel title="No payroll data available" description="Attendance records will appear here once staff begin using the new time clock." tone="warning" />
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[880px] text-left text-sm">
+                        <thead className="bg-[#f4ede2] text-[#60706b]">
+                          <tr>
+                            <th className="px-4 py-3 font-medium">Staff</th>
+                            {payrollDateRange.map(date => (
+                              <th key={date} className="px-4 py-3 font-medium">{date.slice(5)}</th>
+                            ))}
+                            <th className="px-4 py-3 font-medium">Total</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
+                          {payrollSummary.staff.map(staffMember => (
+                            <tr key={staffMember.staffName}>
+                              <td className="px-4 py-3 font-medium">{staffMember.staffName}</td>
+                              {payrollDateRange.map(date => {
+                                const day = staffMember.dailyHours.find(entry => entry.businessDate === date);
+                                return (
+                                  <td key={`${staffMember.staffName}-${date}`} className="px-4 py-3">
+                                    <div className="font-medium">{day ? day.hours.toFixed(2) : "—"}</div>
+                                    <div className="text-xs text-[#7d756b]">{day ? `${day.shiftCount} shift${day.shiftCount === 1 ? "" : "s"}` : "No shifts"}</div>
+                                  </td>
+                                );
+                              })}
+                              <td className="px-4 py-3 font-medium">{staffMember.weeklyHours.toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </TabsContent>
+                <TabsContent value="totals" className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  {payrollHoursQuery.isLoading ? (
+                    Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-32 animate-pulse rounded-[1.5rem] bg-[#f4ede2]" />)
+                  ) : payrollHoursQuery.error ? (
+                    <div className="md:col-span-2 xl:col-span-4">
+                      <StatePanel title="Unable to load payroll totals" description="The date-range totals are temporarily unavailable." tone="error" />
+                    </div>
+                  ) : !payrollSummary ? (
+                    <div className="md:col-span-2 xl:col-span-4">
+                      <StatePanel title="No payroll totals yet" description="Sign-in and sign-out records will create payroll totals automatically." tone="warning" />
+                    </div>
+                  ) : (
+                    payrollSummary.staff.map(staffMember => (
+                      <article key={staffMember.staffName} className="rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6] p-5 shadow-sm">
+                        <p className="text-xs uppercase tracking-[0.18em] text-[#8a9089]">{staffMember.staffName}</p>
+                        <p className="mt-3 font-serif text-3xl text-[#1f2b27]">{staffMember.weeklyHours.toFixed(2)} hrs</p>
+                        <div className="mt-4 space-y-2 text-sm text-[#5f6a64]">
+                          <p>{staffMember.totalShiftCount} recorded shift{staffMember.totalShiftCount === 1 ? "" : "s"}</p>
+                          <p>{staffMember.openShiftCount} open shift{staffMember.openShiftCount === 1 ? "" : "s"}</p>
+                          <p>{payrollSummary.startDate} → {payrollSummary.endDate}</p>
+                        </div>
+                      </article>
+                    ))
+                  )}
+                </TabsContent>
+              </Tabs>
+            </SurfaceCard>
 
             <SurfaceCard>
               <div className="flex items-center justify-between gap-4">

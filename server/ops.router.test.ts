@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "./_core/context";
 
 const dbMocks = vi.hoisted(() => ({
+  STAFF_ATTENDANCE_NAMES: ["Karol", "Anhec", "Jesse", "Esme"] as const,
+  clockInStaff: vi.fn(),
+  clockOutStaff: vi.fn(),
   createOpeningChecklist: vi.fn(),
   createClosingChecklist: vi.fn(),
   createEndOfDayReport: vi.fn(),
@@ -9,6 +12,8 @@ const dbMocks = vi.hoisted(() => ({
   getInventoryAlerts: vi.fn(),
   getRecentNotes: vi.fn(),
   getSalesTrend: vi.fn(),
+  getTodayAttendance: vi.fn(),
+  getWeeklyAttendanceSummary: vi.fn(),
   getWeekOverWeekSales: vi.fn(),
   listChecklistQuestions: vi.fn(),
   listInventoryItems: vi.fn(),
@@ -110,6 +115,122 @@ describe("operations router", () => {
       code: "FORBIDDEN",
     });
     expect(dbMocks.getDailyOperationsSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("records a staff clock-in through the shared portal timeclock procedure", async () => {
+    dbMocks.clockInStaff.mockResolvedValue({
+      id: 81,
+      businessDate: "2026-05-05",
+      staffName: "Karol",
+      clockInAt: 1778000400000,
+      clockOutAt: null,
+      submittedByUserId: 1,
+      createdAt: new Date("2026-05-05T16:00:00.000Z"),
+      updatedAt: new Date("2026-05-05T16:00:00.000Z"),
+    });
+
+    const caller = appRouter.createCaller(createContext("user"));
+    const result = await caller.timeclock.clockIn({ staffName: "Karol" });
+
+    expect(result).toEqual({
+      success: true,
+      businessDate: "2026-05-05",
+      entry: expect.objectContaining({
+        id: 81,
+        staffName: "Karol",
+        clockOutAt: null,
+      }),
+    });
+    expect(dbMocks.clockInStaff).toHaveBeenCalledWith({ staffName: "Karol", submittedByUserId: 1 });
+  });
+
+  it("records a staff clock-out and exposes today's staff status", async () => {
+    dbMocks.clockOutStaff.mockResolvedValue({
+      id: 81,
+      businessDate: "2026-05-05",
+      staffName: "Karol",
+      clockInAt: 1778000400000,
+      clockOutAt: 1778029200000,
+      submittedByUserId: 1,
+      createdAt: new Date("2026-05-05T16:00:00.000Z"),
+      updatedAt: new Date("2026-05-05T23:00:00.000Z"),
+    });
+    dbMocks.getTodayAttendance.mockResolvedValue([
+      {
+        staffName: "Karol",
+        isClockedIn: false,
+        activeEntry: null,
+        latestEntry: {
+          id: 81,
+          businessDate: "2026-05-05",
+          staffName: "Karol",
+          clockInAt: 1778000400000,
+          clockOutAt: 1778029200000,
+          submittedByUserId: 1,
+          createdAt: new Date("2026-05-05T16:00:00.000Z"),
+          updatedAt: new Date("2026-05-05T23:00:00.000Z"),
+        },
+        todayEntries: [],
+        totalHoursToday: 8,
+      },
+    ]);
+
+    const caller = appRouter.createCaller(createContext("user"));
+    const clockOutResult = await caller.timeclock.clockOut({ staffName: "Karol" });
+    const statusResult = await caller.timeclock.todayStatus({ businessDate: "2026-05-05" });
+
+    expect(clockOutResult).toEqual({
+      success: true,
+      businessDate: "2026-05-05",
+      entry: expect.objectContaining({
+        staffName: "Karol",
+        clockOutAt: 1778029200000,
+      }),
+    });
+    expect(dbMocks.clockOutStaff).toHaveBeenCalledWith({ staffName: "Karol", submittedByUserId: 1 });
+    expect(statusResult).toEqual({
+      businessDate: "2026-05-05",
+      staff: expect.arrayContaining([
+        expect.objectContaining({
+          staffName: "Karol",
+          totalHoursToday: 8,
+        }),
+      ]),
+    });
+    expect(dbMocks.getTodayAttendance).toHaveBeenCalledWith("2026-05-05");
+  });
+
+  it("lets admin users load payroll hours while blocking non-admin staff from the summary", async () => {
+    dbMocks.getWeeklyAttendanceSummary.mockResolvedValue({
+      startDate: "2026-04-28",
+      endDate: "2026-05-04",
+      staff: [
+        {
+          staffName: "Karol",
+          weeklyHours: 32,
+          totalShiftCount: 4,
+          openShiftCount: 0,
+          dailyHours: [{ businessDate: "2026-04-28", hours: 8, shiftCount: 1, openShiftCount: 0 }],
+        },
+      ],
+    });
+
+    const adminCaller = appRouter.createCaller(createContext("admin"));
+    await expect(adminCaller.timeclock.weeklyHours({ startDate: "2026-04-28", endDate: "2026-05-04" })).resolves.toEqual(
+      expect.objectContaining({
+        startDate: "2026-04-28",
+        endDate: "2026-05-04",
+        staff: expect.arrayContaining([
+          expect.objectContaining({ staffName: "Karol", weeklyHours: 32 }),
+        ]),
+      }),
+    );
+    expect(dbMocks.getWeeklyAttendanceSummary).toHaveBeenCalledWith({ startDate: "2026-04-28", endDate: "2026-05-04" });
+
+    const employeeCaller = appRouter.createCaller(createContext("user"));
+    await expect(employeeCaller.timeclock.weeklyHours({ startDate: "2026-04-28", endDate: "2026-05-04" })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
   });
 
   it("loads editable opening checklist questions for employees", async () => {

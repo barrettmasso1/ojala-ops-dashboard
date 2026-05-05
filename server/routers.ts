@@ -9,6 +9,8 @@ import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_
 import {
   createClosingChecklist,
   createEndOfDayReport,
+  clockInStaff,
+  clockOutStaff,
   createOpeningChecklist,
   createSubmissionHistoryEntry,
   getDailyOperationsSnapshot,
@@ -16,6 +18,8 @@ import {
   getInventoryAlerts,
   getRecentNotes,
   getSalesTrend,
+  getTodayAttendance,
+  getWeeklyAttendanceSummary,
   getWeekOverWeekSales,
   listSubmissionHistoryEntries,
   listChecklistQuestions,
@@ -26,11 +30,12 @@ import {
   saveChecklistQuestion,
   saveInventoryItem,
   saveReadyMadeGelatoWeights,
+  STAFF_ATTENDANCE_NAMES,
   updateInventoryCount,
   upsertUser,
 } from "./db";
 import { extractGelatoPhotos } from "./gelatoPhotoPilot";
-import { isFuturePacificBusinessDate } from "../shared/businessDate";
+import { getPacificBusinessDate, getPacificWeekStart, isFuturePacificBusinessDate } from "../shared/businessDate";
 
 const optionalBusinessDateSchema = z
   .string()
@@ -219,6 +224,13 @@ const submissionHistorySchema = z.object({
     notes: z.record(z.string(), z.string()).optional(),
   }).passthrough(),
 });
+
+const staffAttendanceNameSchema = z.enum(STAFF_ATTENDANCE_NAMES);
+
+const weeklyAttendanceRangeSchema = z.object({
+  startDate: requiredBusinessDateSchema.optional(),
+  endDate: requiredBusinessDateSchema.optional(),
+}).optional();
 
 const checklistTypeSchema = z.enum(["opening", "closing"]);
 
@@ -501,6 +513,54 @@ export const appRouter = router({
 
       return { success: true } as const;
     }),
+  }),
+  timeclock: router({
+    clockIn: protectedProcedure
+      .input(z.object({ staffName: staffAttendanceNameSchema }))
+      .mutation(async ({ ctx, input }) => {
+        const entry = await clockInStaff({
+          staffName: input.staffName,
+          submittedByUserId: ctx.user.id,
+        });
+
+        return {
+          success: true,
+          entry,
+          businessDate: getPacificBusinessDate(new Date(entry.clockInAt)),
+        } as const;
+      }),
+    clockOut: protectedProcedure
+      .input(z.object({ staffName: staffAttendanceNameSchema }))
+      .mutation(async ({ ctx, input }) => {
+        const entry = await clockOutStaff({
+          staffName: input.staffName,
+          submittedByUserId: ctx.user.id,
+        });
+
+        return {
+          success: true,
+          entry,
+          businessDate: entry.businessDate,
+        } as const;
+      }),
+    todayStatus: protectedProcedure
+      .input(z.object({ businessDate: requiredBusinessDateSchema.optional() }).optional())
+      .query(async ({ input }) => {
+        const businessDate = input?.businessDate ?? getPacificBusinessDate();
+        const staff = await getTodayAttendance(businessDate);
+
+        return {
+          businessDate,
+          staff,
+        } as const;
+      }),
+    weeklyHours: adminProcedure
+      .input(weeklyAttendanceRangeSchema)
+      .query(async ({ input }) => {
+        const endDate = input?.endDate ?? getPacificBusinessDate();
+        const startDate = input?.startDate ?? getPacificWeekStart(endDate);
+        return getWeeklyAttendanceSummary({ startDate, endDate });
+      }),
   }),
   dashboard: router({
     daily: adminProcedure

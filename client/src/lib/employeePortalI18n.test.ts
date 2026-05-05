@@ -34,6 +34,15 @@ describe("employee portal translations", () => {
     expect(translatePortalText("Nightly Money and Report", "es")).toBe("Dinero y reporte nocturnos");
     expect(translatePortalText("Utensil and Counter Inventory", "es")).toBe("Inventario de utensilios y mostrador");
     expect(translatePortalText("Full Store Inventory", "es")).toBe("Inventario completo de la tienda");
+    expect(translatePortalText("Time Clock", "es")).toBe("Reloj de entrada y salida");
+    expect(translatePortalText("Select your name", "es")).toBe("Selecciona tu nombre");
+    expect(translatePortalText("Tap Sign In when you arrive and Sign Out when you leave.", "es")).toBe("Toca Iniciar turno cuando llegues y Finalizar turno cuando te vayas.");
+    expect(translatePortalText("Sign In", "es")).toBe("Iniciar turno");
+    expect(translatePortalText("Sign Out", "es")).toBe("Finalizar turno");
+    expect(translatePortalText("Currently signed in since", "es")).toBe("Turno activo desde las");
+    expect(translatePortalText("Today's hours", "es")).toBe("Horas de hoy");
+    expect(translatePortalText("Signed in successfully.", "es")).toBe("Inicio de turno registrado.");
+    expect(translatePortalText("Signed out successfully.", "es")).toBe("Salida de turno registrada.");
   });
 
   it("translates the revised opening and closing descriptions into Spanish", () => {

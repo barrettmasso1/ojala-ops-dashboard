@@ -1,4 +1,4 @@
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, gte, isNull, lte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   checklistQuestions,
@@ -11,6 +11,7 @@ import {
   InsertRecipe,
   InsertRecipeIngredient,
   InsertReadyMadeGelatoWeight,
+  InsertStaffAttendance,
   InsertSubmissionHistoryEntry,
   InsertUser,
   inventoryItems,
@@ -18,6 +19,7 @@ import {
   readyMadeGelatoWeights,
   recipeIngredients,
   recipes,
+  staffAttendance,
   submissionHistoryEntries,
   users,
 } from "../drizzle/schema";
@@ -55,6 +57,48 @@ const READY_MADE_GELATO_FLAVOR_POSITION = new Map(READY_MADE_GELATO_FLAVORS.map(
 
 type ReadyMadeShiftType = "opening" | "closing";
 type SubmissionHistoryType = "opening" | "closing" | "inventory";
+type StaffAttendanceName = "Karol" | "Anhec" | "Jesse" | "Esme";
+
+export const STAFF_ATTENDANCE_NAMES: StaffAttendanceName[] = ["Karol", "Anhec", "Jesse", "Esme"];
+
+type StaffAttendanceRecord = {
+  id: number;
+  businessDate: string;
+  staffName: StaffAttendanceName;
+  clockInAt: number;
+  clockOutAt: number | null;
+  submittedByUserId: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type StaffAttendanceStatus = {
+  staffName: StaffAttendanceName;
+  isClockedIn: boolean;
+  activeEntry: StaffAttendanceRecord | null;
+  latestEntry: StaffAttendanceRecord | null;
+  todayEntries: StaffAttendanceRecord[];
+  totalHoursToday: number;
+};
+
+export type WeeklyAttendanceSummaryRow = {
+  businessDate: string;
+  hours: number;
+  shiftCount: number;
+  openShiftCount: number;
+};
+
+export type WeeklyAttendanceSummary = {
+  startDate: string;
+  endDate: string;
+  staff: Array<{
+    staffName: StaffAttendanceName;
+    weeklyHours: number;
+    totalShiftCount: number;
+    openShiftCount: number;
+    dailyHours: WeeklyAttendanceSummaryRow[];
+  }>;
+};
 
 function safeParseJson<T>(value: string, fallback: T): T {
   try {
@@ -1400,6 +1444,187 @@ export async function getSubmissionStatusForBusinessDate(businessDate?: string) 
   } as const;
 }
 
+function normalizeStaffAttendanceRecord(row: typeof staffAttendance.$inferSelect): StaffAttendanceRecord {
+  return {
+    id: row.id,
+    businessDate: row.businessDate,
+    staffName: row.staffName as StaffAttendanceName,
+    clockInAt: Number(row.clockInAt),
+    clockOutAt: row.clockOutAt == null ? null : Number(row.clockOutAt),
+    submittedByUserId: row.submittedByUserId,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function calculateAttendanceHours(clockInAt: number, clockOutAt: number | null, referenceTime = Date.now()) {
+  const end = clockOutAt ?? referenceTime;
+  if (!Number.isFinite(clockInAt) || !Number.isFinite(end)) return 0;
+  return roundTo(Math.max(0, end - clockInAt) / (1000 * 60 * 60), 2);
+}
+
+export async function clockInStaff(input: {
+  staffName: StaffAttendanceName;
+  submittedByUserId: number;
+  clockInAt?: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const clockInAt = Number(input.clockInAt ?? Date.now());
+  const openEntry = await db
+    .select()
+    .from(staffAttendance)
+    .where(and(eq(staffAttendance.staffName, input.staffName), isNull(staffAttendance.clockOutAt)))
+    .orderBy(desc(staffAttendance.clockInAt), desc(staffAttendance.id))
+    .limit(1);
+
+  if (openEntry[0]) {
+    return normalizeStaffAttendanceRecord(openEntry[0]);
+  }
+
+  const values: InsertStaffAttendance = {
+    businessDate: getPacificBusinessDate(new Date(clockInAt)),
+    staffName: input.staffName,
+    clockInAt,
+    clockOutAt: null,
+    submittedByUserId: input.submittedByUserId,
+  };
+
+  const result = await db.insert(staffAttendance).values(values);
+  const inserted = await db
+    .select()
+    .from(staffAttendance)
+    .where(eq(staffAttendance.id, Number(result[0]?.insertId ?? 0)))
+    .limit(1);
+
+  if (!inserted[0]) {
+    throw new Error("Clock-in record could not be created.");
+  }
+
+  return normalizeStaffAttendanceRecord(inserted[0]);
+}
+
+export async function clockOutStaff(input: {
+  staffName: StaffAttendanceName;
+  submittedByUserId?: number;
+  clockOutAt?: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const clockOutAt = Number(input.clockOutAt ?? Date.now());
+  const openEntry = await db
+    .select()
+    .from(staffAttendance)
+    .where(and(eq(staffAttendance.staffName, input.staffName), isNull(staffAttendance.clockOutAt)))
+    .orderBy(desc(staffAttendance.clockInAt), desc(staffAttendance.id))
+    .limit(1);
+
+  if (!openEntry[0]) {
+    throw new Error(`${input.staffName} is not currently clocked in.`);
+  }
+
+  const openRecord = normalizeStaffAttendanceRecord(openEntry[0]);
+  const resolvedClockOutAt = Math.max(clockOutAt, openRecord.clockInAt);
+
+  await db.update(staffAttendance).set({ clockOutAt: resolvedClockOutAt }).where(eq(staffAttendance.id, openRecord.id));
+
+  return {
+    ...openRecord,
+    clockOutAt: resolvedClockOutAt,
+  } satisfies StaffAttendanceRecord;
+}
+
+export async function getTodayAttendance(businessDate?: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const normalizedDate = normalizeDate(businessDate);
+  const rows = await db
+    .select()
+    .from(staffAttendance)
+    .where(and(gte(staffAttendance.businessDate, normalizedDate), lte(staffAttendance.businessDate, normalizedDate)));
+  const openRows = await db
+    .select()
+    .from(staffAttendance)
+    .where(isNull(staffAttendance.clockOutAt))
+    .orderBy(desc(staffAttendance.clockInAt), desc(staffAttendance.id));
+
+  const recordsById = new Map<number, StaffAttendanceRecord>();
+  for (const row of [...rows, ...openRows]) {
+    const record = normalizeStaffAttendanceRecord(row);
+    recordsById.set(record.id, record);
+  }
+
+  const records = Array.from(recordsById.values()).sort((left, right) => right.clockInAt - left.clockInAt || right.id - left.id);
+
+  return STAFF_ATTENDANCE_NAMES.map(staffName => {
+    const staffRecords = records.filter(record => record.staffName === staffName);
+    const todayEntries = staffRecords.filter(record => record.businessDate === normalizedDate);
+    const activeEntry = staffRecords.find(record => record.clockOutAt == null) ?? null;
+
+    return {
+      staffName,
+      isClockedIn: Boolean(activeEntry),
+      activeEntry,
+      latestEntry: staffRecords[0] ?? null,
+      todayEntries,
+      totalHoursToday: roundTo(todayEntries.reduce((sum, record) => sum + calculateAttendanceHours(record.clockInAt, record.clockOutAt), 0), 2),
+    } satisfies StaffAttendanceStatus;
+  });
+}
+
+export async function getWeeklyAttendanceSummary(input?: {
+  startDate?: string;
+  endDate?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const endDate = normalizeDate(input?.endDate);
+  const startDate = normalizeDate(input?.startDate ?? getPacificWeekStart(endDate));
+  const rows = await db
+    .select()
+    .from(staffAttendance)
+    .where(and(gte(staffAttendance.businessDate, startDate), lte(staffAttendance.businessDate, endDate)))
+    .orderBy(desc(staffAttendance.businessDate), desc(staffAttendance.clockInAt), desc(staffAttendance.id));
+
+  const normalizedRows = rows.map(normalizeStaffAttendanceRecord);
+
+  return {
+    startDate,
+    endDate,
+    staff: STAFF_ATTENDANCE_NAMES.map(staffName => {
+      const staffRows = normalizedRows.filter(row => row.staffName === staffName);
+      const groupedByDay = new Map<string, WeeklyAttendanceSummaryRow>();
+
+      for (const row of staffRows) {
+        const current = groupedByDay.get(row.businessDate) ?? {
+          businessDate: row.businessDate,
+          hours: 0,
+          shiftCount: 0,
+          openShiftCount: 0,
+        };
+
+        current.hours = roundTo(current.hours + calculateAttendanceHours(row.clockInAt, row.clockOutAt), 2);
+        current.shiftCount += 1;
+        current.openShiftCount += row.clockOutAt == null ? 1 : 0;
+        groupedByDay.set(row.businessDate, current);
+      }
+
+      const dailyHours = Array.from(groupedByDay.values()).sort((left, right) => left.businessDate.localeCompare(right.businessDate));
+
+      return {
+        staffName,
+        weeklyHours: roundTo(dailyHours.reduce((sum, day) => sum + day.hours, 0), 2),
+        totalShiftCount: staffRows.length,
+        openShiftCount: staffRows.filter(row => row.clockOutAt == null).length,
+        dailyHours,
+      };
+    }),
+  } satisfies WeeklyAttendanceSummary;
+}
 
 export function buildRecipeCostSummaries(
   recipeRows: Array<{ id: number; name: string; batchYieldOunces: string | number | null; notes?: string | null; processSteps?: string | null }>,
