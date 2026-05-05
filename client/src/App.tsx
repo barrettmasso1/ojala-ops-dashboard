@@ -35,6 +35,7 @@ function Router() {
         <Route path="/portal/inventory" component={InventoryForm} />
         <Route path="/portal/photo-pilot" component={GelatoPhotoPilot} />
         <Route path="/dashboard/inventory" component={ManagerDashboard} />
+        <Route path="/dashboard/time-book" component={ManagerDashboard} />
         <Route path="/dashboard/forms" component={ManagerDashboard} />
         <Route path="/dashboard/history" component={ManagerDashboard} />
         <Route path="/dashboard/analysis" component={ManagerDashboard} />

@@ -2,17 +2,21 @@ import { describe, expect, it } from "vitest";
 import { getVisibleMenuItemsForRole } from "./DashboardLayout";
 
 describe("dashboard layout navigation", () => {
-  it("includes dedicated dashboard, setup, cookbook, and analysis entries for admin users", () => {
+  it("includes dedicated dashboard, time book, setup, cookbook, and history entries for admin users", () => {
     const adminItems = getVisibleMenuItemsForRole("admin");
 
     expect(adminItems.map(item => item.label)).toEqual([
       "Dashboard",
+      "Time Book",
       "Inventory Setup",
       "Cookbook",
       "Form Setup",
-      "History & Notes",
+      "History",
       "Employee Portal",
     ]);
+    expect(adminItems.find(item => item.label === "Time Book")).toMatchObject({
+      path: "/dashboard/time-book",
+    });
     expect(adminItems.find(item => item.label === "Inventory Setup")).toMatchObject({
       path: "/dashboard/inventory",
     });
@@ -22,8 +26,8 @@ describe("dashboard layout navigation", () => {
     expect(adminItems.find(item => item.label === "Form Setup")).toMatchObject({
       path: "/dashboard/forms",
     });
-    expect(adminItems.find(item => item.label === "History & Notes")).toMatchObject({
-      path: "/dashboard/analysis",
+    expect(adminItems.find(item => item.label === "History")).toMatchObject({
+      path: "/dashboard/history",
     });
   });
 

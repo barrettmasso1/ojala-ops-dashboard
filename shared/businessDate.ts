@@ -66,4 +66,12 @@ export function getPacificWeekStart(dateString: string) {
   return getPacificBusinessDate(pacificMiddayUtc);
 }
 
+export function getPacificSundayWeekStart(dateString: string) {
+  const [year, month, day] = dateString.split("-").map(value => Number(value));
+  const pacificMiddayUtc = new Date(Date.UTC(year, month - 1, day, 12));
+  const weekday = pacificMiddayUtc.getUTCDay();
+  pacificMiddayUtc.setUTCDate(pacificMiddayUtc.getUTCDate() - weekday);
+  return getPacificBusinessDate(pacificMiddayUtc);
+}
+
 export const PACIFIC_TIME_ZONE = BUSINESS_TIME_ZONE;

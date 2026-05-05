@@ -23,7 +23,7 @@ import {
   submissionHistoryEntries,
   users,
 } from "../drizzle/schema";
-import { getPacificBusinessDate, getPacificWeekStart, isFuturePacificBusinessDate } from "../shared/businessDate";
+import { getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "../shared/businessDate";
 import { DEFAULT_INVENTORY_ITEMS, DEFAULT_RECIPE_ITEMS, READY_MADE_GELATO_FLAVORS } from "../shared/opsCatalog";
 import { ENV } from "./_core/env";
 import { storageGetSignedUrl } from "./storage";
@@ -97,6 +97,39 @@ export type WeeklyAttendanceSummary = {
     totalShiftCount: number;
     openShiftCount: number;
     dailyHours: WeeklyAttendanceSummaryRow[];
+  }>;
+};
+
+export type TimeBookAttendanceEntry = StaffAttendanceRecord & {
+  hoursWorked: number;
+};
+
+export type TimeBookAttendanceDay = {
+  businessDate: string;
+  totalHours: number;
+  shiftCount: number;
+  openShiftCount: number;
+  entries: TimeBookAttendanceEntry[];
+};
+
+export type TimeBookAttendanceSummary = {
+  startDate: string;
+  endDate: string;
+  totalHours: number;
+  totalShiftCount: number;
+  openShiftCount: number;
+  dailyTotals: Array<{
+    businessDate: string;
+    totalHours: number;
+    shiftCount: number;
+    openShiftCount: number;
+  }>;
+  staff: Array<{
+    staffName: StaffAttendanceName;
+    totalHours: number;
+    totalShiftCount: number;
+    openShiftCount: number;
+    dailyLogs: TimeBookAttendanceDay[];
   }>;
 };
 
@@ -1583,7 +1616,7 @@ export async function getWeeklyAttendanceSummary(input?: {
   if (!db) throw new Error("Database not available");
 
   const endDate = normalizeDate(input?.endDate);
-  const startDate = normalizeDate(input?.startDate ?? getPacificWeekStart(endDate));
+  const startDate = normalizeDate(input?.startDate ?? getPacificSundayWeekStart(endDate));
   const rows = await db
     .select()
     .from(staffAttendance)
@@ -1624,6 +1657,85 @@ export async function getWeeklyAttendanceSummary(input?: {
       };
     }),
   } satisfies WeeklyAttendanceSummary;
+}
+
+export async function getAttendanceTimeBook(input?: {
+  startDate?: string;
+  endDate?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const endDate = normalizeDate(input?.endDate);
+  const startDate = normalizeDate(input?.startDate ?? getPacificSundayWeekStart(endDate));
+  const rows = await db
+    .select()
+    .from(staffAttendance)
+    .where(and(gte(staffAttendance.businessDate, startDate), lte(staffAttendance.businessDate, endDate)))
+    .orderBy(desc(staffAttendance.businessDate), desc(staffAttendance.clockInAt), desc(staffAttendance.id));
+
+  const normalizedRows = rows.map(normalizeStaffAttendanceRecord);
+  const dailyTotals = new Map<string, { businessDate: string; totalHours: number; shiftCount: number; openShiftCount: number }>();
+
+  const staff = STAFF_ATTENDANCE_NAMES.map(staffName => {
+    const staffRows = normalizedRows.filter(row => row.staffName === staffName);
+    const groupedByDay = new Map<string, TimeBookAttendanceDay>();
+
+    for (const row of staffRows) {
+      const hoursWorked = calculateAttendanceHours(row.clockInAt, row.clockOutAt);
+      const day = groupedByDay.get(row.businessDate) ?? {
+        businessDate: row.businessDate,
+        totalHours: 0,
+        shiftCount: 0,
+        openShiftCount: 0,
+        entries: [],
+      };
+
+      day.entries.push({ ...row, hoursWorked });
+      day.totalHours = roundTo(day.totalHours + hoursWorked, 2);
+      day.shiftCount += 1;
+      day.openShiftCount += row.clockOutAt == null ? 1 : 0;
+      groupedByDay.set(row.businessDate, day);
+
+      const dailyTotal = dailyTotals.get(row.businessDate) ?? {
+        businessDate: row.businessDate,
+        totalHours: 0,
+        shiftCount: 0,
+        openShiftCount: 0,
+      };
+      dailyTotal.totalHours = roundTo(dailyTotal.totalHours + hoursWorked, 2);
+      dailyTotal.shiftCount += 1;
+      dailyTotal.openShiftCount += row.clockOutAt == null ? 1 : 0;
+      dailyTotals.set(row.businessDate, dailyTotal);
+    }
+
+    const dailyLogs = Array.from(groupedByDay.values())
+      .map(day => ({
+        ...day,
+        entries: day.entries.sort((left, right) => left.clockInAt - right.clockInAt || left.id - right.id),
+      }))
+      .sort((left, right) => right.businessDate.localeCompare(left.businessDate));
+
+    return {
+      staffName,
+      totalHours: roundTo(dailyLogs.reduce((sum, day) => sum + day.totalHours, 0), 2),
+      totalShiftCount: staffRows.length,
+      openShiftCount: staffRows.filter(row => row.clockOutAt == null).length,
+      dailyLogs,
+    };
+  });
+
+  const orderedDailyTotals = Array.from(dailyTotals.values()).sort((left, right) => left.businessDate.localeCompare(right.businessDate));
+
+  return {
+    startDate,
+    endDate,
+    totalHours: roundTo(orderedDailyTotals.reduce((sum, day) => sum + day.totalHours, 0), 2),
+    totalShiftCount: orderedDailyTotals.reduce((sum, day) => sum + day.shiftCount, 0),
+    openShiftCount: orderedDailyTotals.reduce((sum, day) => sum + day.openShiftCount, 0),
+    dailyTotals: orderedDailyTotals,
+    staff,
+  } satisfies TimeBookAttendanceSummary;
 }
 
 export function buildRecipeCostSummaries(

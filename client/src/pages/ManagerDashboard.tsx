@@ -4,7 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getLoginUrl } from "@/const";
 import { buildManagerReconciliationSnapshot, MANAGER_INVENTORY_TABS, type ManagerInventoryView } from "@/lib/managerReconciliation";
 import { trpc } from "@/lib/trpc";
-import { formatPacificCalendarDate, formatPacificTime, getPacificBusinessDate, getPacificWeekStart } from "../../../shared/businessDate";
+import { formatPacificCalendarDate, formatPacificTime, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart } from "../../../shared/businessDate";
 import {
   AlertTriangle,
   CalendarRange,
@@ -69,6 +69,15 @@ function formatDateTime(value: string | Date | null | undefined) {
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatTimeOnly(value: number | null | undefined) {
+  if (!value) return "—";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 function addDaysToBusinessDate(dateString: string, dayOffset: number) {
@@ -174,19 +183,22 @@ function classifyDifference(value: number) {
 export default function ManagerDashboard() {
   const [location, setLocation] = useLocation();
   const isInventoryWorkspaceRoute = location.startsWith("/dashboard/inventory");
+  const isTimeBookRoute = location.startsWith("/dashboard/time-book");
   const isCookbookRoute = location.startsWith("/cookbook");
   const isFormsRoute = location.startsWith("/dashboard/forms");
   const isHistoryRoute = location.startsWith("/dashboard/history") || location.startsWith("/dashboard/analysis");
-  const isOverviewRoute = !isInventoryWorkspaceRoute && !isCookbookRoute && !isFormsRoute && !isHistoryRoute;
+  const isOverviewRoute = !isInventoryWorkspaceRoute && !isTimeBookRoute && !isCookbookRoute && !isFormsRoute && !isHistoryRoute;
   const redirectPath = isInventoryWorkspaceRoute
     ? "/dashboard/inventory"
-    : isCookbookRoute
-      ? "/cookbook"
-      : isFormsRoute
-        ? "/dashboard/forms"
-        : isHistoryRoute
-          ? "/dashboard/history"
-          : "/dashboard";
+    : isTimeBookRoute
+      ? "/dashboard/time-book"
+      : isCookbookRoute
+        ? "/cookbook"
+        : isFormsRoute
+          ? "/dashboard/forms"
+          : isHistoryRoute
+            ? "/dashboard/history"
+            : "/dashboard";
 
   const { user, loading } = useAuth({
     redirectOnUnauthenticated: true,
@@ -195,7 +207,7 @@ export default function ManagerDashboard() {
   const utils = trpc.useUtils();
   const [liveNow, setLiveNow] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(todayValue());
-  const [hoursRangeStart, setHoursRangeStart] = useState(() => getPacificWeekStart(todayValue()));
+  const [hoursRangeStart, setHoursRangeStart] = useState(() => getPacificSundayWeekStart(todayValue()));
   const [hoursRangeEnd, setHoursRangeEnd] = useState(todayValue());
   const currentPacificDateLabel = useMemo(() => formatPacificCalendarDate(liveNow, "en-US"), [liveNow]);
   const currentPacificTimeLabel = useMemo(() => formatPacificTime(liveNow, "en-US"), [liveNow]);
@@ -245,7 +257,7 @@ export default function ManagerDashboard() {
     }
 
     if (hoursRangeStart > hoursRangeEnd) {
-      setHoursRangeStart(getPacificWeekStart(hoursRangeEnd));
+      setHoursRangeStart(getPacificSundayWeekStart(hoursRangeEnd));
     }
 
     if (inventoryForm.lastCountDate && inventoryForm.lastCountDate > maxBusinessDate) {
@@ -272,6 +284,10 @@ export default function ManagerDashboard() {
   const notesQuery = trpc.dashboard.recentNotes.useQuery({ limit: 10 }, { enabled: isAdmin, refetchOnWindowFocus: false });
   const submissionHistoryQuery = trpc.dashboard.submissionHistory.useQuery({ businessDate: selectedDate }, { enabled: isAdmin, refetchOnWindowFocus: false });
   const payrollHoursQuery = trpc.timeclock.weeklyHours.useQuery(
+    { startDate: hoursRangeStart, endDate: hoursRangeEnd },
+    { enabled: isAdmin, refetchOnWindowFocus: false }
+  );
+  const timeBookQuery = trpc.timeclock.timeBook.useQuery(
     { startDate: hoursRangeStart, endDate: hoursRangeEnd },
     { enabled: isAdmin, refetchOnWindowFocus: false }
   );
@@ -354,6 +370,7 @@ export default function ManagerDashboard() {
   const submissionHistory = useMemo(() => (submissionHistoryQuery.data ?? []) as SubmissionHistoryEntryRecord[], [submissionHistoryQuery.data]);
   const payrollDateRange = useMemo(() => buildBusinessDateRange(hoursRangeStart, hoursRangeEnd), [hoursRangeStart, hoursRangeEnd]);
   const payrollSummary = payrollHoursQuery.data;
+  const timeBook = timeBookQuery.data;
 
   const daily = dailyQuery.data;
   const reconciliationSnapshot = buildManagerReconciliationSnapshot(daily);
@@ -411,23 +428,27 @@ export default function ManagerDashboard() {
 
   const heroTitle = isInventoryWorkspaceRoute
     ? "A dedicated space for inventory setup, alerts, and manager-maintained counts."
-    : isCookbookRoute
-      ? "Recipe and ingredient details live here instead of crowding the daily dashboard."
-      : isFormsRoute
-        ? "Manage opening and closing checklist questions in their own workspace."
-        : isHistoryRoute
-          ? "Review every submitted form, photo, and note for the selected business date."
-          : "A quick daily glance at sales, form completion, and reconciliation.";
+    : isTimeBookRoute
+      ? "Attendance logs and payroll hours live in their own manager workspace."
+      : isCookbookRoute
+        ? "Recipe and ingredient details live here instead of crowding the daily dashboard."
+        : isFormsRoute
+          ? "Manage opening and closing checklist questions in their own workspace."
+          : isHistoryRoute
+            ? "Review every submitted form, photo, and note for the selected business date."
+            : "A quick daily glance at sales, form completion, and reconciliation.";
 
   const heroCopy = isInventoryWorkspaceRoute
     ? "Maintain ingredient and utensil records, review reorder pressure, and keep setup work separate from the manager's at-a-glance dashboard."
-    : isCookbookRoute
-      ? "Use the cookbook to review flavor formulas, ingredient costs, and yield placeholders without putting recipe details on the main dashboard."
-      : isFormsRoute
-        ? "Adjust checklist prompts in one place so the staff forms stay current without mixing setup work into the manager overview."
-        : isHistoryRoute
-          ? "Use this workspace to audit exactly what staff submitted, including gelato analysis photos, editable values, inventory updates, and notes, all grouped under the selected Pacific business date."
-          : "Use this page to answer the core questions fast: what sold, whether opening and closing were completed, how much volume started and ended the day, and where the differences landed.";
+    : isTimeBookRoute
+      ? "Use Time Book to audit every punch, confirm each day's hours, and review payroll totals across a Sunday-through-Saturday work week or any custom date range you choose."
+      : isCookbookRoute
+        ? "Use the cookbook to review flavor formulas, ingredient costs, and yield placeholders without putting recipe details on the main dashboard."
+        : isFormsRoute
+          ? "Adjust checklist prompts in one place so the staff forms stay current without mixing setup work into the manager overview."
+          : isHistoryRoute
+            ? "Use this workspace to audit exactly what staff submitted, including gelato analysis photos, editable values, inventory updates, and notes, all grouped under the selected Pacific business date."
+            : "Use this page to answer the core questions fast: what sold, whether opening and closing were completed, how much volume started and ended the day, and where the differences landed.";
 
   const snapshotCards = isInventoryWorkspaceRoute
     ? [
@@ -435,12 +456,21 @@ export default function ManagerDashboard() {
         { label: "Utensils & cleaning", value: inventoryItems.filter(item => item.department === "Utensils & Cleaning").length.toString(), helper: "Tracked non-gelato inventory items." },
         { label: "Reorder now", value: inventoryAlerts.length.toString(), helper: "Items at or below par." },
       ]
-    : isCookbookRoute
+      : isTimeBookRoute
+        ? [
+            { label: "Payroll period", value: `${hoursRangeStart} → ${hoursRangeEnd}`, helper: "Selected attendance window." },
+            { label: "Total hours", value: `${(timeBook?.totalHours ?? 0).toFixed(2)} hrs`, helper: "All staff hours in the selected range." },
+            { label: "Shifts logged", value: (timeBook?.totalShiftCount ?? 0).toString(), helper: "Clock-in records captured in the selected range." },
+            { label: "Open shifts", value: (timeBook?.openShiftCount ?? 0).toString(), helper: "Punches still waiting for a sign-out." },
+            { label: "Staff with hours", value: (timeBook?.staff.filter(staffMember => staffMember.totalShiftCount > 0).length ?? 0).toString(), helper: "Team members with activity in the selected range." },
+          ]
+      : isCookbookRoute
       ? [
           { label: "Recipes loaded", value: recipes.length.toString(), helper: "Recipe workbook rows currently available." },
           { label: "Pending yield", value: recipes.filter(recipe => recipe.batchYieldOunces <= 0).length.toString(), helper: "Recipes still missing batch yield." },
           { label: "Missing costs", value: recipes.reduce((sum, recipe) => sum + recipe.missingCostCount, 0).toString(), helper: "Ingredient rows still waiting on cost data." },
         ]
+
       : isFormsRoute
         ? [
             { label: "Opening questions", value: openingChecklistQuestions.length.toString(), helper: "Current prompts shown on the opening checklist." },
@@ -473,35 +503,66 @@ export default function ManagerDashboard() {
           <div className="grid gap-0">
             <div className="border-b border-[#e4dccf] p-8 lg:p-10">
               <p className="text-xs uppercase tracking-[0.28em] text-[#7f857d]">
-                {isOverviewRoute
-                  ? "Owner / Manager dashboard"
-                  : isInventoryWorkspaceRoute
-                    ? "Owner / Manager inventory workspace"
-                    : isCookbookRoute
-                      ? "Owner / Manager cookbook"
-                        : isFormsRoute
-                          ? "Owner / Manager form setup"
-                          : "Owner / Manager submission history"}
+                  {isOverviewRoute
+                    ? "Owner / Manager dashboard"
+                    : isInventoryWorkspaceRoute
+                      ? "Owner / Manager inventory workspace"
+                      : isTimeBookRoute
+                        ? "Owner / Manager time book"
+                        : isCookbookRoute
+                          ? "Owner / Manager cookbook"
+                          : isFormsRoute
+                            ? "Owner / Manager form setup"
+                            : "Owner / Manager submission history"}
+
 
               </p>
               <h1 className="mt-4 font-serif text-4xl tracking-tight text-[#1f2b27] md:text-5xl">{heroTitle}</h1>
               <p className="mt-5 max-w-2xl text-base leading-7 text-[#65716b]">{heroCopy}</p>
               <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
-                <div className="relative max-w-xs flex-1">
-                  <CalendarRange className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7d847d]" />
-                  <input
-                    type="date"
-                    value={selectedDate}
-                    max={maxBusinessDate}
-                    onChange={event => setSelectedDate(event.target.value > maxBusinessDate ? maxBusinessDate : event.target.value)}
-                    className="h-12 w-full rounded-full border border-[#ddd4c7] bg-[#fcfaf6] pl-11 pr-4 text-sm text-[#24332f] shadow-sm outline-none transition focus:border-[#52665f] focus:ring-4 focus:ring-[#52665f]/10"
-                  />
-                </div>
+                {isTimeBookRoute ? (
+                  <div className="grid flex-1 gap-3 md:grid-cols-2 xl:max-w-[560px]">
+                    <div className="relative">
+                      <CalendarRange className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7d847d]" />
+                      <input
+                        type="date"
+                        value={hoursRangeStart}
+                        max={hoursRangeEnd}
+                        onChange={event => setHoursRangeStart(event.target.value > hoursRangeEnd ? hoursRangeEnd : event.target.value)}
+                        className="h-12 w-full rounded-full border border-[#ddd4c7] bg-[#fcfaf6] pl-11 pr-4 text-sm text-[#24332f] shadow-sm outline-none transition focus:border-[#52665f] focus:ring-4 focus:ring-[#52665f]/10"
+                      />
+                    </div>
+                    <div className="relative">
+                      <CalendarRange className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7d847d]" />
+                      <input
+                        type="date"
+                        value={hoursRangeEnd}
+                        min={hoursRangeStart}
+                        max={maxBusinessDate}
+                        onChange={event => setHoursRangeEnd(event.target.value > maxBusinessDate ? maxBusinessDate : event.target.value)}
+                        className="h-12 w-full rounded-full border border-[#ddd4c7] bg-[#fcfaf6] pl-11 pr-4 text-sm text-[#24332f] shadow-sm outline-none transition focus:border-[#52665f] focus:ring-4 focus:ring-[#52665f]/10"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="relative max-w-xs flex-1">
+                    <CalendarRange className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7d847d]" />
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      max={maxBusinessDate}
+                      onChange={event => setSelectedDate(event.target.value > maxBusinessDate ? maxBusinessDate : event.target.value)}
+                      className="h-12 w-full rounded-full border border-[#ddd4c7] bg-[#fcfaf6] pl-11 pr-4 text-sm text-[#24332f] shadow-sm outline-none transition focus:border-[#52665f] focus:ring-4 focus:ring-[#52665f]/10"
+                    />
+                  </div>
+                )}
                 <div className="inline-flex items-center gap-2 rounded-full border border-[#ded5c8] bg-white/80 px-4 py-3 text-sm text-[#66706a] shadow-sm">
                   <CalendarRange className="h-4 w-4 text-[#52665f]" />
-                  {isOverviewRoute
-                    ? `Quick day view active for ${selectedDate}.`
-                    : `Manager workspace filtered by ${selectedDate}.`}
+                  {isTimeBookRoute
+                    ? `Payroll period ${hoursRangeStart} through ${hoursRangeEnd}.`
+                    : isOverviewRoute
+                      ? `Quick day view active for ${selectedDate}.`
+                      : `Manager workspace filtered by ${selectedDate}.`}
                 </div>
                 <div className="rounded-full border border-[#ded5c8] bg-white/80 px-4 py-3 text-sm text-[#4f5b55] shadow-sm">
                   <p className="text-[10px] uppercase tracking-[0.24em] text-[#8b9088]">Live Pacific time</p>
@@ -513,7 +574,7 @@ export default function ManagerDashboard() {
             <div className="p-8 lg:p-10">
               <div className="rounded-[1.75rem] border border-[#e5ddd0] bg-[#f9f4ec] p-6">
                 <p className="text-[11px] uppercase tracking-[0.18em] text-[#8b9088] md:text-xs md:tracking-[0.24em]">
-                  {isOverviewRoute ? `Daily snapshot for ${selectedDate}` : "Workspace snapshot"}
+                  {isOverviewRoute ? `Daily snapshot for ${selectedDate}` : isTimeBookRoute ? "Time Book summary" : "Workspace snapshot"}
                 </p>
                 {dailyQuery.isLoading && isOverviewRoute ? (
                   <div className="mt-5 grid gap-4 sm:grid-cols-2">
@@ -890,6 +951,137 @@ export default function ManagerDashboard() {
                       ))}
                     </tbody>
                   </table>
+                )}
+              </div>
+            </SurfaceCard>
+          </>
+        ) : null}
+
+        {isTimeBookRoute ? (
+          <>
+            <SurfaceCard>
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Daily totals</p>
+                  <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Hours worked by day across the selected payroll period</h2>
+                  <p className="mt-3 max-w-3xl text-sm leading-7 text-[#6b6258]">Use the calendar range above to review any period, while the default payroll view begins on Sunday and rolls forward through Saturday.</p>
+                </div>
+                <div className="rounded-[1.5rem] border border-[#e3d8ca] bg-[#fbf7f0] px-4 py-3 text-sm text-[#68716c]">
+                  {timeBookQuery.isLoading ? "Loading attendance totals…" : `${timeBook?.dailyTotals.length ?? 0} day records in range.`}
+                </div>
+              </div>
+              <div className="mt-6 overflow-hidden rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6]">
+                {timeBookQuery.isLoading ? (
+                  <div className="p-5">
+                    <StatePanel title="Loading daily attendance totals" description="Gathering clock-ins, clock-outs, and payroll totals for the selected period." />
+                  </div>
+                ) : timeBookQuery.error ? (
+                  <div className="p-5">
+                    <StatePanel title="Unable to load the Time Book" description="Attendance totals could not be loaded right now." tone="error" />
+                  </div>
+                ) : !timeBook || timeBook.dailyTotals.length === 0 ? (
+                  <div className="p-5">
+                    <StatePanel title="No attendance records in this range" description="When staff sign in and out, each day's totals will appear here automatically." tone="warning" />
+                  </div>
+                ) : (
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-[#f4ede2] text-[#60706b]">
+                      <tr>
+                        <th className="px-4 py-3 font-medium">Date</th>
+                        <th className="px-4 py-3 font-medium">Total hours</th>
+                        <th className="px-4 py-3 font-medium">Shifts</th>
+                        <th className="px-4 py-3 font-medium">Open shifts</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
+                      {timeBook.dailyTotals.map(day => (
+                        <tr key={day.businessDate}>
+                          <td className="px-4 py-3 font-medium">{day.businessDate}</td>
+                          <td className="px-4 py-3">{day.totalHours.toFixed(2)}</td>
+                          <td className="px-4 py-3">{day.shiftCount}</td>
+                          <td className="px-4 py-3">{day.openShiftCount}</td>
+                        </tr>
+                      ))}
+                      <tr className="bg-[#f8f2e8] font-medium">
+                        <td className="px-4 py-3">Total</td>
+                        <td className="px-4 py-3">{timeBook.totalHours.toFixed(2)}</td>
+                        <td className="px-4 py-3">{timeBook.totalShiftCount}</td>
+                        <td className="px-4 py-3">{timeBook.openShiftCount}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </SurfaceCard>
+
+            <SurfaceCard>
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Punch logs</p>
+                  <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Sign-in time, sign-out time, and hours worked for each day</h2>
+                </div>
+                <div className="rounded-full bg-[#f1e8da] px-4 py-2 text-sm text-[#566863]">Work week: Sunday → Saturday</div>
+              </div>
+              <div className="mt-6 grid gap-5 xl:grid-cols-2">
+                {timeBookQuery.isLoading ? (
+                  Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-40 animate-pulse rounded-[1.6rem] bg-[#f4ede2]" />)
+                ) : timeBookQuery.error ? (
+                  <div className="xl:col-span-2">
+                    <StatePanel title="Unable to load punch logs" description="The detailed attendance log is temporarily unavailable." tone="error" />
+                  </div>
+                ) : !timeBook ? (
+                  <div className="xl:col-span-2">
+                    <StatePanel title="No attendance summary available" description="Select a date range or wait for staff punches to begin appearing here." tone="warning" />
+                  </div>
+                ) : (
+                  timeBook.staff.map(staffMember => (
+                    <article key={staffMember.staffName} className="rounded-[1.6rem] border border-[#e4dccf] bg-[#fcfaf6] p-5 shadow-sm">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.18em] text-[#8a9089]">{staffMember.staffName}</p>
+                          <h3 className="mt-2 font-serif text-3xl text-[#1f2b27]">{staffMember.totalHours.toFixed(2)} hrs</h3>
+                          <p className="mt-2 text-sm text-[#66706a]">{staffMember.totalShiftCount} shift{staffMember.totalShiftCount === 1 ? "" : "s"} recorded · {staffMember.openShiftCount} open</p>
+                        </div>
+                      </div>
+                      <div className="mt-5 space-y-4">
+                        {staffMember.dailyLogs.length === 0 ? (
+                          <StatePanel title="No punches in this range" description="This staff member has no clock-in records for the selected period." tone="warning" />
+                        ) : (
+                          staffMember.dailyLogs.map(day => (
+                            <div key={`${staffMember.staffName}-${day.businessDate}`} className="rounded-[1.35rem] border border-[#e4dccf] bg-white/90 p-4">
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                  <p className="text-xs uppercase tracking-[0.2em] text-[#8a9089]">{day.businessDate}</p>
+                                  <p className="mt-1 text-sm text-[#66706a]">{day.shiftCount} shift{day.shiftCount === 1 ? "" : "s"} · {day.openShiftCount} open</p>
+                                </div>
+                                <div className="rounded-full bg-[#f1e8da] px-3 py-2 text-sm font-medium text-[#43554f]">{day.totalHours.toFixed(2)} hrs</div>
+                              </div>
+                              <div className="mt-4 overflow-hidden rounded-[1.1rem] border border-[#ebe2d6] bg-[#fbf7f0]">
+                                <table className="w-full text-left text-sm">
+                                  <thead className="bg-[#f4ede2] text-[#60706b]">
+                                    <tr>
+                                      <th className="px-4 py-3 font-medium">Sign in</th>
+                                      <th className="px-4 py-3 font-medium">Sign out</th>
+                                      <th className="px-4 py-3 font-medium">Hours</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
+                                    {day.entries.map(entry => (
+                                      <tr key={entry.id}>
+                                        <td className="px-4 py-3">{formatTimeOnly(entry.clockInAt)}</td>
+                                        <td className="px-4 py-3">{formatTimeOnly(entry.clockOutAt)}</td>
+                                        <td className="px-4 py-3">{entry.hoursWorked.toFixed(2)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </article>
+                  ))
                 )}
               </div>
             </SurfaceCard>

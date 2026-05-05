@@ -224,3 +224,7 @@
 - [x] Record a clock-in timestamp and clock-out timestamp for each selected staff member in the shared staff portal
 - [x] Add a manager-side hours view that shows daily hours and weekly totals for Karol, Anhec, Jesse, and Esme to support payroll review
 - [x] Investigate why the new staff sign-in and sign-out timeclock is not visible on the live staff-facing website and fix the route or rendering issue so staff can access it directly
+- [x] Add a separate Time Book tab in the manager left-panel navigation for attendance and payroll review
+- [x] Show detailed time-clock logs in the manager Time Book view with sign-in time, sign-out time, and hours worked for each day
+- [x] Add a selectable date-range payroll summary in the manager Time Book view that totals hours by day and overall
+- [x] Align the manager payroll week model to Sunday-through-Saturday so Saturday payroll reflects hours worked from Sunday to Saturday

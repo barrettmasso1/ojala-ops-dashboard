@@ -8,6 +8,7 @@ const dbMocks = vi.hoisted(() => ({
   createOpeningChecklist: vi.fn(),
   createClosingChecklist: vi.fn(),
   createEndOfDayReport: vi.fn(),
+  getAttendanceTimeBook: vi.fn(),
   getDailyOperationsSnapshot: vi.fn(),
   getInventoryAlerts: vi.fn(),
   getRecentNotes: vi.fn(),
@@ -202,35 +203,94 @@ describe("operations router", () => {
 
   it("lets admin users load payroll hours while blocking non-admin staff from the summary", async () => {
     dbMocks.getWeeklyAttendanceSummary.mockResolvedValue({
-      startDate: "2026-04-28",
-      endDate: "2026-05-04",
+      startDate: "2026-04-27",
+      endDate: "2026-05-03",
       staff: [
         {
           staffName: "Karol",
           weeklyHours: 32,
           totalShiftCount: 4,
           openShiftCount: 0,
-          dailyHours: [{ businessDate: "2026-04-28", hours: 8, shiftCount: 1, openShiftCount: 0 }],
+          dailyHours: [{ businessDate: "2026-04-27", hours: 8, shiftCount: 1, openShiftCount: 0 }],
         },
       ],
     });
 
     const adminCaller = appRouter.createCaller(createContext("admin"));
-    await expect(adminCaller.timeclock.weeklyHours({ startDate: "2026-04-28", endDate: "2026-05-04" })).resolves.toEqual(
+    await expect(adminCaller.timeclock.weeklyHours({ startDate: "2026-04-27", endDate: "2026-05-03" })).resolves.toEqual(
       expect.objectContaining({
-        startDate: "2026-04-28",
-        endDate: "2026-05-04",
+        startDate: "2026-04-27",
+        endDate: "2026-05-03",
         staff: expect.arrayContaining([
           expect.objectContaining({ staffName: "Karol", weeklyHours: 32 }),
         ]),
       }),
     );
-    expect(dbMocks.getWeeklyAttendanceSummary).toHaveBeenCalledWith({ startDate: "2026-04-28", endDate: "2026-05-04" });
+    expect(dbMocks.getWeeklyAttendanceSummary).toHaveBeenCalledWith({ startDate: "2026-04-27", endDate: "2026-05-03" });
 
     const employeeCaller = appRouter.createCaller(createContext("user"));
-    await expect(employeeCaller.timeclock.weeklyHours({ startDate: "2026-04-28", endDate: "2026-05-04" })).rejects.toMatchObject({
+    await expect(employeeCaller.timeclock.weeklyHours({ startDate: "2026-04-27", endDate: "2026-05-03" })).rejects.toMatchObject({
       code: "FORBIDDEN",
     });
+  });
+
+  it("lets admin users load the detailed time book log for a selected payroll period", async () => {
+    dbMocks.getAttendanceTimeBook.mockResolvedValue({
+      startDate: "2026-04-27",
+      endDate: "2026-05-03",
+      totalHours: 14.5,
+      totalShiftCount: 2,
+      openShiftCount: 0,
+      dailyTotals: [
+        { businessDate: "2026-04-27", totalHours: 6.5, shiftCount: 1, openShiftCount: 0 },
+        { businessDate: "2026-04-28", totalHours: 8, shiftCount: 1, openShiftCount: 0 },
+      ],
+      staff: [
+        {
+          staffName: "Karol",
+          totalHours: 14.5,
+          totalShiftCount: 2,
+          openShiftCount: 0,
+          dailyLogs: [
+            {
+              businessDate: "2026-04-27",
+              totalHours: 6.5,
+              shiftCount: 1,
+              openShiftCount: 0,
+              entries: [
+                {
+                  id: 91,
+                  businessDate: "2026-04-27",
+                  staffName: "Karol",
+                  clockInAt: 1777276800000,
+                  clockOutAt: 1777300200000,
+                  submittedByUserId: 1,
+                  createdAt: new Date("2026-04-27T16:00:00.000Z"),
+                  updatedAt: new Date("2026-04-27T22:30:00.000Z"),
+                  hoursWorked: 6.5,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    const adminCaller = appRouter.createCaller(createContext("admin"));
+    await expect(adminCaller.timeclock.timeBook({ startDate: "2026-04-27", endDate: "2026-05-03" })).resolves.toEqual(
+      expect.objectContaining({
+        startDate: "2026-04-27",
+        endDate: "2026-05-03",
+        totalHours: 14.5,
+        staff: expect.arrayContaining([
+          expect.objectContaining({
+            staffName: "Karol",
+            totalHours: 14.5,
+          }),
+        ]),
+      }),
+    );
+    expect(dbMocks.getAttendanceTimeBook).toHaveBeenCalledWith({ startDate: "2026-04-27", endDate: "2026-05-03" });
   });
 
   it("loads editable opening checklist questions for employees", async () => {

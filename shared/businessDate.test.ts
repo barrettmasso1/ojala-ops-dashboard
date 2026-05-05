@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getPacificBusinessDate, getPacificWeekStart, isFuturePacificBusinessDate } from "./businessDate";
+import { getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "./businessDate";
 
 describe("businessDate helpers", () => {
   it("maps early-UTC timestamps to the previous Pacific business date", () => {
@@ -13,6 +13,11 @@ describe("businessDate helpers", () => {
   it("returns the Pacific Monday for weekly rollups", () => {
     expect(getPacificWeekStart("2026-04-29")).toBe("2026-04-27");
     expect(getPacificWeekStart("2026-05-03")).toBe("2026-04-27");
+  });
+
+  it("returns the Pacific Sunday for payroll week rollups", () => {
+    expect(getPacificSundayWeekStart("2026-04-29")).toBe("2026-04-26");
+    expect(getPacificSundayWeekStart("2026-05-03")).toBe("2026-05-03");
   });
 
   it("flags business dates that are ahead of the current Pacific day", () => {

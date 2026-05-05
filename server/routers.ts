@@ -13,6 +13,7 @@ import {
   clockOutStaff,
   createOpeningChecklist,
   createSubmissionHistoryEntry,
+  getAttendanceTimeBook,
   getDailyOperationsSnapshot,
   getSubmissionStatusForBusinessDate,
   getInventoryAlerts,
@@ -35,7 +36,7 @@ import {
   upsertUser,
 } from "./db";
 import { extractGelatoPhotos } from "./gelatoPhotoPilot";
-import { getPacificBusinessDate, getPacificWeekStart, isFuturePacificBusinessDate } from "../shared/businessDate";
+import { formatPacificDateTime, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "../shared/businessDate";
 
 const optionalBusinessDateSchema = z
   .string()
@@ -558,8 +559,15 @@ export const appRouter = router({
       .input(weeklyAttendanceRangeSchema)
       .query(async ({ input }) => {
         const endDate = input?.endDate ?? getPacificBusinessDate();
-        const startDate = input?.startDate ?? getPacificWeekStart(endDate);
+        const startDate = input?.startDate ?? getPacificSundayWeekStart(endDate);
         return getWeeklyAttendanceSummary({ startDate, endDate });
+      }),
+    timeBook: adminProcedure
+      .input(weeklyAttendanceRangeSchema)
+      .query(async ({ input }) => {
+        const endDate = input?.endDate ?? getPacificBusinessDate();
+        const startDate = input?.startDate ?? getPacificSundayWeekStart(endDate);
+        return getAttendanceTimeBook({ startDate, endDate });
       }),
   }),
   dashboard: router({
