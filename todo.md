@@ -228,3 +228,5 @@
 - [x] Show detailed time-clock logs in the manager Time Book view with sign-in time, sign-out time, and hours worked for each day
 - [x] Add a selectable date-range payroll summary in the manager Time Book view that totals hours by day and overall
 - [x] Align the manager payroll week model to Sunday-through-Saturday so Saturday payroll reflects hours worked from Sunday to Saturday
+- [x] Investigate and fix the integrated opening and closing form photo-upload submission error that shows impossible pan-weight validation during staff form submission
+- [x] Remove the separate Photo Pilot link from the staff-facing experience now that photo capture is integrated into the normal opening and closing forms

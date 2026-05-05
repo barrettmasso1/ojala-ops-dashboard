@@ -10,6 +10,7 @@ import {
   removePhotoAtIndex,
   replaceAnalyzedPhotosInGelatoState,
   resolveAnalyzedPhotoGrossWeights,
+  summarizeAnalyzedPhotosForSubmission,
 } from "./EmployeePortal";
 
 describe("employee portal gelato helpers", () => {
@@ -160,5 +161,47 @@ describe("employee portal gelato helpers", () => {
     expect(next.flavors.Vanilla.opening.largePanCount).toBe("");
     expect(next.flavors.Chocolate.opening.smallPanCount).toBe("");
     expect(next.flavors.Chocolate.opening.smallGrossWeightKg).toBe("");
+  });
+
+  it("summarizes analyzed photos by flavor for integrated photo-mode submission using combined weights", () => {
+    const summarized = summarizeAnalyzedPhotosForSubmission([
+      {
+        fileName: "pb-small.jpg",
+        imageUrl: "/pb-small",
+        flavor: "Peanut Butter",
+        smallPanCount: 1,
+        largePanCount: 0,
+        combinedGrossWeightKg: 1.61,
+        confidence: "high",
+        warning: "",
+      },
+      {
+        fileName: "pb-large.jpg",
+        imageUrl: "/pb-large",
+        flavor: "Peanut Butter",
+        smallPanCount: 0,
+        largePanCount: 1,
+        combinedGrossWeightKg: 3.74,
+        confidence: "medium",
+        warning: "",
+      },
+      {
+        fileName: "blank.jpg",
+        imageUrl: "/blank",
+        flavor: "   ",
+        smallPanCount: 1,
+        largePanCount: 0,
+        combinedGrossWeightKg: 1.2,
+        confidence: "low",
+        warning: "",
+      },
+    ]);
+
+    expect(Array.from(summarized.keys())).toEqual(["Peanut Butter"]);
+    expect(summarized.get("Peanut Butter")).toEqual({
+      smallPanCount: 1,
+      largePanCount: 1,
+      combinedGrossWeightKg: 5.35,
+    });
   });
 });

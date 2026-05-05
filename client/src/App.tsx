@@ -8,7 +8,6 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 
 const ClosingForm = lazy(() => import("./pages/ClosingForm"));
 const EmployeePortal = lazy(() => import("./pages/EmployeePortal"));
-const GelatoPhotoPilot = lazy(() => import("./pages/GelatoPhotoPilot"));
 const Home = lazy(() => import("./pages/Home"));
 const InventoryForm = lazy(() => import("./pages/InventoryForm"));
 const ManagerDashboard = lazy(() => import("./pages/ManagerDashboard"));
@@ -33,7 +32,6 @@ function Router() {
         <Route path="/portal/opening" component={OpeningForm} />
         <Route path="/portal/closing" component={ClosingForm} />
         <Route path="/portal/inventory" component={InventoryForm} />
-        <Route path="/portal/photo-pilot" component={GelatoPhotoPilot} />
         <Route path="/dashboard/inventory" component={ManagerDashboard} />
         <Route path="/dashboard/time-book" component={ManagerDashboard} />
         <Route path="/dashboard/forms" component={ManagerDashboard} />

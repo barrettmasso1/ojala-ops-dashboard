@@ -384,6 +384,24 @@ function applyGelatoShiftDraft(
   };
 }
 
+export function summarizeAnalyzedPhotosForSubmission(photos: ExtractedGelatoPhoto[]) {
+  const photoTotalsByFlavor = new Map<string, { smallPanCount: number; largePanCount: number; combinedGrossWeightKg: number }>();
+
+  for (const photo of photos) {
+    const flavor = photo.flavor.trim();
+    if (!flavor) continue;
+
+    const existing = photoTotalsByFlavor.get(flavor);
+    photoTotalsByFlavor.set(flavor, {
+      smallPanCount: (existing?.smallPanCount ?? 0) + Math.max(0, Math.trunc(photo.smallPanCount)),
+      largePanCount: (existing?.largePanCount ?? 0) + Math.max(0, Math.trunc(photo.largePanCount)),
+      combinedGrossWeightKg: roundTo((existing?.combinedGrossWeightKg ?? 0) + Math.max(0, Number(photo.combinedGrossWeightKg || 0))),
+    });
+  }
+
+  return photoTotalsByFlavor;
+}
+
 const initialOpeningStockCounts = (): OpeningStockCounts => ({
   cups4oz: "",
   cups8oz: "",
@@ -952,7 +970,27 @@ export default function EmployeePortal(props: any) {
   }
 
   function buildReadyMadeEntries(shiftType: ReadyMadeGelatoShiftKey) {
-    return readyMadeGelatoFlavorNames.map(flavor => {
+    const entryMode = gelatoEntryMode[shiftType] ?? "manual";
+    const analyzedPhotos = gelatoAnalyzedPhotos[shiftType] ?? [];
+    const flavorNames = Array.from(
+      new Set([...readyMadeGelatoFlavorNames, ...Object.keys(readyMadeGelato.flavors), ...analyzedPhotos.map(photo => photo.flavor.trim()).filter(Boolean)])
+    );
+
+    if (entryMode === "photo" && analyzedPhotos.length > 0) {
+      const photoTotalsByFlavor = summarizeAnalyzedPhotosForSubmission(analyzedPhotos);
+
+      return flavorNames.map(flavor => {
+        const totals = photoTotalsByFlavor.get(flavor);
+        return {
+          flavor,
+          smallPanCount: totals?.smallPanCount ?? 0,
+          largePanCount: totals?.largePanCount ?? 0,
+          combinedGrossWeightKg: totals?.combinedGrossWeightKg ?? 0,
+        };
+      });
+    }
+
+    return flavorNames.map(flavor => {
       const entry = readyMadeGelato.flavors[flavor]?.[shiftType] ?? initialReadyMadeGelatoShiftState();
       return {
         flavor,
@@ -1964,19 +2002,6 @@ export default function EmployeePortal(props: any) {
                     <div>
                       <Link href="/portal/inventory" className="inline-flex items-center gap-2 rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]">
                         {t("Open Inventory Form")}
-                        <ArrowRight className="h-4 w-4" />
-                      </Link>
-                    </div>
-                  </SectionCard>
-
-                  <SectionCard
-                    icon={<Package2 className="h-5 w-5" />}
-                    title={t("Photo Pilot")}
-                    description={t("Test the separate photo-assisted gelato workflow by uploading pan-on-scale images, reviewing the extracted values, and saving only the verified weights.")}
-                  >
-                    <div>
-                      <Link href="/portal/photo-pilot" className="inline-flex items-center gap-2 rounded-full bg-[#52665f] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#41534d]">
-                        {t("Open Photo Pilot")}
                         <ArrowRight className="h-4 w-4" />
                       </Link>
                     </div>
