@@ -162,6 +162,8 @@ const SMALL_PAN_EMPTY_KG = 0.286;
 const LARGE_PAN_EMPTY_KG = 0.4;
 const SMALL_PAN_FULL_WEIGHT_OUNCES = (1.9 - SMALL_PAN_EMPTY_KG) * KG_TO_WEIGHT_OUNCES;
 const LARGE_PAN_FULL_WEIGHT_OUNCES = (4.3 - LARGE_PAN_EMPTY_KG) * KG_TO_WEIGHT_OUNCES;
+const SMALL_PAN_FULL_VOLUME_OUNCES = 112;
+const LARGE_PAN_FULL_VOLUME_OUNCES = 160;
 
 const openingDraftKey = "opening" as const;
 const closingDraftKey = "closing" as const;
@@ -400,6 +402,33 @@ export function summarizeAnalyzedPhotosForSubmission(photos: ExtractedGelatoPhot
   }
 
   return photoTotalsByFlavor;
+}
+
+export function getAnalyzedPhotoPanTareKg(photo: Pick<ExtractedGelatoPhoto, "smallPanCount" | "largePanCount">) {
+  const smallPanCount = Math.max(0, Math.trunc(photo.smallPanCount));
+  const largePanCount = Math.max(0, Math.trunc(photo.largePanCount));
+  return roundTo(smallPanCount * SMALL_PAN_EMPTY_KG + largePanCount * LARGE_PAN_EMPTY_KG);
+}
+
+export function estimateAnalyzedPhotoNetWeightKg(
+  photo: Pick<ExtractedGelatoPhoto, "smallPanCount" | "largePanCount" | "combinedGrossWeightKg">
+) {
+  return roundTo(Math.max(0, Number(photo.combinedGrossWeightKg || 0) - getAnalyzedPhotoPanTareKg(photo)));
+}
+
+export function estimateAnalyzedPhotoVolumeOunces(
+  photo: Pick<ExtractedGelatoPhoto, "smallPanCount" | "largePanCount" | "combinedGrossWeightKg">
+) {
+  const resolved = resolveAnalyzedPhotoGrossWeights(photo);
+  const smallNetWeightKg = Math.max(0, resolved.smallGrossWeightKg - resolved.smallPanCount * SMALL_PAN_EMPTY_KG);
+  const largeNetWeightKg = Math.max(0, resolved.largeGrossWeightKg - resolved.largePanCount * LARGE_PAN_EMPTY_KG);
+  const smallWeightOunces = smallNetWeightKg * KG_TO_WEIGHT_OUNCES;
+  const largeWeightOunces = largeNetWeightKg * KG_TO_WEIGHT_OUNCES;
+
+  return roundTo(
+    smallWeightOunces * (SMALL_PAN_FULL_VOLUME_OUNCES / SMALL_PAN_FULL_WEIGHT_OUNCES) +
+      largeWeightOunces * (LARGE_PAN_FULL_VOLUME_OUNCES / LARGE_PAN_FULL_WEIGHT_OUNCES)
+  );
 }
 
 const initialOpeningStockCounts = (): OpeningStockCounts => ({
@@ -1640,6 +1669,9 @@ export default function EmployeePortal(props: any) {
               <div className="grid gap-4">
                 {analyzedPhotos.map((photo, index) => {
                   const panSetup = getAnalyzedPhotoPanSetup(photo);
+                  const panTareKg = getAnalyzedPhotoPanTareKg(photo);
+                  const netGelatoWeightKg = estimateAnalyzedPhotoNetWeightKg(photo);
+                  const volumeOunces = estimateAnalyzedPhotoVolumeOunces(photo);
                   return (
                     <article key={`${shiftType}-${photo.fileName}-${index}`} className="min-w-0 overflow-hidden rounded-[1.5rem] border border-[#e8ddd0] bg-[#fbf7f1] shadow-sm">
                       <div className="grid min-w-0 gap-4 p-4 lg:grid-cols-[180px_minmax(0,1fr)]">
@@ -1721,6 +1753,14 @@ export default function EmployeePortal(props: any) {
                           <div className="rounded-[1.25rem] border border-[#e5ddd0] bg-white/80 px-4 py-3 text-sm text-[#5f6a64]">
                             <p>
                               {photo.smallPanCount} {t("small pan")} · {photo.largePanCount} {t("large pan")} · {displayNumberValue(photo.combinedGrossWeightKg) || "0"} kg
+                            </p>
+                          </div>
+                          <div className="rounded-[1.25rem] border border-[#dfe7de] bg-[#f8fbf8] px-4 py-3 text-sm leading-7 text-[#355044]">
+                            <p>
+                              {t("Net gelato weight")}: {displayNumberValue(photo.combinedGrossWeightKg) || "0"} kg − {panTareKg.toFixed(3)} kg {t("pan tare")} = {netGelatoWeightKg.toFixed(3)} kg
+                            </p>
+                            <p className="mt-1">
+                              {t("Estimated volume ounces")}: {volumeOunces.toFixed(1)} oz
                             </p>
                           </div>
                           {photo.warning ? (

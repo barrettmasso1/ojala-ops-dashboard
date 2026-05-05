@@ -230,3 +230,4 @@
 - [x] Align the manager payroll week model to Sunday-through-Saturday so Saturday payroll reflects hours worked from Sunday to Saturday
 - [x] Investigate and fix the integrated opening and closing form photo-upload submission error that shows impossible pan-weight validation during staff form submission
 - [x] Remove the separate Photo Pilot link from the staff-facing experience now that photo capture is integrated into the normal opening and closing forms
+- [x] Show per-flavor calculated totals in each opening and closing photo-review section, including net gelato weight after pan tare and the converted volume ounces so staff can verify the math before submitting

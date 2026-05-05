@@ -7,6 +7,9 @@ import {
   GELATO_WEIGHT_INPUT_STEP,
   getAnalyzedPhotoPanSetup,
   limitGelatoPhotoBatch,
+  estimateAnalyzedPhotoNetWeightKg,
+  estimateAnalyzedPhotoVolumeOunces,
+  getAnalyzedPhotoPanTareKg,
   removePhotoAtIndex,
   replaceAnalyzedPhotosInGelatoState,
   resolveAnalyzedPhotoGrossWeights,
@@ -203,5 +206,18 @@ describe("employee portal gelato helpers", () => {
       largePanCount: 1,
       combinedGrossWeightKg: 5.35,
     });
+  });
+
+  it("calculates pan tare, net gelato weight, and volume ounces for photo review cards", () => {
+    const analyzedPhoto = {
+      smallPanCount: 1,
+      largePanCount: 1,
+      combinedGrossWeightKg: 3.95,
+    };
+
+    expect(getAnalyzedPhotoPanTareKg(analyzedPhoto)).toBe(0.686);
+    expect(estimateAnalyzedPhotoNetWeightKg(analyzedPhoto)).toBe(3.264);
+    expect(estimateAnalyzedPhotoVolumeOunces(analyzedPhoto)).toBeGreaterThan(120);
+    expect(estimateAnalyzedPhotoVolumeOunces(analyzedPhoto)).toBeLessThan(200);
   });
 });
