@@ -108,6 +108,7 @@ type ExtractedGelatoPhoto = {
   smallPanCount: number;
   largePanCount: number;
   combinedGrossWeightKg: number;
+  combinedGrossWeightInput?: string;
   confidence: "high" | "medium" | "low";
   warning: string;
 };
@@ -199,10 +200,24 @@ export function limitGelatoPhotoBatch<T>(items: T[]) {
   return items.slice(0, GELATO_PHOTO_UPLOAD_LIMIT);
 }
 
-export function resolveAnalyzedPhotoGrossWeights(photo: Pick<ExtractedGelatoPhoto, "smallPanCount" | "largePanCount" | "combinedGrossWeightKg">) {
+export function getAnalyzedPhotoCombinedGrossWeightKg(
+  photo: Pick<ExtractedGelatoPhoto, "combinedGrossWeightKg" | "combinedGrossWeightInput">
+) {
+  if (typeof photo.combinedGrossWeightInput === "string") {
+    const trimmed = photo.combinedGrossWeightInput.trim();
+    if (!trimmed) return 0;
+    const normalized = trimmed.replace(/,/g, ".");
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  }
+
+  return Number.isFinite(photo.combinedGrossWeightKg) && photo.combinedGrossWeightKg >= 0 ? photo.combinedGrossWeightKg : 0;
+}
+
+export function resolveAnalyzedPhotoGrossWeights(photo: Pick<ExtractedGelatoPhoto, "smallPanCount" | "largePanCount" | "combinedGrossWeightKg" | "combinedGrossWeightInput">) {
   const smallPanCount = Math.max(0, Math.trunc(photo.smallPanCount));
   const largePanCount = Math.max(0, Math.trunc(photo.largePanCount));
-  const combinedGrossWeightKg = Math.max(0, photo.combinedGrossWeightKg);
+  const combinedGrossWeightKg = Math.max(0, getAnalyzedPhotoCombinedGrossWeightKg(photo));
 
   if (combinedGrossWeightKg <= 0 || (smallPanCount === 0 && largePanCount === 0)) {
     return {
@@ -387,17 +402,26 @@ function applyGelatoShiftDraft(
 }
 
 export function summarizeAnalyzedPhotosForSubmission(photos: ExtractedGelatoPhoto[]) {
-  const photoTotalsByFlavor = new Map<string, { smallPanCount: number; largePanCount: number; combinedGrossWeightKg: number }>();
+  const photoTotalsByFlavor = new Map<string, {
+    smallPanCount: number;
+    smallGrossWeightKg: number;
+    largePanCount: number;
+    largeGrossWeightKg: number;
+    combinedGrossWeightKg: number;
+  }>();
 
   for (const photo of photos) {
     const flavor = photo.flavor.trim();
     if (!flavor) continue;
 
+    const resolved = resolveAnalyzedPhotoGrossWeights(photo);
     const existing = photoTotalsByFlavor.get(flavor);
     photoTotalsByFlavor.set(flavor, {
-      smallPanCount: (existing?.smallPanCount ?? 0) + Math.max(0, Math.trunc(photo.smallPanCount)),
-      largePanCount: (existing?.largePanCount ?? 0) + Math.max(0, Math.trunc(photo.largePanCount)),
-      combinedGrossWeightKg: roundTo((existing?.combinedGrossWeightKg ?? 0) + Math.max(0, Number(photo.combinedGrossWeightKg || 0))),
+      smallPanCount: (existing?.smallPanCount ?? 0) + resolved.smallPanCount,
+      smallGrossWeightKg: roundTo((existing?.smallGrossWeightKg ?? 0) + resolved.smallGrossWeightKg),
+      largePanCount: (existing?.largePanCount ?? 0) + resolved.largePanCount,
+      largeGrossWeightKg: roundTo((existing?.largeGrossWeightKg ?? 0) + resolved.largeGrossWeightKg),
+      combinedGrossWeightKg: roundTo((existing?.combinedGrossWeightKg ?? 0) + resolved.smallGrossWeightKg + resolved.largeGrossWeightKg),
     });
   }
 
@@ -411,13 +435,13 @@ export function getAnalyzedPhotoPanTareKg(photo: Pick<ExtractedGelatoPhoto, "sma
 }
 
 export function estimateAnalyzedPhotoNetWeightKg(
-  photo: Pick<ExtractedGelatoPhoto, "smallPanCount" | "largePanCount" | "combinedGrossWeightKg">
+  photo: Pick<ExtractedGelatoPhoto, "smallPanCount" | "largePanCount" | "combinedGrossWeightKg" | "combinedGrossWeightInput">
 ) {
-  return roundTo(Math.max(0, Number(photo.combinedGrossWeightKg || 0) - getAnalyzedPhotoPanTareKg(photo)));
+  return roundTo(Math.max(0, getAnalyzedPhotoCombinedGrossWeightKg(photo) - getAnalyzedPhotoPanTareKg(photo)));
 }
 
 export function estimateAnalyzedPhotoVolumeOunces(
-  photo: Pick<ExtractedGelatoPhoto, "smallPanCount" | "largePanCount" | "combinedGrossWeightKg">
+  photo: Pick<ExtractedGelatoPhoto, "smallPanCount" | "largePanCount" | "combinedGrossWeightKg" | "combinedGrossWeightInput">
 ) {
   const resolved = resolveAnalyzedPhotoGrossWeights(photo);
   const smallNetWeightKg = Math.max(0, resolved.smallGrossWeightKg - resolved.smallPanCount * SMALL_PAN_EMPTY_KG);
@@ -1013,8 +1037,9 @@ export default function EmployeePortal(props: any) {
         return {
           flavor,
           smallPanCount: totals?.smallPanCount ?? 0,
+          smallGrossWeightKg: totals?.smallGrossWeightKg ?? 0,
           largePanCount: totals?.largePanCount ?? 0,
-          combinedGrossWeightKg: totals?.combinedGrossWeightKg ?? 0,
+          largeGrossWeightKg: totals?.largeGrossWeightKg ?? 0,
         };
       });
     }
@@ -1736,15 +1761,17 @@ export default function EmployeePortal(props: any) {
                             <Field label={t("Combined Gross Weight kg")}>
                               <input
                                 className={smallInputClassName()}
-                                type="number"
-                                min="0"
-                                step={GELATO_WEIGHT_INPUT_STEP}
+                                type="text"
                                 inputMode={GELATO_WEIGHT_INPUT_MODE}
-                                value={displayNumberValue(photo.combinedGrossWeightKg)}
+                                value={photo.combinedGrossWeightInput ?? displayNumberValue(photo.combinedGrossWeightKg)}
                                 onChange={event =>
                                   updateAnalyzedPhotoReview(shiftType, index, current => ({
                                     ...current,
-                                    combinedGrossWeightKg: Number(event.target.value || 0),
+                                    combinedGrossWeightInput: event.target.value,
+                                    combinedGrossWeightKg: getAnalyzedPhotoCombinedGrossWeightKg({
+                                      combinedGrossWeightKg: current.combinedGrossWeightKg,
+                                      combinedGrossWeightInput: event.target.value,
+                                    }),
                                   }))
                                 }
                               />
@@ -1752,12 +1779,12 @@ export default function EmployeePortal(props: any) {
                           </div>
                           <div className="rounded-[1.25rem] border border-[#e5ddd0] bg-white/80 px-4 py-3 text-sm text-[#5f6a64]">
                             <p>
-                              {photo.smallPanCount} {t("small pan")} · {photo.largePanCount} {t("large pan")} · {displayNumberValue(photo.combinedGrossWeightKg) || "0"} kg
+                              {photo.smallPanCount} {t("small pan")} · {photo.largePanCount} {t("large pan")} · {(photo.combinedGrossWeightInput ?? displayNumberValue(photo.combinedGrossWeightKg)) || "0"} kg
                             </p>
                           </div>
                           <div className="rounded-[1.25rem] border border-[#dfe7de] bg-[#f8fbf8] px-4 py-3 text-sm leading-7 text-[#355044]">
                             <p>
-                              {t("Net gelato weight")}: {displayNumberValue(photo.combinedGrossWeightKg) || "0"} kg − {panTareKg.toFixed(3)} kg {t("pan tare")} = {netGelatoWeightKg.toFixed(3)} kg
+                              {t("Net gelato weight")}: {(photo.combinedGrossWeightInput ?? displayNumberValue(photo.combinedGrossWeightKg)) || "0"} kg − {panTareKg.toFixed(3)} kg {t("pan tare")} = {netGelatoWeightKg.toFixed(3)} kg
                             </p>
                             <p className="mt-1">
                               {t("Estimated volume ounces")}: {volumeOunces.toFixed(1)} oz

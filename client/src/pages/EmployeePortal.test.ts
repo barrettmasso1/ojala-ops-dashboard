@@ -9,6 +9,7 @@ import {
   limitGelatoPhotoBatch,
   estimateAnalyzedPhotoNetWeightKg,
   estimateAnalyzedPhotoVolumeOunces,
+  getAnalyzedPhotoCombinedGrossWeightKg,
   getAnalyzedPhotoPanTareKg,
   removePhotoAtIndex,
   replaceAnalyzedPhotosInGelatoState,
@@ -203,9 +204,20 @@ describe("employee portal gelato helpers", () => {
     expect(Array.from(summarized.keys())).toEqual(["Peanut Butter"]);
     expect(summarized.get("Peanut Butter")).toEqual({
       smallPanCount: 1,
+      smallGrossWeightKg: 1.61,
       largePanCount: 1,
+      largeGrossWeightKg: 3.74,
       combinedGrossWeightKg: 5.35,
     });
+  });
+
+  it("preserves raw decimal photo input like 6.02 while still parsing it for calculations", () => {
+    expect(
+      getAnalyzedPhotoCombinedGrossWeightKg({
+        combinedGrossWeightKg: 6,
+        combinedGrossWeightInput: "6.02",
+      })
+    ).toBe(6.02);
   });
 
   it("calculates pan tare, net gelato weight, and volume ounces for photo review cards", () => {

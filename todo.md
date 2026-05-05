@@ -231,3 +231,5 @@
 - [x] Investigate and fix the integrated opening and closing form photo-upload submission error that shows impossible pan-weight validation during staff form submission
 - [x] Remove the separate Photo Pilot link from the staff-facing experience now that photo capture is integrated into the normal opening and closing forms
 - [x] Show per-flavor calculated totals in each opening and closing photo-review section, including net gelato weight after pan tare and the converted volume ounces so staff can verify the math before submitting
+- [x] Resolve the remaining impossible pan-weight error that still appears when staff submit integrated opening or closing forms after photo review
+- [x] Fix weight inputs in the integrated gelato workflow so mobile users can enter two-decimal values like 6.02 reliably
