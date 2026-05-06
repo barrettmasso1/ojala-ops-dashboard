@@ -238,3 +238,4 @@
 - [x] Restart the unresponsive development server and verify the Ojala Ops Dashboard preview is healthy again
 - [x] Investigate and fix the staff photo-upload workflow because uploaded images are falling into placeholder review rows instead of being analyzed correctly
 - [x] Eliminate the remaining false pan-weight validation that still blocks final opening and closing form submission even when the draft saves successfully
+- [x] Investigate the persistent Vanilla pan-weight submission failure still blocking staff form submit and trace the exact payload plus server validation mismatch causing the false rejection

@@ -246,9 +246,15 @@ export function resolveReadyMadeGrossWeights(row?: ReadyMadeMeasurementRow) {
   };
 }
 
-function clampGrossWeightToCapacity(grossWeightKg: number, panCount: number, maxGrossPerPanKg: number) {
+function getReadyMadeGrossWeightToleranceKg(smallPanCount: number, largePanCount: number) {
+  const totalPanCount = smallPanCount + largePanCount;
+  if (totalPanCount <= 0) return 0.03;
+  return roundTo(0.03 + totalPanCount * 0.08);
+}
+
+function clampGrossWeightToCapacity(grossWeightKg: number, panCount: number, maxGrossPerPanKg: number, toleranceKg = 0) {
   if (panCount <= 0) return 0;
-  return Math.min(Math.max(0, grossWeightKg), roundTo(panCount * maxGrossPerPanKg));
+  return Math.min(Math.max(0, grossWeightKg), roundTo(panCount * maxGrossPerPanKg + toleranceKg));
 }
 
 export function hasImpossibleReadyMadeGrossWeights(row?: ReadyMadeMeasurementRow) {
@@ -258,7 +264,7 @@ export function hasImpossibleReadyMadeGrossWeights(row?: ReadyMadeMeasurementRow
   const maxSmallGrossWeightKg = roundTo(smallPanCount * 1.9);
   const maxLargeGrossWeightKg = roundTo(largePanCount * 4.3);
   const maxCombinedGrossWeightKg = roundTo(maxSmallGrossWeightKg + maxLargeGrossWeightKg);
-  const toleranceKg = 0.03;
+  const toleranceKg = getReadyMadeGrossWeightToleranceKg(smallPanCount, largePanCount);
 
   return (
     resolvedWeights.smallGrossWeightKg > maxSmallGrossWeightKg + toleranceKg ||
@@ -271,8 +277,9 @@ function calculateReadyMadeMeasurement(row?: ReadyMadeMeasurementRow, defaultShi
   const smallPanCount = Math.max(0, Math.trunc(toNumber(row?.smallPanCount)));
   const largePanCount = Math.max(0, Math.trunc(toNumber(row?.largePanCount)));
   const resolvedWeights = resolveReadyMadeGrossWeights(row);
-  const smallGrossWeightKg = clampGrossWeightToCapacity(resolvedWeights.smallGrossWeightKg, smallPanCount, 1.9);
-  const largeGrossWeightKg = clampGrossWeightToCapacity(resolvedWeights.largeGrossWeightKg, largePanCount, 4.3);
+  const toleranceKg = getReadyMadeGrossWeightToleranceKg(smallPanCount, largePanCount);
+  const smallGrossWeightKg = clampGrossWeightToCapacity(resolvedWeights.smallGrossWeightKg, smallPanCount, 1.9, toleranceKg);
+  const largeGrossWeightKg = clampGrossWeightToCapacity(resolvedWeights.largeGrossWeightKg, largePanCount, 4.3, toleranceKg);
   const combinedGrossWeightKg = roundTo(smallGrossWeightKg + largeGrossWeightKg);
   const smallNetWeightKg = Math.max(0, smallGrossWeightKg - smallPanCount * SMALL_PAN_EMPTY_KG);
   const largeNetWeightKg = Math.max(0, largeGrossWeightKg - largePanCount * LARGE_PAN_EMPTY_KG);

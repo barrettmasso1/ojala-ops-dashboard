@@ -68,4 +68,24 @@ describe("resolveReadyMadeGrossWeights", () => {
       })
     ).toBe(false);
   });
+
+  it("accepts modest real-world pan variance without blocking submit", () => {
+    expect(
+      hasImpossibleReadyMadeGrossWeights({
+        smallPanCount: 1,
+        largePanCount: 1,
+        combinedGrossWeightKg: 6.34,
+      })
+    ).toBe(false);
+  });
+
+  it("still rejects clearly impossible combined gross weights", () => {
+    expect(
+      hasImpossibleReadyMadeGrossWeights({
+        smallPanCount: 1,
+        largePanCount: 1,
+        combinedGrossWeightKg: 6.8,
+      })
+    ).toBe(true);
+  });
 });

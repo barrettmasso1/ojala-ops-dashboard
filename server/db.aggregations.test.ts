@@ -449,9 +449,9 @@ describe("db aggregation helpers", () => {
     );
 
     expect(snapshot.soldVolumeOunces).toBe(2464);
-    expect(snapshot.gelato.openingVolumeOunces).toBeCloseTo(257.23, 2);
-    expect(snapshot.gelato.closingVolumeOunces).toBeCloseTo(112, 2);
-    expect(snapshot.gelato.actualDistributedVolumeOunces).toBeCloseTo(145.23, 2);
+    expect(snapshot.gelato.openingVolumeOunces).toBeCloseTo(270.42, 2);
+    expect(snapshot.gelato.closingVolumeOunces).toBeCloseTo(119.63, 2);
+    expect(snapshot.gelato.actualDistributedVolumeOunces).toBeCloseTo(150.79, 2);
     expect(snapshot.gelato.actualDistributedVolumeOunces).toBeLessThan(500);
   });
 });
