@@ -1910,9 +1910,6 @@ export default function EmployeePortal(props: any) {
                       {link.label}
                     </Link>
                   ))}
-                  <Link href="/portal/photo-pilot" className="inline-flex items-center gap-2 rounded-full border border-[#ddd4c8] bg-white/88 px-5 py-3 text-sm font-medium text-[#2f2a26] transition hover:bg-white">
-                    {t("Photo Pilot")}
-                  </Link>
                   <Link href="/portal" className="inline-flex items-center gap-2 rounded-full border border-[#ddd4c8] bg-white/88 px-5 py-3 text-sm font-medium text-[#2f2a26] transition hover:bg-white">
                     {t("Drafts")}
                   </Link>
