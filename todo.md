@@ -237,3 +237,4 @@
 - [x] Remove the remaining Photo Pilot button from the staff portal navigation so it no longer appears on Inventory Form or any other staff-facing page
 - [x] Restart the unresponsive development server and verify the Ojala Ops Dashboard preview is healthy again
 - [x] Investigate and fix the staff photo-upload workflow because uploaded images are falling into placeholder review rows instead of being analyzed correctly
+- [x] Eliminate the remaining false pan-weight validation that still blocks final opening and closing form submission even when the draft saves successfully

@@ -31,8 +31,12 @@ import { storageGetSignedUrl } from "./storage";
 let _db: ReturnType<typeof drizzle> | null = null;
 
 function toNumber(value: unknown): number {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") return Number(value) || 0;
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().replace(/,/g, ".");
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
   return 0;
 }
 
@@ -1304,15 +1308,16 @@ export async function saveReadyMadeGelatoWeights(input: {
     const flavor = entry.flavor.trim();
     if (!flavor) continue;
 
+    const normalizedCombinedGrossWeightKg = toNumber(entry.combinedGrossWeightKg);
     const rawEntry = {
       businessDate: normalizedDate,
       flavor,
       shiftType: input.shiftType,
       smallPanCount: entry.smallPanCount,
-      smallGrossWeightKg: entry.smallGrossWeightKg,
+      smallGrossWeightKg: normalizedCombinedGrossWeightKg > 0 ? 0 : entry.smallGrossWeightKg,
       largePanCount: entry.largePanCount,
-      largeGrossWeightKg: entry.largeGrossWeightKg,
-      combinedGrossWeightKg: entry.combinedGrossWeightKg,
+      largeGrossWeightKg: normalizedCombinedGrossWeightKg > 0 ? 0 : entry.largeGrossWeightKg,
+      combinedGrossWeightKg: normalizedCombinedGrossWeightKg > 0 ? normalizedCombinedGrossWeightKg : entry.combinedGrossWeightKg,
       submittedByUserId: input.submittedByUserId,
     };
 

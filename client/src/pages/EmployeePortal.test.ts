@@ -218,6 +218,13 @@ describe("employee portal gelato helpers", () => {
         combinedGrossWeightInput: "6.02",
       })
     ).toBe(6.02);
+
+    expect(
+      getAnalyzedPhotoCombinedGrossWeightKg({
+        combinedGrossWeightKg: 6,
+        combinedGrossWeightInput: "6,02",
+      })
+    ).toBe(6.02);
   });
 
   it("calculates pan tare, net gelato weight, and volume ounces for photo review cards", () => {

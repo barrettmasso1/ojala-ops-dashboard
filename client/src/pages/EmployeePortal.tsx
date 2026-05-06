@@ -1032,16 +1032,14 @@ export default function EmployeePortal(props: any) {
     if (entryMode === "photo" && analyzedPhotos.length > 0) {
       const photoTotalsByFlavor = summarizeAnalyzedPhotosForSubmission(analyzedPhotos);
 
-      return flavorNames.map(flavor => {
-        const totals = photoTotalsByFlavor.get(flavor);
-        return {
-          flavor,
-          smallPanCount: totals?.smallPanCount ?? 0,
-          smallGrossWeightKg: totals?.smallGrossWeightKg ?? 0,
-          largePanCount: totals?.largePanCount ?? 0,
-          largeGrossWeightKg: totals?.largeGrossWeightKg ?? 0,
-        };
-      });
+      return Array.from(photoTotalsByFlavor.entries()).map(([flavor, totals]) => ({
+        flavor,
+        smallPanCount: totals.smallPanCount,
+        smallGrossWeightKg: totals.smallGrossWeightKg,
+        largePanCount: totals.largePanCount,
+        largeGrossWeightKg: totals.largeGrossWeightKg,
+        combinedGrossWeightKg: totals.combinedGrossWeightKg,
+      }));
     }
 
     return flavorNames.map(flavor => {

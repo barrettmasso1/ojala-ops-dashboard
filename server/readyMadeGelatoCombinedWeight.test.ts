@@ -58,4 +58,14 @@ describe("resolveReadyMadeGrossWeights", () => {
       })
     ).toBe(false);
   });
+
+  it("accepts locale-style comma decimals when validating combined gross weights", () => {
+    expect(
+      hasImpossibleReadyMadeGrossWeights({
+        smallPanCount: 1,
+        largePanCount: 1,
+        combinedGrossWeightKg: "6,19" as unknown as number,
+      })
+    ).toBe(false);
+  });
 });
