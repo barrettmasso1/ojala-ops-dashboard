@@ -1,5 +1,22 @@
-import { describe, expect, it } from "vitest";
-import { buildGroupedGelatoEntries, normalizeSinglePanPhotoCounts, type ExtractedGelatoPhoto } from "./gelatoPhotoPilot";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const storageMocks = vi.hoisted(() => ({
+  storagePut: vi.fn(),
+}));
+
+const llmMocks = vi.hoisted(() => ({
+  invokeLLM: vi.fn(),
+}));
+
+vi.mock("./storage", () => storageMocks);
+vi.mock("./_core/llm", () => llmMocks);
+
+import {
+  buildGroupedGelatoEntries,
+  extractGelatoPhotos,
+  normalizeSinglePanPhotoCounts,
+  type ExtractedGelatoPhoto,
+} from "./gelatoPhotoPilot";
 
 describe("normalizeSinglePanPhotoCounts", () => {
   it("defaults any single detected pan to the small-pan workflow while preserving valid same-size two-pan reads", () => {
@@ -114,5 +131,72 @@ describe("buildGroupedGelatoEntries", () => {
         combinedGrossWeightKg: 1.11,
       },
     ]);
+  });
+});
+
+describe("extractGelatoPhotos", () => {
+  beforeEach(() => {
+    storageMocks.storagePut.mockReset();
+    llmMocks.invokeLLM.mockReset();
+  });
+
+  it("sends the uploaded data URL directly to image analysis while keeping the storage URL for preview", async () => {
+    storageMocks.storagePut.mockResolvedValue({
+      key: "gelato-photo-pilot/test-image.jpg",
+      url: "/manus-storage/gelato-photo-pilot/test-image.jpg",
+    });
+
+    llmMocks.invokeLLM.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              flavor: "Peanut Butter",
+              small_pan_count: 1,
+              large_pan_count: 0,
+              gross_weight_kg: 2.35,
+              confidence: "medium",
+              warning: "",
+            }),
+          },
+        },
+      ],
+    });
+
+    const dataUrl = "data:image/jpeg;base64,ZmFrZS1pbWFnZQ==";
+    const result = await extractGelatoPhotos([
+      {
+        fileName: "test.jpg",
+        mimeType: "image/jpeg",
+        dataUrl,
+      },
+    ]);
+
+    expect(storageMocks.storagePut).toHaveBeenCalledTimes(1);
+    expect(llmMocks.invokeLLM).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: expect.arrayContaining([
+          expect.objectContaining({
+            role: "user",
+            content: expect.arrayContaining([
+              expect.objectContaining({
+                type: "image_url",
+                image_url: expect.objectContaining({
+                  url: dataUrl,
+                }),
+              }),
+            ]),
+          }),
+        ]),
+      })
+    );
+    expect(result.extractedPhotos[0]).toMatchObject({
+      imageUrl: "/manus-storage/gelato-photo-pilot/test-image.jpg",
+      imageKey: "gelato-photo-pilot/test-image.jpg",
+      flavor: "Peanut Butter",
+      smallPanCount: 1,
+      largePanCount: 0,
+      combinedGrossWeightKg: 2.35,
+    });
   });
 });

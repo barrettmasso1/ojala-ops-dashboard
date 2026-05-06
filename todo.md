@@ -235,3 +235,5 @@
 - [x] Fix weight inputs in the integrated gelato workflow so mobile users can enter two-decimal values like 6.02 reliably
 - [x] Eliminate the still-recurring false impossible pan-weight validation that continues to appear for different flavors during staff form submission after photo review
 - [x] Remove the remaining Photo Pilot button from the staff portal navigation so it no longer appears on Inventory Form or any other staff-facing page
+- [x] Restart the unresponsive development server and verify the Ojala Ops Dashboard preview is healthy again
+- [x] Investigate and fix the staff photo-upload workflow because uploaded images are falling into placeholder review rows instead of being analyzed correctly

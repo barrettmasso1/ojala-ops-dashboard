@@ -1,5 +1,5 @@
 import { invokeLLM } from "./_core/llm";
-import { storageGetSignedUrl, storagePut } from "./storage";
+import { storagePut } from "./storage";
 import { READY_MADE_GELATO_FLAVORS } from "../shared/opsCatalog";
 
 export type GelatoPhotoUploadInput = {
@@ -161,7 +161,6 @@ async function extractSinglePhoto(
     decoded.buffer,
     photo.mimeType || decoded.mimeType
   );
-  const signedImageUrl = await storageGetSignedUrl(uploaded.key);
 
   const response = await invokeLLM({
     messages: [
@@ -180,7 +179,7 @@ async function extractSinglePhoto(
           {
             type: "image_url",
             image_url: {
-              url: signedImageUrl,
+              url: photo.dataUrl,
               detail: "high",
             },
           },
@@ -243,7 +242,7 @@ async function extractSinglePhoto(
 
   return {
     fileName: photo.fileName,
-    imageUrl: signedImageUrl,
+    imageUrl: uploaded.url,
     imageKey: uploaded.key,
     flavor: normalizeFlavorName(parsed.flavor),
     smallPanCount: normalizedCounts.smallPanCount,
