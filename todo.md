@@ -239,3 +239,4 @@
 - [x] Investigate and fix the staff photo-upload workflow because uploaded images are falling into placeholder review rows instead of being analyzed correctly
 - [x] Eliminate the remaining false pan-weight validation that still blocks final opening and closing form submission even when the draft saves successfully
 - [x] Investigate the persistent Vanilla pan-weight submission failure still blocking staff form submit and trace the exact payload plus server validation mismatch causing the false rejection
+- [x] Reproduce and fix the recurring impossible pan-weight rejection affecting both manual and photo-assisted opening and closing submissions, then verify the corrected pan-tare and capacity logic against current staff-entered values

@@ -185,12 +185,27 @@ function convertSalesToVolumeOunces(cups: { cups4oz: number; cups8oz: number; cu
   return cups.cups4oz * 4 + cups.cups8oz * 8 + cups.cupsPint * 16 + cups.cupsLiter * 32;
 }
 
+function shouldResolveReadyMadeFromCombinedGrossWeight(row?: ReadyMadeMeasurementRow) {
+  const providedSmallGrossWeightKg = Math.max(0, toNumber(row?.smallGrossWeightKg));
+  const providedLargeGrossWeightKg = Math.max(0, toNumber(row?.largeGrossWeightKg));
+  const combinedGrossWeightKg = Math.max(0, toNumber(row?.combinedGrossWeightKg));
+  return combinedGrossWeightKg > 0 && providedSmallGrossWeightKg <= 0 && providedLargeGrossWeightKg <= 0;
+}
+
 export function resolveReadyMadeGrossWeights(row?: ReadyMadeMeasurementRow) {
   const smallPanCount = Math.max(0, Math.trunc(toNumber(row?.smallPanCount)));
   const largePanCount = Math.max(0, Math.trunc(toNumber(row?.largePanCount)));
   const providedSmallGrossWeightKg = Math.max(0, toNumber(row?.smallGrossWeightKg));
   const providedLargeGrossWeightKg = Math.max(0, toNumber(row?.largeGrossWeightKg));
   const combinedGrossWeightKg = Math.max(0, toNumber(row?.combinedGrossWeightKg));
+
+  if (!shouldResolveReadyMadeFromCombinedGrossWeight(row)) {
+    return {
+      smallGrossWeightKg: providedSmallGrossWeightKg,
+      largeGrossWeightKg: providedLargeGrossWeightKg,
+      combinedGrossWeightKg: roundTo(providedSmallGrossWeightKg + providedLargeGrossWeightKg),
+    };
+  }
 
   if (combinedGrossWeightKg <= 0) {
     return {
@@ -265,11 +280,12 @@ export function hasImpossibleReadyMadeGrossWeights(row?: ReadyMadeMeasurementRow
   const maxLargeGrossWeightKg = roundTo(largePanCount * 4.3);
   const maxCombinedGrossWeightKg = roundTo(maxSmallGrossWeightKg + maxLargeGrossWeightKg);
   const toleranceKg = getReadyMadeGrossWeightToleranceKg(smallPanCount, largePanCount);
+  const shouldValidateCombinedGrossWeight = shouldResolveReadyMadeFromCombinedGrossWeight(row);
 
   return (
     resolvedWeights.smallGrossWeightKg > maxSmallGrossWeightKg + toleranceKg ||
     resolvedWeights.largeGrossWeightKg > maxLargeGrossWeightKg + toleranceKg ||
-    resolvedWeights.combinedGrossWeightKg > maxCombinedGrossWeightKg + toleranceKg
+    (shouldValidateCombinedGrossWeight && resolvedWeights.combinedGrossWeightKg > maxCombinedGrossWeightKg + toleranceKg)
   );
 }
 
@@ -1321,9 +1337,9 @@ export async function saveReadyMadeGelatoWeights(input: {
       flavor,
       shiftType: input.shiftType,
       smallPanCount: entry.smallPanCount,
-      smallGrossWeightKg: normalizedCombinedGrossWeightKg > 0 ? 0 : entry.smallGrossWeightKg,
+      smallGrossWeightKg: entry.smallGrossWeightKg,
       largePanCount: entry.largePanCount,
-      largeGrossWeightKg: normalizedCombinedGrossWeightKg > 0 ? 0 : entry.largeGrossWeightKg,
+      largeGrossWeightKg: entry.largeGrossWeightKg,
       combinedGrossWeightKg: normalizedCombinedGrossWeightKg > 0 ? normalizedCombinedGrossWeightKg : entry.combinedGrossWeightKg,
       submittedByUserId: input.submittedByUserId,
     };

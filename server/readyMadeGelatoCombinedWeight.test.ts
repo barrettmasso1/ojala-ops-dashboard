@@ -79,6 +79,43 @@ describe("resolveReadyMadeGrossWeights", () => {
     ).toBe(false);
   });
 
+  it("does not falsely reject manual mixed-pan entries when each side is within its allowed tolerance", () => {
+    expect(
+      hasImpossibleReadyMadeGrossWeights({
+        smallPanCount: 1,
+        smallGrossWeightKg: 1.98,
+        largePanCount: 1,
+        largeGrossWeightKg: 4.47,
+      })
+    ).toBe(false);
+  });
+
+  it("prefers explicit per-pan gross weights over combined totals when both are present", () => {
+    expect(
+      resolveReadyMadeGrossWeights({
+        smallPanCount: 1,
+        smallGrossWeightKg: 1.98,
+        largePanCount: 1,
+        largeGrossWeightKg: 4.47,
+        combinedGrossWeightKg: 6.45,
+      })
+    ).toEqual({
+      smallGrossWeightKg: 1.98,
+      largeGrossWeightKg: 4.47,
+      combinedGrossWeightKg: 6.45,
+    });
+
+    expect(
+      hasImpossibleReadyMadeGrossWeights({
+        smallPanCount: 1,
+        smallGrossWeightKg: 1.98,
+        largePanCount: 1,
+        largeGrossWeightKg: 4.47,
+        combinedGrossWeightKg: 6.45,
+      })
+    ).toBe(false);
+  });
+
   it("still rejects clearly impossible combined gross weights", () => {
     expect(
       hasImpossibleReadyMadeGrossWeights({
