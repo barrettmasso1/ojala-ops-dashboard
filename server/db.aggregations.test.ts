@@ -152,19 +152,19 @@ describe("db aggregation helpers", () => {
     expect(snapshot.cupsHere).toEqual({ "4oz": 4, "8oz": 8, Pint: 2, Liter: 1 });
     expect(snapshot.cupsToGo).toEqual({ "4oz": 11, "8oz": 11, Pint: 4, Liter: 1 });
     expect(snapshot.soldVolumeOunces).toBe(372);
-    expect(snapshot.gelato.openingVolumeOunces).toBeCloseTo(384, 0);
-    expect(snapshot.gelato.closingVolumeOunces).toBeCloseTo(341.16, 2);
-    expect(snapshot.gelato.actualDistributedVolumeOunces).toBeCloseTo(42.84, 2);
+    expect(snapshot.gelato.openingVolumeOunces).toBeCloseTo(264.68, 2);
+    expect(snapshot.gelato.closingVolumeOunces).toBeCloseTo(237.65, 2);
+    expect(snapshot.gelato.actualDistributedVolumeOunces).toBeCloseTo(27.03, 2);
     expect(snapshot.gelato.actualDistributedVolumeOunces).toBeCloseTo(snapshot.gelato.openingVolumeOunces - snapshot.gelato.closingVolumeOunces, 2);
-    expect(snapshot.gelato.varianceVolumeOunces).toBeCloseTo(-329.16, 2);
+    expect(snapshot.gelato.varianceVolumeOunces).toBeCloseTo(-344.97, 2);
     expect(snapshot.gelato.varianceVolumeOunces).toBeCloseTo(snapshot.gelato.actualDistributedVolumeOunces - snapshot.gelato.soldVolumeOunces, 2);
     expect(snapshot.gelato.discrepancyStatus).toBe("major");
     expect(snapshot.gelato.discrepancyLabel).toBe("Major discrepancy");
     expect(snapshot.gelato.flavors.find(item => item.flavor === "Vanilla")).toMatchObject({
-      usedVolumeOunces: expect.closeTo(32.43, 2),
+      usedVolumeOunces: expect.closeTo(21.81, 2),
     });
     expect(snapshot.gelato.flavors.find(item => item.flavor === "Flavor of the Day")).toMatchObject({
-      usedVolumeOunces: expect.closeTo(10.41, 2),
+      usedVolumeOunces: expect.closeTo(5.22, 2),
     });
     expect(snapshot.packaging.varianceCount).toBeCloseTo(-10, 2);
     expect(snapshot.packaging.discrepancyStatus).toBe("major");
@@ -251,9 +251,9 @@ describe("db aggregation helpers", () => {
       "2026-04-21"
     );
     expect(snapshot.soldVolumeOunces).toBe(8);
-    expect(snapshot.gelato.actualDistributedVolumeOunces).toBeCloseTo(3.47, 2);
+    expect(snapshot.gelato.actualDistributedVolumeOunces).toBeCloseTo(1.74, 2);
     expect(snapshot.gelato.actualDistributedVolumeOunces).toBeCloseTo(snapshot.gelato.openingVolumeOunces - snapshot.gelato.closingVolumeOunces, 2);
-    expect(snapshot.gelato.varianceVolumeOunces).toBeCloseTo(-4.53, 2);
+    expect(snapshot.gelato.varianceVolumeOunces).toBeCloseTo(-6.26, 2);
     expect(snapshot.gelato.varianceVolumeOunces).toBeCloseTo(snapshot.gelato.actualDistributedVolumeOunces - snapshot.gelato.soldVolumeOunces, 2);
     expect(snapshot.gelato.discrepancyStatus).toBe("minor");
     expect(snapshot.gelato.discrepancyLabel).toBe("Sample / minor discrepancy");
@@ -481,9 +481,9 @@ describe("db aggregation helpers", () => {
     );
 
     expect(snapshot.soldVolumeOunces).toBe(2464);
-    expect(snapshot.gelato.openingVolumeOunces).toBeCloseTo(270.42, 2);
-    expect(snapshot.gelato.closingVolumeOunces).toBeCloseTo(119.63, 2);
-    expect(snapshot.gelato.actualDistributedVolumeOunces).toBeCloseTo(150.79, 2);
+    expect(snapshot.gelato.openingVolumeOunces).toBeCloseTo(274.19, 2);
+    expect(snapshot.gelato.closingVolumeOunces).toBeCloseTo(81.33, 2);
+    expect(snapshot.gelato.actualDistributedVolumeOunces).toBeCloseTo(192.86, 2);
     expect(snapshot.gelato.actualDistributedVolumeOunces).toBeLessThan(500);
   });
 });

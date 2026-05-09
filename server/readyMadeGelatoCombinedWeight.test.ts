@@ -69,23 +69,34 @@ describe("resolveReadyMadeGrossWeights", () => {
     ).toBe(false);
   });
 
-  it("accepts modest real-world pan variance without blocking submit", () => {
+  it("accepts broader real-world pan variance without blocking submit", () => {
     expect(
       hasImpossibleReadyMadeGrossWeights({
         smallPanCount: 1,
         largePanCount: 1,
-        combinedGrossWeightKg: 6.34,
+        combinedGrossWeightKg: 8.1,
       })
     ).toBe(false);
   });
 
-  it("does not falsely reject manual mixed-pan entries when each side is within its allowed tolerance", () => {
+  it("does not falsely reject manual mixed-pan entries when each side is within the updated gross limits", () => {
     expect(
       hasImpossibleReadyMadeGrossWeights({
         smallPanCount: 1,
-        smallGrossWeightKg: 1.98,
+        smallGrossWeightKg: 3.95,
         largePanCount: 1,
-        largeGrossWeightKg: 4.47,
+        largeGrossWeightKg: 4.95,
+      })
+    ).toBe(false);
+  });
+
+  it("accepts realistic manual entries with one small pan plus two large pans", () => {
+    expect(
+      hasImpossibleReadyMadeGrossWeights({
+        smallPanCount: 1,
+        smallGrossWeightKg: 3.2,
+        largePanCount: 2,
+        largeGrossWeightKg: 6.5,
       })
     ).toBe(false);
   });
@@ -94,34 +105,35 @@ describe("resolveReadyMadeGrossWeights", () => {
     expect(
       resolveReadyMadeGrossWeights({
         smallPanCount: 1,
-        smallGrossWeightKg: 1.98,
+        smallGrossWeightKg: 3.95,
         largePanCount: 1,
-        largeGrossWeightKg: 4.47,
-        combinedGrossWeightKg: 6.45,
+        largeGrossWeightKg: 4.95,
+        combinedGrossWeightKg: 8.9,
       })
     ).toEqual({
-      smallGrossWeightKg: 1.98,
-      largeGrossWeightKg: 4.47,
-      combinedGrossWeightKg: 6.45,
+      smallGrossWeightKg: 3.95,
+      largeGrossWeightKg: 4.95,
+      combinedGrossWeightKg: 8.9,
     });
 
     expect(
       hasImpossibleReadyMadeGrossWeights({
         smallPanCount: 1,
-        smallGrossWeightKg: 1.98,
+        smallGrossWeightKg: 3.95,
         largePanCount: 1,
-        largeGrossWeightKg: 4.47,
-        combinedGrossWeightKg: 6.45,
+        largeGrossWeightKg: 4.95,
+        combinedGrossWeightKg: 8.9,
       })
     ).toBe(false);
   });
+
 
   it("still rejects clearly impossible combined gross weights", () => {
     expect(
       hasImpossibleReadyMadeGrossWeights({
         smallPanCount: 1,
         largePanCount: 1,
-        combinedGrossWeightKg: 6.8,
+        combinedGrossWeightKg: 9.5,
       })
     ).toBe(true);
   });

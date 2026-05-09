@@ -246,3 +246,6 @@
 - [x] Update opening-only inventory and reconciliation views to show an explicit awaiting-closing state instead of misleading ending or distributed values
 - [x] Investigate and fix the stale or cross-day closing inventory bug causing items like edible spoons to show ending counts when no same-day closing submission exists
 - [x] Add explicit same-day opening-form overwrite messaging and a confirmation prompt so resubmissions clearly replace the earlier opening record
+- [x] Confirm the live small-pan and large-pan tare weights and investigate the newly reported manual-entry Vanilla impossible-weight rejection against those thresholds
+- [x] Fix the manual-entry ready-made gelato validation so realistic two-large-pan gross weights around 6.5 kg are accepted when entered for two large pans
+- [x] Raise the impossible-weight thresholds so manual ready-made gelato entries are only rejected above 4 kg per small pan or 5 kg per large pan
