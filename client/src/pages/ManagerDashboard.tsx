@@ -2,6 +2,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getLoginUrl } from "@/const";
+import { getHistoryGelatoRowVolumeBreakdown } from "@/lib/historyGelato";
 import { buildManagerReconciliationSnapshot, MANAGER_INVENTORY_TABS, type ManagerInventoryView } from "@/lib/managerReconciliation";
 import { trpc } from "@/lib/trpc";
 import { formatPacificCalendarDate, formatPacificTime, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart } from "../../../shared/businessDate";
@@ -1790,13 +1791,17 @@ export default function ManagerDashboard() {
                             <div className="rounded-[1.35rem] border border-[#e5ddd0] bg-white/90 p-4">
                               <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">Gelato rows</p>
                               <div className="mt-3 space-y-3">
-                                {entry.payload.gelatoEntries.map((row, index) => (
-                                  <div key={`${entry.id}-gelato-${index}`} className="rounded-2xl bg-[#f7f2ea] px-4 py-3 text-sm text-[#5f6a64]">
-                                    <p className="font-medium text-[#24332f]">{row.flavor}</p>
-                                    <p className="mt-2">Small pans: {row.smallPanCount} · {row.smallGrossWeightKg} kg</p>
-                                    <p>Large pans: {row.largePanCount} · {row.largeGrossWeightKg} kg</p>
-                                  </div>
-                                ))}
+                                {entry.payload.gelatoEntries.map((row, index) => {
+                                  const volumeBreakdown = getHistoryGelatoRowVolumeBreakdown(row);
+                                  return (
+                                    <div key={`${entry.id}-gelato-${index}`} className="rounded-2xl bg-[#f7f2ea] px-4 py-3 text-sm text-[#5f6a64]">
+                                      <p className="font-medium text-[#24332f]">{row.flavor}</p>
+                                      <p className="mt-2">Small pans: {row.smallPanCount} · {row.smallGrossWeightKg} kg · {volumeBreakdown.smallVolumeOunces.toFixed(1)} oz volume</p>
+                                      <p>Large pans: {row.largePanCount} · {row.largeGrossWeightKg} kg · {volumeBreakdown.largeVolumeOunces.toFixed(1)} oz volume</p>
+                                      <p className="mt-2 text-xs uppercase tracking-[0.18em] text-[#7d847d]">Estimated total volume {volumeBreakdown.totalVolumeOunces.toFixed(1)} oz</p>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             </div>
                           ) : null}

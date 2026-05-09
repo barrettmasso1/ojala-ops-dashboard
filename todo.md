@@ -249,3 +249,4 @@
 - [x] Confirm the live small-pan and large-pan tare weights and investigate the newly reported manual-entry Vanilla impossible-weight rejection against those thresholds
 - [x] Fix the manual-entry ready-made gelato validation so realistic two-large-pan gross weights around 6.5 kg are accepted when entered for two large pans
 - [x] Raise the impossible-weight thresholds so manual ready-made gelato entries are only rejected above 4 kg per small pan or 5 kg per large pan
+- [x] Add ounce-based gelato volume details to submission history so each saved row shows both kilogram measurements and the corresponding volume ounces
