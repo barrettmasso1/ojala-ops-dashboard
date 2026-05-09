@@ -265,6 +265,36 @@ describe("db aggregation helpers", () => {
     expect(snapshot.packaging.discrepancyLabel).toBe("Awaiting same-day closing inventory count");
   });
 
+  it("keeps gelato distributed ounces at zero until closing gelato measurements exist", () => {
+    const snapshot = buildDailySnapshot(
+      [],
+      [],
+      [],
+      [
+        {
+          businessDate: "2026-04-21",
+          flavor: "Cookies and Cream",
+          shiftType: "opening" as const,
+          smallPanCount: 1,
+          smallGrossWeightKg: "1.75",
+          largePanCount: 0,
+          largeGrossWeightKg: "0.00",
+        },
+      ],
+      [],
+      "2026-04-21"
+    );
+
+    expect(snapshot.gelato.openingVolumeOunces).toBeGreaterThan(0);
+    expect(snapshot.gelato.closingVolumeOunces).toBe(0);
+    expect(snapshot.gelato.actualDistributedVolumeOunces).toBe(0);
+    expect(snapshot.gelato.varianceVolumeOunces).toBe(0);
+    expect(snapshot.gelato.discrepancyStatus).toBe("aligned");
+    expect(snapshot.gelato.flavors.find(item => item.flavor === "Cookies and Cream")).toMatchObject({
+      usedVolumeOunces: 0,
+    });
+  });
+
   it("builds week-over-week sales series with previous week and delta values", () => {
     const series = buildWeekOverWeekSeries([
       { businessDate: "2026-04-06", cashTotal: "100.00", cardTotal: "200.00", zelleTotal: "20.00", venmoTotal: "30.00" },

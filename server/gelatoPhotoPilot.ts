@@ -1,5 +1,5 @@
 import { invokeLLM } from "./_core/llm";
-import { storagePut } from "./storage";
+import { storageGetSignedUrl, storagePut } from "./storage";
 import { READY_MADE_GELATO_FLAVORS } from "../shared/opsCatalog";
 
 export type GelatoPhotoUploadInput = {
@@ -55,6 +55,16 @@ function normalizeFlavorName(rawFlavor: string) {
   );
 
   return canonical ?? trimmed;
+}
+
+function sanitizePhotoFileName(fileName: string) {
+  const trimmed = fileName.trim() || "gelato-photo.jpeg";
+  const lastDot = trimmed.lastIndexOf(".");
+  const baseName = lastDot > 0 ? trimmed.slice(0, lastDot) : trimmed;
+  const extension = lastDot > 0 ? trimmed.slice(lastDot).toLowerCase() : ".jpeg";
+  const safeBaseName = baseName.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/-+/g, "-").replace(/^[-.]+|[-.]+$/g, "") || "gelato-photo";
+  const safeExtension = extension.replace(/[^a-z0-9.]+/g, "") || ".jpeg";
+  return `${safeBaseName}${safeExtension.startsWith(".") ? safeExtension : `.${safeExtension}`}`;
 }
 
 function normalizeConfidence(rawConfidence: string): GelatoPhotoConfidence {
@@ -157,10 +167,11 @@ async function extractSinglePhoto(
 ): Promise<ExtractedGelatoPhoto> {
   const decoded = decodeDataUrl(photo.dataUrl);
   const uploaded = await storagePut(
-    `gelato-photo-pilot/${Date.now()}-${index}-${photo.fileName}`,
+    `gelato-photo-pilot/${Date.now()}-${index}-${sanitizePhotoFileName(photo.fileName)}`,
     decoded.buffer,
     photo.mimeType || decoded.mimeType
   );
+  const previewUrl = await storageGetSignedUrl(uploaded.key);
 
   const response = await invokeLLM({
     messages: [
@@ -242,7 +253,7 @@ async function extractSinglePhoto(
 
   return {
     fileName: photo.fileName,
-    imageUrl: uploaded.url,
+    imageUrl: previewUrl,
     imageKey: uploaded.key,
     flavor: normalizeFlavorName(parsed.flavor),
     smallPanCount: normalizedCounts.smallPanCount,

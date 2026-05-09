@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const storageMocks = vi.hoisted(() => ({
   storagePut: vi.fn(),
+  storageGetSignedUrl: vi.fn(),
 }));
 
 const llmMocks = vi.hoisted(() => ({
@@ -137,14 +138,16 @@ describe("buildGroupedGelatoEntries", () => {
 describe("extractGelatoPhotos", () => {
   beforeEach(() => {
     storageMocks.storagePut.mockReset();
+    storageMocks.storageGetSignedUrl.mockReset();
     llmMocks.invokeLLM.mockReset();
   });
 
-  it("sends the uploaded data URL directly to image analysis while keeping the storage URL for preview", async () => {
+  it("sends the uploaded data URL directly to image analysis while keeping a durable signed preview URL", async () => {
     storageMocks.storagePut.mockResolvedValue({
       key: "gelato-photo-pilot/test-image.jpg",
       url: "/manus-storage/gelato-photo-pilot/test-image.jpg",
     });
+    storageMocks.storageGetSignedUrl.mockResolvedValue("https://signed.example/gelato-photo-pilot/test-image.jpg");
 
     llmMocks.invokeLLM.mockResolvedValue({
       choices: [
@@ -173,6 +176,12 @@ describe("extractGelatoPhotos", () => {
     ]);
 
     expect(storageMocks.storagePut).toHaveBeenCalledTimes(1);
+    expect(storageMocks.storagePut).toHaveBeenCalledWith(
+      expect.stringContaining("gelato-photo-pilot/"),
+      expect.any(Buffer),
+      "image/jpeg"
+    );
+    expect(storageMocks.storageGetSignedUrl).toHaveBeenCalledWith("gelato-photo-pilot/test-image.jpg");
     expect(llmMocks.invokeLLM).toHaveBeenCalledWith(
       expect.objectContaining({
         messages: expect.arrayContaining([
@@ -191,12 +200,50 @@ describe("extractGelatoPhotos", () => {
       })
     );
     expect(result.extractedPhotos[0]).toMatchObject({
-      imageUrl: "/manus-storage/gelato-photo-pilot/test-image.jpg",
+      imageUrl: "https://signed.example/gelato-photo-pilot/test-image.jpg",
       imageKey: "gelato-photo-pilot/test-image.jpg",
       flavor: "Peanut Butter",
       smallPanCount: 1,
       largePanCount: 0,
       combinedGrossWeightKg: 2.35,
     });
+  });
+
+  it("sanitizes uploaded .jpeg filenames with spaces before saving them to storage", async () => {
+    storageMocks.storagePut.mockResolvedValue({
+      key: "gelato-photo-pilot/2026-0-WhatsApp-Image-2026-05-02-at-15.23.17.jpeg",
+      url: "/manus-storage/gelato-photo-pilot/2026-0-WhatsApp-Image-2026-05-02-at-15.23.17.jpeg",
+    });
+    storageMocks.storageGetSignedUrl.mockResolvedValue("https://signed.example/gelato-photo-pilot/2026-0-WhatsApp-Image-2026-05-02-at-15.23.17.jpeg");
+    llmMocks.invokeLLM.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              flavor: "Cookies and Cream",
+              small_pan_count: 1,
+              large_pan_count: 0,
+              gross_weight_kg: 1.75,
+              confidence: "high",
+              warning: "",
+            }),
+          },
+        },
+      ],
+    });
+
+    await extractGelatoPhotos([
+      {
+        fileName: "WhatsApp Image 2026-05-02 at 15.23.17.jpeg",
+        mimeType: "image/jpeg",
+        dataUrl: "data:image/jpeg;base64,ZmFrZS1pbWFnZQ==",
+      },
+    ]);
+
+    expect(storageMocks.storagePut).toHaveBeenCalledWith(
+      expect.stringContaining("WhatsApp-Image-2026-05-02-at-15.23.17.jpeg"),
+      expect.any(Buffer),
+      "image/jpeg"
+    );
   });
 });

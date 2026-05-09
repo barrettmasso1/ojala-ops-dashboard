@@ -410,11 +410,21 @@ function classifyServiceItemDiscrepancy(varianceCount: number) {
 
 function buildReadyMadeGelatoReconciliation(rows: ReadyMadeMeasurementRow[], soldVolumeOunces: number) {
   const rowByFlavorShift = new Map(rows.map(row => [`${normalizeKey(row.flavor ?? "")}:${row.shiftType}`, row]));
+  const hasClosingMeasurements = rows.some(
+    row =>
+      row.shiftType === "closing" &&
+      (toNumber(row.smallPanCount) > 0 ||
+        toNumber(row.largePanCount) > 0 ||
+        toNumber(row.smallGrossWeightKg) > 0 ||
+        toNumber(row.largeGrossWeightKg) > 0 ||
+        toNumber(row.combinedGrossWeightKg) > 0 ||
+        toNumber(row.weightKg) > 0)
+  );
   const flavors = getReadyMadeGelatoFlavorList(rows).map(flavor => {
     const flavorKey = normalizeKey(flavor);
     const opening = calculateReadyMadeMeasurement(rowByFlavorShift.get(`${flavorKey}:opening`), "opening");
     const closing = calculateReadyMadeMeasurement(rowByFlavorShift.get(`${flavorKey}:closing`), "closing");
-    const usedVolumeOunces = roundTo(opening.totalVolumeOunces - closing.totalVolumeOunces);
+    const usedVolumeOunces = hasClosingMeasurements ? roundTo(opening.totalVolumeOunces - closing.totalVolumeOunces) : 0;
 
     return {
       flavor,
@@ -426,8 +436,8 @@ function buildReadyMadeGelatoReconciliation(rows: ReadyMadeMeasurementRow[], sol
 
   const openingVolumeOunces = roundTo(flavors.reduce((sum, flavor) => sum + flavor.opening.totalVolumeOunces, 0));
   const closingVolumeOunces = roundTo(flavors.reduce((sum, flavor) => sum + flavor.closing.totalVolumeOunces, 0));
-  const actualDistributedVolumeOunces = roundTo(openingVolumeOunces - closingVolumeOunces);
-  const varianceVolumeOunces = roundTo(actualDistributedVolumeOunces - soldVolumeOunces);
+  const actualDistributedVolumeOunces = hasClosingMeasurements ? roundTo(openingVolumeOunces - closingVolumeOunces) : 0;
+  const varianceVolumeOunces = hasClosingMeasurements ? roundTo(actualDistributedVolumeOunces - soldVolumeOunces) : 0;
   const discrepancy = classifyGelatoDiscrepancy(varianceVolumeOunces);
 
   return {
