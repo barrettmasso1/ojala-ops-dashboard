@@ -251,3 +251,4 @@
 - [x] Raise the impossible-weight thresholds so manual ready-made gelato entries are only rejected above 4 kg per small pan or 5 kg per large pan
 - [x] Add ounce-based gelato volume details to submission history so each saved row shows both kilogram measurements and the corresponding volume ounces
 - [x] Remove the duplicate "bananas" flavor option so only one banana flavor appears in the manual opening and closing gelato forms
+- [x] Fix the unexpected ready-made gelato prefilled values appearing when staff open the form so opening and closing inputs only populate from intended sources

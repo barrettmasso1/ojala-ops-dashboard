@@ -411,7 +411,7 @@ function extractGelatoShiftDraft(readyMadeGelato: ReadyMadeGelatoState, shiftTyp
   ) as Record<string, ReadyMadeGelatoShiftState>;
 }
 
-function applyGelatoShiftDraft(
+export function applyGelatoShiftDraft(
   current: ReadyMadeGelatoState,
   shiftType: ReadyMadeGelatoShiftKey,
   draftFlavors: Record<string, ReadyMadeGelatoShiftState>,
@@ -540,14 +540,14 @@ const initialClosingForm = (): ClosingForm => ({
   generalNotes: "",
 });
 
-const initialReadyMadeGelatoShiftState = (): ReadyMadeGelatoShiftState => ({
+export const initialReadyMadeGelatoShiftState = (): ReadyMadeGelatoShiftState => ({
   smallPanCount: "",
   smallGrossWeightKg: "",
   largePanCount: "",
   largeGrossWeightKg: "",
 });
 
-const initialReadyMadeGelatoState = (businessDate = todayValue()): ReadyMadeGelatoState => ({
+export const initialReadyMadeGelatoState = (businessDate = todayValue()): ReadyMadeGelatoState => ({
   businessDate,
   flavors: Object.fromEntries(
     READY_MADE_GELATO_FLAVORS.map(flavor => [
@@ -935,44 +935,6 @@ export default function EmployeePortal(props: any) {
     }
     setServiceInventoryCounts(Object.fromEntries(inventoryItems.map(item => [item.id, displayNumberValue(item.currentQuantity)])));
   }, [inventoryItems, portalView]);
-
-  useEffect(() => {
-    if (!readyMadeGelatoQuery.data) return;
-    if (
-      (portalView === "opening" && hasOpeningDraftRestored.current) ||
-      (portalView === "closing" && hasClosingDraftRestored.current) ||
-      (portalView === "inventory" && hasInventoryDraftRestored.current)
-    ) {
-      return;
-    }
-
-    setReadyMadeGelato(current => ({
-      ...current,
-      businessDate: currentBusinessDate,
-      flavors: normalizeGelatoFlavorStateMap({
-        ...current.flavors,
-        ...(Object.fromEntries(
-          readyMadeGelatoQuery.data.map(item => [
-            normalizeGelatoFlavorName(item.flavor),
-            {
-              opening: {
-                smallPanCount: displayNumberValue(item.opening.smallPanCount),
-                smallGrossWeightKg: displayNumberValue(item.opening.smallGrossWeightKg),
-                largePanCount: displayNumberValue(item.opening.largePanCount),
-                largeGrossWeightKg: displayNumberValue(item.opening.largeGrossWeightKg),
-              },
-              closing: {
-                smallPanCount: displayNumberValue(item.closing.smallPanCount),
-                smallGrossWeightKg: displayNumberValue(item.closing.smallGrossWeightKg),
-                largePanCount: displayNumberValue(item.closing.largePanCount),
-                largeGrossWeightKg: displayNumberValue(item.closing.largeGrossWeightKg),
-              },
-            },
-          ]),
-        ) as Record<string, ReadyMadeGelatoFlavorState>),
-      }),
-    }));
-  }, [currentBusinessDate, portalView, readyMadeGelatoQuery.data]);
 
   function updateGelatoField(shiftType: ReadyMadeGelatoShiftKey, flavor: string, field: keyof ReadyMadeGelatoShiftState, value: string) {
     const normalizedFlavor = normalizeGelatoFlavorName(flavor);

@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   applyAnalyzedPhotoPanSetup,
   applyAnalyzedPhotosToGelatoState,
+  applyGelatoShiftDraft,
   GELATO_PHOTO_UPLOAD_LIMIT,
   GELATO_WEIGHT_INPUT_MODE,
   GELATO_WEIGHT_INPUT_STEP,
   getAnalyzedPhotoPanSetup,
+  initialReadyMadeGelatoState,
   limitGelatoPhotoBatch,
   estimateAnalyzedPhotoNetWeightKg,
   estimateAnalyzedPhotoVolumeOunces,
@@ -221,6 +223,54 @@ describe("employee portal gelato helpers", () => {
       largePanCount: 1,
       largeGrossWeightKg: 3.74,
       combinedGrossWeightKg: 5.35,
+    });
+  });
+
+  it("keeps a fresh ready-made gelato form blank for a business date until a draft is explicitly restored", () => {
+    const freshState = initialReadyMadeGelatoState("2026-05-09");
+
+    expect(freshState.businessDate).toBe("2026-05-09");
+    expect(freshState.flavors.Vanilla.opening).toEqual({
+      smallPanCount: "",
+      smallGrossWeightKg: "",
+      largePanCount: "",
+      largeGrossWeightKg: "",
+    });
+    expect(freshState.flavors.Vanilla.closing).toEqual({
+      smallPanCount: "",
+      smallGrossWeightKg: "",
+      largePanCount: "",
+      largeGrossWeightKg: "",
+    });
+  });
+
+  it("applies ready-made gelato values only when a saved draft is restored", () => {
+    const freshState = initialReadyMadeGelatoState("2026-05-09");
+    const restored = applyGelatoShiftDraft(
+      freshState,
+      "opening",
+      {
+        Vanilla: {
+          smallPanCount: "1",
+          smallGrossWeightKg: "1.48",
+          largePanCount: "",
+          largeGrossWeightKg: "",
+        },
+      },
+      "2026-05-09"
+    );
+
+    expect(restored.flavors.Vanilla.opening).toEqual({
+      smallPanCount: "1",
+      smallGrossWeightKg: "1.48",
+      largePanCount: "",
+      largeGrossWeightKg: "",
+    });
+    expect(restored.flavors.Vanilla.closing).toEqual({
+      smallPanCount: "",
+      smallGrossWeightKg: "",
+      largePanCount: "",
+      largeGrossWeightKg: "",
     });
   });
 
