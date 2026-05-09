@@ -3,6 +3,7 @@ import { type PortalLanguage, translateErrorMessage, translatePortalText } from 
 import { compressImageFileToDataUrl } from "@/lib/imageCompression";
 import { getOpeningNapkinsQuestion, groupOpeningQuestionsForPortal } from "@/lib/openingSetup";
 import { savePortalDraft, loadPortalDraft, clearPortalDraft } from "@/lib/portalDrafts";
+import { normalizeGelatoFlavorName } from "@/lib/gelatoFlavorAliases";
 import { getReplacementConfirmationMessage, getResubmissionReplacementDescription, type SubmissionViewKey } from "@/lib/submissionReplacement";
 import { formatPacificCalendarDate, formatPacificTime, getPacificBusinessDate } from "../../../shared/businessDate";
 import { trpc } from "@/lib/trpc";
@@ -297,7 +298,7 @@ export function applyAnalyzedPhotosToGelatoState(
   const summarizedByFlavor = new Map<string, ReturnType<typeof resolveAnalyzedPhotoGrossWeights>>();
 
   for (const photo of photos) {
-    const flavor = photo.flavor.trim();
+    const flavor = normalizeGelatoFlavorName(photo.flavor);
     if (!flavor) continue;
 
     const resolved = resolveAnalyzedPhotoGrossWeights(photo);
@@ -374,6 +375,36 @@ function cloneShiftState(shift?: Partial<ReadyMadeGelatoShiftState>): ReadyMadeG
   };
 }
 
+function mergeShiftState(
+  existing: ReadyMadeGelatoShiftState | undefined,
+  incoming: ReadyMadeGelatoShiftState | undefined,
+): ReadyMadeGelatoShiftState {
+  return {
+    smallPanCount: existing?.smallPanCount || incoming?.smallPanCount || "",
+    smallGrossWeightKg: existing?.smallGrossWeightKg || incoming?.smallGrossWeightKg || "",
+    largePanCount: existing?.largePanCount || incoming?.largePanCount || "",
+    largeGrossWeightKg: existing?.largeGrossWeightKg || incoming?.largeGrossWeightKg || "",
+  };
+}
+
+function normalizeGelatoFlavorStateMap(
+  flavors: Record<string, ReadyMadeGelatoFlavorState>,
+): Record<string, ReadyMadeGelatoFlavorState> {
+  const normalized: Record<string, ReadyMadeGelatoFlavorState> = {};
+
+  for (const [flavor, shifts] of Object.entries(flavors)) {
+    const normalizedFlavor = normalizeGelatoFlavorName(flavor);
+    if (!normalizedFlavor) continue;
+
+    normalized[normalizedFlavor] = {
+      opening: mergeShiftState(normalized[normalizedFlavor]?.opening, cloneShiftState(shifts.opening)),
+      closing: mergeShiftState(normalized[normalizedFlavor]?.closing, cloneShiftState(shifts.closing)),
+    };
+  }
+
+  return normalized;
+}
+
 function extractGelatoShiftDraft(readyMadeGelato: ReadyMadeGelatoState, shiftType: ReadyMadeGelatoShiftKey) {
   return Object.fromEntries(
     Object.entries(readyMadeGelato.flavors).map(([flavor, shifts]) => [flavor, cloneShiftState(shifts[shiftType])]),
@@ -386,18 +417,25 @@ function applyGelatoShiftDraft(
   draftFlavors: Record<string, ReadyMadeGelatoShiftState>,
   businessDate: string,
 ) {
+  const normalizedCurrentFlavors = normalizeGelatoFlavorStateMap(current.flavors);
+  const normalizedDraftFlavors = Object.fromEntries(
+    Object.entries(draftFlavors)
+      .map(([flavor, shift]) => [normalizeGelatoFlavorName(flavor), cloneShiftState(shift)] as const)
+      .filter(([flavor]) => Boolean(flavor)),
+  ) as Record<string, ReadyMadeGelatoShiftState>;
+
   return {
     ...current,
     businessDate,
     flavors: Object.fromEntries(
-      Array.from(new Set([...Object.keys(current.flavors), ...Object.keys(draftFlavors)])).map(flavor => [
+      Array.from(new Set([...Object.keys(normalizedCurrentFlavors), ...Object.keys(normalizedDraftFlavors)])).map(flavor => [
         flavor,
         {
-          ...(current.flavors[flavor] ?? {
+          ...(normalizedCurrentFlavors[flavor] ?? {
             opening: initialReadyMadeGelatoShiftState(),
             closing: initialReadyMadeGelatoShiftState(),
           }),
-          [shiftType]: cloneShiftState(draftFlavors[flavor]),
+          [shiftType]: cloneShiftState(normalizedDraftFlavors[flavor]),
         },
       ]),
     ) as Record<string, ReadyMadeGelatoFlavorState>,
@@ -414,7 +452,7 @@ export function summarizeAnalyzedPhotosForSubmission(photos: ExtractedGelatoPhot
   }>();
 
   for (const photo of photos) {
-    const flavor = photo.flavor.trim();
+    const flavor = normalizeGelatoFlavorName(photo.flavor);
     if (!flavor) continue;
 
     const resolved = resolveAnalyzedPhotoGrossWeights(photo);
@@ -845,8 +883,9 @@ export default function EmployeePortal(props: any) {
   }, [fullInventoryItems]);
 
   const readyMadeGelatoFlavorNames = useMemo(() => {
-    const seeded = READY_MADE_GELATO_FLAVORS.filter(flavor => flavor in readyMadeGelato.flavors);
-    const custom = Object.keys(readyMadeGelato.flavors).filter(
+    const normalizedFlavors = normalizeGelatoFlavorStateMap(readyMadeGelato.flavors);
+    const seeded = READY_MADE_GELATO_FLAVORS.filter(flavor => flavor in normalizedFlavors);
+    const custom = Object.keys(normalizedFlavors).filter(
       flavor => !READY_MADE_GELATO_FLAVORS.includes(flavor as (typeof READY_MADE_GELATO_FLAVORS)[number]),
     );
     return [...seeded, ...custom];
@@ -910,11 +949,11 @@ export default function EmployeePortal(props: any) {
     setReadyMadeGelato(current => ({
       ...current,
       businessDate: currentBusinessDate,
-      flavors: {
+      flavors: normalizeGelatoFlavorStateMap({
         ...current.flavors,
         ...(Object.fromEntries(
           readyMadeGelatoQuery.data.map(item => [
-            item.flavor,
+            normalizeGelatoFlavorName(item.flavor),
             {
               opening: {
                 smallPanCount: displayNumberValue(item.opening.smallPanCount),
@@ -931,41 +970,45 @@ export default function EmployeePortal(props: any) {
             },
           ]),
         ) as Record<string, ReadyMadeGelatoFlavorState>),
-      },
+      }),
     }));
   }, [currentBusinessDate, portalView, readyMadeGelatoQuery.data]);
 
   function updateGelatoField(shiftType: ReadyMadeGelatoShiftKey, flavor: string, field: keyof ReadyMadeGelatoShiftState, value: string) {
+    const normalizedFlavor = normalizeGelatoFlavorName(flavor);
+    if (!normalizedFlavor) return;
+
     setReadyMadeGelato(current => ({
       ...current,
-      flavors: {
+      flavors: normalizeGelatoFlavorStateMap({
         ...current.flavors,
-        [flavor]: {
-          ...(current.flavors[flavor] ?? {
+        [normalizedFlavor]: {
+          ...(current.flavors[normalizedFlavor] ?? {
             opening: initialReadyMadeGelatoShiftState(),
             closing: initialReadyMadeGelatoShiftState(),
           }),
           [shiftType]: {
-            ...(current.flavors[flavor]?.[shiftType] ?? initialReadyMadeGelatoShiftState()),
+            ...(current.flavors[normalizedFlavor]?.[shiftType] ?? initialReadyMadeGelatoShiftState()),
             [field]: value,
           },
         },
-      },
+      }),
     }));
   }
 
   function addCustomFlavor() {
-    const nextFlavor = otherFlavorName.trim();
-    if (!nextFlavor || readyMadeGelato.flavors[nextFlavor]) return;
+    const nextFlavor = normalizeGelatoFlavorName(otherFlavorName);
+    const normalizedFlavors = normalizeGelatoFlavorStateMap(readyMadeGelato.flavors);
+    if (!nextFlavor || normalizedFlavors[nextFlavor]) return;
     setReadyMadeGelato(current => ({
       ...current,
-      flavors: {
+      flavors: normalizeGelatoFlavorStateMap({
         ...current.flavors,
         [nextFlavor]: {
           opening: initialReadyMadeGelatoShiftState(),
           closing: initialReadyMadeGelatoShiftState(),
         },
-      },
+      }),
     }));
     setOtherFlavorName("");
   }
