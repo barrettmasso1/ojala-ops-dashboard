@@ -3,6 +3,7 @@ import { type PortalLanguage, translateErrorMessage, translatePortalText } from 
 import { compressImageFileToDataUrl } from "@/lib/imageCompression";
 import { getOpeningNapkinsQuestion, groupOpeningQuestionsForPortal } from "@/lib/openingSetup";
 import { savePortalDraft, loadPortalDraft, clearPortalDraft } from "@/lib/portalDrafts";
+import { getReplacementConfirmationMessage, getResubmissionReplacementDescription, type SubmissionViewKey } from "@/lib/submissionReplacement";
 import { formatPacificCalendarDate, formatPacificTime, getPacificBusinessDate } from "../../../shared/businessDate";
 import { trpc } from "@/lib/trpc";
 import { ArrowRight, ClipboardCheck, House, LoaderCircle, LogOut, MoonStar, Package2, ReceiptText, Save, SunMedium, Upload, X } from "lucide-react";
@@ -16,7 +17,7 @@ type PortalView = "hub" | "opening" | "closing" | "inventory";
 type TimeClockStaffName = "Karol" | "Anhec" | "Jesse" | "Esme";
 
 type SubmissionNotice = {
-  view: Exclude<PortalView, "hub">;
+  view: SubmissionViewKey;
   title: string;
   detail: string;
 };
@@ -1285,7 +1286,7 @@ export default function EmployeePortal(props: any) {
     return updatedItems;
   }
 
-  async function confirmReplacementIfNeeded(view: Exclude<PortalView, "hub">) {
+  async function confirmReplacementIfNeeded(view: SubmissionViewKey) {
     const latestStatus = submissionStatusQuery.data?.businessDate === currentBusinessDate
       ? submissionStatusQuery.data
       : (await submissionStatusQuery.refetch()).data;
@@ -1298,13 +1299,7 @@ export default function EmployeePortal(props: any) {
 
     if (!alreadyExists) return true;
 
-    const message = view === "opening"
-      ? t("An opening submission already exists for this business date. Do you want to replace it with this new opening form?")
-      : view === "closing"
-        ? t("A closing submission already exists for this business date. Do you want to replace it with this new closing form?")
-        : t("An inventory submission already exists for this business date. Do you want to replace it with this new inventory form?");
-
-    return window.confirm(`${t("Replace existing submission?")}\n\n${message}`);
+    return window.confirm(getReplacementConfirmationMessage(view, t));
   }
 
   async function handleOpeningSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -2207,7 +2202,7 @@ export default function EmployeePortal(props: any) {
                       {openingMutation.isPending || inventoryMutation.isPending || readyMadeGelatoMutation.isPending ? t("Submitting...") : t("Submit Opening Form")}
                     </button>
                   </div>
-                  <p className="mt-3 text-xs leading-5 text-[#7d756b]">{t("Submitting again for this business date replaces the previous opening record instead of adding a duplicate.")}</p>
+                  <p className="mt-3 text-xs leading-5 text-[#7d756b]">{getResubmissionReplacementDescription("opening", t)}</p>
                   {draftSavedAt.opening ? (
                     <div className="mt-2 flex flex-col gap-2 text-xs leading-5 text-[#7d756b]">
                       <p>{t("Draft saved on this device for today. Reopen this same form on this device to keep working.")}</p>
@@ -2342,7 +2337,7 @@ export default function EmployeePortal(props: any) {
                       {closingMutation.isPending || endOfDayMutation.isPending || inventoryMutation.isPending || readyMadeGelatoMutation.isPending ? t("Submitting...") : t("Submit Closing Form")}
                     </button>
                   </div>
-                  <p className="mt-3 text-xs leading-5 text-[#7d756b]">{t("Submitting again for this business date replaces the previous closing record instead of adding a duplicate.")}</p>
+                  <p className="mt-3 text-xs leading-5 text-[#7d756b]">{getResubmissionReplacementDescription("closing", t)}</p>
                   {draftSavedAt.closing ? (
                     <div className="mt-2 flex flex-col gap-2 text-xs leading-5 text-[#7d756b]">
                       <p>{t("Draft saved on this device for today. Reopen this same form on this device to keep working.")}</p>
@@ -2415,7 +2410,7 @@ export default function EmployeePortal(props: any) {
                       {inventoryMutation.isPending || readyMadeGelatoMutation.isPending ? t("Saving inventory and gelato...") : t("Save inventory and gelato updates")}
                     </button>
                   </div>
-                  <p className="mt-3 text-xs leading-5 text-[#7d756b]">{t("Saving this business-date inventory again replaces the prior inventory review record instead of duplicating it.")}</p>
+                  <p className="mt-3 text-xs leading-5 text-[#7d756b]">{getResubmissionReplacementDescription("inventory", t)}</p>
                   {draftSavedAt.inventory ? (
                     <div className="mt-3 flex flex-col gap-2 text-xs leading-5 text-[#7d756b]">
                       <p>{t("Draft saved on this device for today. Reopen this same form on this device to keep working.")}</p>

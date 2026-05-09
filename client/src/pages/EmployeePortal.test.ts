@@ -16,8 +16,21 @@ import {
   resolveAnalyzedPhotoGrossWeights,
   summarizeAnalyzedPhotosForSubmission,
 } from "./EmployeePortal";
+import { getReplacementConfirmationMessage, getResubmissionReplacementDescription } from "@/lib/submissionReplacement";
 
 describe("employee portal gelato helpers", () => {
+  it("describes opening resubmissions as replacements instead of additive duplicates", () => {
+    expect(getResubmissionReplacementDescription("opening")).toBe(
+      "Submitting again for this business date replaces the previous opening record instead of adding a duplicate."
+    );
+  });
+
+  it("builds a replacement confirmation prompt for same-day opening resubmissions", () => {
+    expect(getReplacementConfirmationMessage("opening")).toBe(
+      "Replace existing submission?\n\nAn opening submission already exists for this business date. Do you want to replace it with this new opening form?"
+    );
+  });
+
   it("accepts three-decimal kilogram entries for ready-made gelato weights", () => {
     expect(GELATO_WEIGHT_INPUT_STEP).toBe("0.001");
     expect(GELATO_WEIGHT_INPUT_MODE).toBe("decimal");

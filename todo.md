@@ -245,3 +245,4 @@
 - [x] Force-sign-out any still-open employee timeclock shift at 10:00 PM local business time so payroll totals cannot balloon overnight
 - [x] Update opening-only inventory and reconciliation views to show an explicit awaiting-closing state instead of misleading ending or distributed values
 - [x] Investigate and fix the stale or cross-day closing inventory bug causing items like edible spoons to show ending counts when no same-day closing submission exists
+- [x] Add explicit same-day opening-form overwrite messaging and a confirmation prompt so resubmissions clearly replace the earlier opening record
