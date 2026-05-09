@@ -242,3 +242,6 @@
 - [x] Reproduce and fix the recurring impossible pan-weight rejection affecting both manual and photo-assisted opening and closing submissions, then verify the corrected pan-tare and capacity logic against current staff-entered values
 - [x] Fix the manager daily glance so measured distributed ounces stay at zero until a closing gelato submission exists for that business date
 - [x] Restore visible analyzed-photo thumbnails after upload analysis and preserve the uploaded gelato images so staff can review them immediately and managers can access them later
+- [x] Force-sign-out any still-open employee timeclock shift at 10:00 PM local business time so payroll totals cannot balloon overnight
+- [x] Update opening-only inventory and reconciliation views to show an explicit awaiting-closing state instead of misleading ending or distributed values
+- [x] Investigate and fix the stale or cross-day closing inventory bug causing items like edible spoons to show ending counts when no same-day closing submission exists

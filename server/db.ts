@@ -23,7 +23,7 @@ import {
   submissionHistoryEntries,
   users,
 } from "../drizzle/schema";
-import { getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "../shared/businessDate";
+import { PACIFIC_TIME_ZONE, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "../shared/businessDate";
 import { DEFAULT_INVENTORY_ITEMS, DEFAULT_RECIPE_ITEMS, READY_MADE_GELATO_FLAVORS } from "../shared/opsCatalog";
 import { ENV } from "./_core/env";
 import { storageGetSignedUrl } from "./storage";
@@ -57,6 +57,9 @@ const SMALL_PAN_FULL_VOLUME_OUNCES = 112;
 const LARGE_PAN_FULL_VOLUME_OUNCES = 160;
 const MINOR_GELATO_DISCREPANCY_VOLUME_OUNCES = 8;
 const MINOR_SERVICE_ITEM_DISCREPANCY_COUNT = 2;
+const AUTO_CLOCK_OUT_HOUR_PACIFIC = 22;
+const AWAITING_CLOSING_FORM_LABEL = "Awaiting closing form";
+const AWAITING_SAME_DAY_CLOSING_COUNT_LABEL = "Awaiting same-day closing inventory count";
 const READY_MADE_GELATO_FLAVOR_POSITION = new Map(READY_MADE_GELATO_FLAVORS.map((flavor, index) => [normalizeKey(flavor), index]));
 
 type ReadyMadeShiftType = "opening" | "closing";
@@ -408,18 +411,20 @@ function classifyServiceItemDiscrepancy(varianceCount: number) {
   return { status: "major" as const, label: "Major discrepancy" };
 }
 
-function buildReadyMadeGelatoReconciliation(rows: ReadyMadeMeasurementRow[], soldVolumeOunces: number) {
+function buildReadyMadeGelatoReconciliation(rows: ReadyMadeMeasurementRow[], soldVolumeOunces: number, hasClosingSubmission = false) {
   const rowByFlavorShift = new Map(rows.map(row => [`${normalizeKey(row.flavor ?? "")}:${row.shiftType}`, row]));
-  const hasClosingMeasurements = rows.some(
-    row =>
-      row.shiftType === "closing" &&
-      (toNumber(row.smallPanCount) > 0 ||
-        toNumber(row.largePanCount) > 0 ||
-        toNumber(row.smallGrossWeightKg) > 0 ||
-        toNumber(row.largeGrossWeightKg) > 0 ||
-        toNumber(row.combinedGrossWeightKg) > 0 ||
-        toNumber(row.weightKg) > 0)
-  );
+  const hasClosingMeasurements =
+    hasClosingSubmission &&
+    rows.some(
+      row =>
+        row.shiftType === "closing" &&
+        (toNumber(row.smallPanCount) > 0 ||
+          toNumber(row.largePanCount) > 0 ||
+          toNumber(row.smallGrossWeightKg) > 0 ||
+          toNumber(row.largeGrossWeightKg) > 0 ||
+          toNumber(row.combinedGrossWeightKg) > 0 ||
+          toNumber(row.weightKg) > 0)
+    );
   const flavors = getReadyMadeGelatoFlavorList(rows).map(flavor => {
     const flavorKey = normalizeKey(flavor);
     const opening = calculateReadyMadeMeasurement(rowByFlavorShift.get(`${flavorKey}:opening`), "opening");
@@ -438,17 +443,18 @@ function buildReadyMadeGelatoReconciliation(rows: ReadyMadeMeasurementRow[], sol
   const closingVolumeOunces = roundTo(flavors.reduce((sum, flavor) => sum + flavor.closing.totalVolumeOunces, 0));
   const actualDistributedVolumeOunces = hasClosingMeasurements ? roundTo(openingVolumeOunces - closingVolumeOunces) : 0;
   const varianceVolumeOunces = hasClosingMeasurements ? roundTo(actualDistributedVolumeOunces - soldVolumeOunces) : 0;
-  const discrepancy = classifyGelatoDiscrepancy(varianceVolumeOunces);
+  const discrepancy = hasClosingMeasurements ? classifyGelatoDiscrepancy(varianceVolumeOunces) : null;
 
   return {
     flavors,
+    hasClosingMeasurements,
     openingVolumeOunces,
     closingVolumeOunces,
     actualDistributedVolumeOunces,
     soldVolumeOunces: roundTo(soldVolumeOunces),
     varianceVolumeOunces,
-    discrepancyStatus: discrepancy.status,
-    discrepancyLabel: discrepancy.label,
+    discrepancyStatus: discrepancy?.status ?? "pending",
+    discrepancyLabel: discrepancy?.label ?? AWAITING_CLOSING_FORM_LABEL,
     minorDiscrepancyThresholdOunces: MINOR_GELATO_DISCREPANCY_VOLUME_OUNCES,
   };
 }
@@ -457,7 +463,8 @@ function buildServicePackagingReconciliation(
   openingEntries: Array<{ staffName: string; responseJson?: string | null; createdAt?: Date }>,
   reports: Array<{ cups4ozToGo?: number; cups8ozToGo?: number; cupsPintToGo?: number; cupsLiterToGo?: number }>,
   inventoryRows: Array<{ itemName: string; currentQuantity: string | number; lastCountDate?: string | null }>,
-  businessDate: string
+  businessDate: string,
+  hasClosingSubmission = false
 ) {
   const latestOpening = [...openingEntries].sort((a, b) => (b.createdAt?.getTime?.() ?? 0) - (a.createdAt?.getTime?.() ?? 0))[0];
   const openingStockCounts = readOpeningStockCounts(latestOpening?.responseJson ?? null);
@@ -475,6 +482,7 @@ function buildServicePackagingReconciliation(
   const inventoryByName = new Map(inventoryRows.map(item => [normalizeKey(item.itemName), item]));
 
   const resolveClosingQuantity = (itemNames: string[]) => {
+    if (!hasClosingSubmission) return null;
     const matched = itemNames.map(name => inventoryByName.get(normalizeKey(name))).filter(Boolean) as Array<{ currentQuantity: string | number; lastCountDate?: string | null }>;
     if (matched.length === 0) return null;
     if (matched.some(item => (item.lastCountDate ?? "") !== businessDate)) return null;
@@ -552,7 +560,7 @@ function buildServicePackagingReconciliation(
         actualUsed: null,
         variance: null,
         discrepancyStatus: "pending" as const,
-        discrepancyLabel: "Awaiting same-day closing inventory count",
+        discrepancyLabel: hasClosingSubmission ? AWAITING_SAME_DAY_CLOSING_COUNT_LABEL : AWAITING_CLOSING_FORM_LABEL,
       };
     }
 
@@ -581,7 +589,7 @@ function buildServicePackagingReconciliation(
     items,
     varianceCount,
     discrepancyStatus: discrepancy?.status ?? "pending",
-    discrepancyLabel: discrepancy?.label ?? "Awaiting same-day closing inventory count",
+    discrepancyLabel: discrepancy?.label ?? (hasClosingSubmission ? AWAITING_SAME_DAY_CLOSING_COUNT_LABEL : AWAITING_CLOSING_FORM_LABEL),
     minorDiscrepancyThresholdCount: MINOR_SERVICE_ITEM_DISCREPANCY_COUNT,
   };
 }
@@ -878,8 +886,21 @@ export function buildDailySnapshot(
   );
 
   const soldVolumeOunces = convertSalesToVolumeOunces(sales);
-  const gelato = buildReadyMadeGelatoReconciliation(gelatoRows, soldVolumeOunces);
-  const packaging = buildServicePackagingReconciliation(openingEntries, reports, inventoryRows, businessDate);
+  const hasClosingSubmission = closingEntries.length > 0;
+  const hasClosingGelatoSubmission =
+    hasClosingSubmission ||
+    gelatoRows.some(
+      row =>
+        row.shiftType === "closing" &&
+        (toNumber(row.smallPanCount) > 0 ||
+          toNumber(row.largePanCount) > 0 ||
+          toNumber(row.smallGrossWeightKg) > 0 ||
+          toNumber(row.largeGrossWeightKg) > 0 ||
+          toNumber(row.combinedGrossWeightKg) > 0 ||
+          toNumber(row.weightKg) > 0)
+    );
+  const gelato = buildReadyMadeGelatoReconciliation(gelatoRows, soldVolumeOunces, hasClosingGelatoSubmission);
+  const packaging = buildServicePackagingReconciliation(openingEntries, reports, inventoryRows, businessDate, hasClosingSubmission);
   const openingCompletionRate = openingEntries.length
     ? openingEntries.reduce((sum, entry) => sum + calculateOpeningCompletion(entry), 0) / openingEntries.length
     : 0;
@@ -1527,10 +1548,59 @@ function normalizeStaffAttendanceRecord(row: typeof staffAttendance.$inferSelect
   };
 }
 
-function calculateAttendanceHours(clockInAt: number, clockOutAt: number | null, referenceTime = Date.now()) {
-  const end = clockOutAt ?? referenceTime;
-  if (!Number.isFinite(clockInAt) || !Number.isFinite(end)) return 0;
-  return roundTo(Math.max(0, end - clockInAt) / (1000 * 60 * 60), 2);
+function getPacificUtcOffsetMinutes(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: PACIFIC_TIME_ZONE,
+    timeZoneName: "shortOffset",
+  }).formatToParts(date);
+  const offsetValue = parts.find(part => part.type === "timeZoneName")?.value ?? "GMT-8";
+  const match = offsetValue.match(/^GMT([+-])(\d{1,2})(?::(\d{2}))?$/i);
+  if (!match) return -8 * 60;
+  const sign = match[1] === "+" ? 1 : -1;
+  const hours = Number(match[2] ?? 0);
+  const minutes = Number(match[3] ?? 0);
+  return sign * (hours * 60 + minutes);
+}
+
+export function getPacificBusinessDateAutoClockOutAt(businessDate: string) {
+  const [year, month, day] = businessDate.split("-").map(value => Number(value));
+  const pacificMiddayUtc = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  const offsetMinutes = getPacificUtcOffsetMinutes(pacificMiddayUtc);
+  return Date.UTC(year, month - 1, day, AUTO_CLOCK_OUT_HOUR_PACIFIC, 0, 0, 0) - offsetMinutes * 60 * 1000;
+}
+
+export function getEffectiveAttendanceClockOutAt(record: Pick<StaffAttendanceRecord, "businessDate" | "clockInAt" | "clockOutAt">, referenceTime = Date.now()) {
+  if (record.clockOutAt != null) {
+    return Math.max(record.clockOutAt, record.clockInAt);
+  }
+
+  const forcedClockOutAt = Math.max(getPacificBusinessDateAutoClockOutAt(record.businessDate), record.clockInAt);
+  if (referenceTime >= forcedClockOutAt) {
+    return forcedClockOutAt;
+  }
+
+  return null;
+}
+
+async function forceClockOutExpiredOpenShifts(db: ReturnType<typeof drizzle>, referenceTime = Date.now()) {
+  const openRows = await db
+    .select()
+    .from(staffAttendance)
+    .where(isNull(staffAttendance.clockOutAt))
+    .orderBy(desc(staffAttendance.clockInAt), desc(staffAttendance.id));
+
+  for (const row of openRows) {
+    const record = normalizeStaffAttendanceRecord(row);
+    const forcedClockOutAt = getEffectiveAttendanceClockOutAt(record, referenceTime);
+    if (forcedClockOutAt == null) continue;
+    await db.update(staffAttendance).set({ clockOutAt: forcedClockOutAt }).where(eq(staffAttendance.id, record.id));
+  }
+}
+
+export function calculateAttendanceHours(record: Pick<StaffAttendanceRecord, "businessDate" | "clockInAt" | "clockOutAt">, referenceTime = Date.now()) {
+  const end = getEffectiveAttendanceClockOutAt(record, referenceTime) ?? referenceTime;
+  if (!Number.isFinite(record.clockInAt) || !Number.isFinite(end)) return 0;
+  return roundTo(Math.max(0, end - record.clockInAt) / (1000 * 60 * 60), 2);
 }
 
 export async function clockInStaff(input: {
@@ -1541,6 +1611,7 @@ export async function clockInStaff(input: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  await forceClockOutExpiredOpenShifts(db);
   const clockInAt = Number(input.clockInAt ?? Date.now());
   const openEntry = await db
     .select()
@@ -1583,6 +1654,7 @@ export async function clockOutStaff(input: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  await forceClockOutExpiredOpenShifts(db, Number(input.clockOutAt ?? Date.now()));
   const clockOutAt = Number(input.clockOutAt ?? Date.now());
   const openEntry = await db
     .select()
@@ -1610,6 +1682,7 @@ export async function getTodayAttendance(businessDate?: string) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  await forceClockOutExpiredOpenShifts(db);
   const normalizedDate = normalizeDate(businessDate);
   const rows = await db
     .select()
@@ -1634,14 +1707,15 @@ export async function getTodayAttendance(businessDate?: string) {
     const todayEntries = staffRecords.filter(record => record.businessDate === normalizedDate);
     const activeEntry = staffRecords.find(record => record.clockOutAt == null) ?? null;
 
-    return {
-      staffName,
-      isClockedIn: Boolean(activeEntry),
-      activeEntry,
-      latestEntry: staffRecords[0] ?? null,
-      todayEntries,
-      totalHoursToday: roundTo(todayEntries.reduce((sum, record) => sum + calculateAttendanceHours(record.clockInAt, record.clockOutAt), 0), 2),
-    } satisfies StaffAttendanceStatus;
+      return {
+        staffName,
+        isClockedIn: Boolean(activeEntry),
+        activeEntry,
+        latestEntry: staffRecords[0] ?? null,
+        todayEntries,
+        totalHoursToday: roundTo(todayEntries.reduce((sum, record) => sum + calculateAttendanceHours(record), 0), 2),
+      } satisfies StaffAttendanceStatus;
+
   });
 }
 
@@ -1652,6 +1726,7 @@ export async function getWeeklyAttendanceSummary(input?: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  await forceClockOutExpiredOpenShifts(db);
   const endDate = normalizeDate(input?.endDate);
   const startDate = normalizeDate(input?.startDate ?? getPacificSundayWeekStart(endDate));
   const rows = await db
@@ -1677,7 +1752,7 @@ export async function getWeeklyAttendanceSummary(input?: {
           openShiftCount: 0,
         };
 
-        current.hours = roundTo(current.hours + calculateAttendanceHours(row.clockInAt, row.clockOutAt), 2);
+        current.hours = roundTo(current.hours + calculateAttendanceHours(row), 2);
         current.shiftCount += 1;
         current.openShiftCount += row.clockOutAt == null ? 1 : 0;
         groupedByDay.set(row.businessDate, current);
@@ -1703,6 +1778,7 @@ export async function getAttendanceTimeBook(input?: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  await forceClockOutExpiredOpenShifts(db);
   const endDate = normalizeDate(input?.endDate);
   const startDate = normalizeDate(input?.startDate ?? getPacificSundayWeekStart(endDate));
   const rows = await db
@@ -1719,7 +1795,7 @@ export async function getAttendanceTimeBook(input?: {
     const groupedByDay = new Map<string, TimeBookAttendanceDay>();
 
     for (const row of staffRows) {
-      const hoursWorked = calculateAttendanceHours(row.clockInAt, row.clockOutAt);
+      const hoursWorked = calculateAttendanceHours(row);
       const day = groupedByDay.get(row.businessDate) ?? {
         businessDate: row.businessDate,
         totalHours: 0,

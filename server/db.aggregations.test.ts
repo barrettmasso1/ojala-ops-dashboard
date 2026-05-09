@@ -196,7 +196,7 @@ describe("db aggregation helpers", () => {
   it("classifies small gelato reconciliation gaps as sample or minor discrepancies", () => {
     const snapshot = buildDailySnapshot(
       [],
-      [],
+      [{ businessDate: "2026-04-21", staffName: "Marco", createdAt: new Date("2026-04-21T23:00:00Z") }],
       [
         {
           businessDate: "2026-04-21",
@@ -289,10 +289,12 @@ describe("db aggregation helpers", () => {
     expect(snapshot.gelato.closingVolumeOunces).toBe(0);
     expect(snapshot.gelato.actualDistributedVolumeOunces).toBe(0);
     expect(snapshot.gelato.varianceVolumeOunces).toBe(0);
-    expect(snapshot.gelato.discrepancyStatus).toBe("aligned");
+    expect(snapshot.gelato.discrepancyStatus).toBe("pending");
+    expect(snapshot.gelato.discrepancyLabel).toBe("Awaiting closing form");
     expect(snapshot.gelato.flavors.find(item => item.flavor === "Cookies and Cream")).toMatchObject({
       usedVolumeOunces: 0,
     });
+    expect(snapshot.packaging.discrepancyLabel).toBe("Awaiting closing form");
   });
 
   it("builds week-over-week sales series with previous week and delta values", () => {

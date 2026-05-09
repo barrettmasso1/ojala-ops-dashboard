@@ -180,6 +180,9 @@ function classifyDifference(value: number) {
   return value > 0 ? "Over" : "Under";
 }
 
+const AWAITING_CLOSING_FORM_LABEL = "Awaiting closing form";
+const AWAITING_CLOSING_TEXT = "Awaiting closing";
+
 export default function ManagerDashboard() {
   const [location, setLocation] = useLocation();
   const isInventoryWorkspaceRoute = location.startsWith("/dashboard/inventory");
@@ -377,6 +380,7 @@ export default function ManagerDashboard() {
   const flavorRows = useMemo(() => {
     if (!reconciliationSnapshot.gelato) return [];
 
+    const gelatoAwaitingClosing = reconciliationSnapshot.gelato.discrepancyLabel === AWAITING_CLOSING_FORM_LABEL;
     const totalDistributed = reconciliationSnapshot.gelato.distributedVolumeOunces;
     const totalSold = reconciliationSnapshot.gelato.soldVolumeOunces;
 
@@ -394,7 +398,8 @@ export default function ManagerDashboard() {
         distributedOunces,
         soldOunces,
         differenceOunces,
-        status: classifyDifference(differenceOunces),
+        awaitingClosing: gelatoAwaitingClosing,
+        status: gelatoAwaitingClosing ? AWAITING_CLOSING_TEXT : classifyDifference(differenceOunces),
       };
     });
   }, [reconciliationSnapshot]);
@@ -706,10 +711,10 @@ export default function ManagerDashboard() {
                 <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
                   {[
                     { label: "Opening", value: `${reconciliationSnapshot.gelato?.openingVolumeOunces.toFixed(2) ?? "0.00"} oz` },
-                    { label: "Closing", value: `${reconciliationSnapshot.gelato?.closingVolumeOunces.toFixed(2) ?? "0.00"} oz` },
-                    { label: "Distributed", value: `${reconciliationSnapshot.gelato?.distributedVolumeOunces.toFixed(2) ?? "0.00"} oz` },
+                    { label: "Closing", value: reconciliationSnapshot.gelato?.discrepancyLabel === AWAITING_CLOSING_FORM_LABEL ? AWAITING_CLOSING_TEXT : `${reconciliationSnapshot.gelato?.closingVolumeOunces.toFixed(2) ?? "0.00"} oz` },
+                    { label: "Distributed", value: reconciliationSnapshot.gelato?.discrepancyLabel === AWAITING_CLOSING_FORM_LABEL ? AWAITING_CLOSING_TEXT : `${reconciliationSnapshot.gelato?.distributedVolumeOunces.toFixed(2) ?? "0.00"} oz` },
                     { label: "Sold", value: `${reconciliationSnapshot.gelato?.soldVolumeOunces.toFixed(2) ?? "0.00"} oz` },
-                    { label: "Difference", value: `${formatSignedValue(reconciliationSnapshot.gelato?.differenceVolumeOunces)} oz` },
+                    { label: "Difference", value: reconciliationSnapshot.gelato?.discrepancyLabel === AWAITING_CLOSING_FORM_LABEL ? AWAITING_CLOSING_TEXT : `${formatSignedValue(reconciliationSnapshot.gelato?.differenceVolumeOunces)} oz` },
                   ].map(item => (
                     <div key={item.label} className="rounded-2xl border border-[#e5ddd0] bg-[#fbf7f0] p-4 shadow-sm">
                       <p className="text-xs uppercase tracking-[0.18em] text-[#8b9088]">{item.label}</p>
@@ -718,7 +723,9 @@ export default function ManagerDashboard() {
                   ))}
                 </div>
                 <div className="mt-6 rounded-[1.5rem] border border-[#e5ddd0] bg-[#fbf7f0] p-4 text-sm leading-6 text-[#66706a]">
-                  Flavor-level sold ounces are currently shown as an allocated share of the day's total sold volume, based on each flavor's measured distributed ounces, so managers can spot over/under patterns even before flavor-level sales tracking is added.
+                  {reconciliationSnapshot.gelato?.discrepancyLabel === AWAITING_CLOSING_FORM_LABEL
+                    ? "Opening gelato counts are saved. Closing ounces, distributed ounces, and variance will appear after a same-day closing form is submitted."
+                    : "Flavor-level sold ounces are currently shown as an allocated share of the day's total sold volume, based on each flavor's measured distributed ounces, so managers can spot over/under patterns even before flavor-level sales tracking is added."}
                 </div>
               </SurfaceCard>
             </div>
@@ -872,10 +879,10 @@ export default function ManagerDashboard() {
                         <tr key={item.flavor}>
                           <td className="px-4 py-3 font-medium">{item.flavor}</td>
                           <td className="px-4 py-3">{item.openingOunces.toFixed(2)}</td>
-                          <td className="px-4 py-3">{item.closingOunces.toFixed(2)}</td>
-                          <td className="px-4 py-3">{item.distributedOunces.toFixed(2)}</td>
+                          <td className="px-4 py-3">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : item.closingOunces.toFixed(2)}</td>
+                          <td className="px-4 py-3">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : item.distributedOunces.toFixed(2)}</td>
                           <td className="px-4 py-3">{item.soldOunces.toFixed(2)}</td>
-                          <td className="px-4 py-3">{formatSignedValue(item.differenceOunces)}</td>
+                          <td className="px-4 py-3">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : formatSignedValue(item.differenceOunces)}</td>
                           <td className="px-4 py-3">
                             <span className={`rounded-full px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] ${
                               item.status === "Aligned"
@@ -932,10 +939,10 @@ export default function ManagerDashboard() {
                         <tr key={item.key}>
                           <td className="px-4 py-3 font-medium">{item.label}</td>
                           <td className="px-4 py-3">{item.openingQuantity.toFixed(2)}</td>
-                          <td className="px-4 py-3">{item.closingQuantity == null ? "Awaiting count" : item.closingQuantity.toFixed(2)}</td>
-                          <td className="px-4 py-3">{item.actualUsed == null ? "Awaiting count" : item.actualUsed.toFixed(2)}</td>
+                          <td className="px-4 py-3">{item.closingQuantity == null ? (item.discrepancyLabel === AWAITING_CLOSING_FORM_LABEL ? AWAITING_CLOSING_TEXT : "Awaiting count") : item.closingQuantity.toFixed(2)}</td>
+                          <td className="px-4 py-3">{item.actualUsed == null ? (item.discrepancyLabel === AWAITING_CLOSING_FORM_LABEL ? AWAITING_CLOSING_TEXT : "Awaiting count") : item.actualUsed.toFixed(2)}</td>
                           <td className="px-4 py-3">{item.expectedUsed.toFixed(2)}</td>
-                          <td className="px-4 py-3">{item.variance == null ? "Awaiting count" : formatSignedValue(item.variance)}</td>
+                          <td className="px-4 py-3">{item.variance == null ? (item.discrepancyLabel === AWAITING_CLOSING_FORM_LABEL ? AWAITING_CLOSING_TEXT : "Awaiting count") : formatSignedValue(item.variance)}</td>
                           <td className="px-4 py-3">
                             <span className={`rounded-full px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] ${
                               item.discrepancyLabel === "Aligned"
