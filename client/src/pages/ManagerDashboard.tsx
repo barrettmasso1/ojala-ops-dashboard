@@ -2,6 +2,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getLoginUrl } from "@/const";
+import { normalizeGelatoFlavorName } from "@/lib/gelatoFlavorAliases";
 import { getHistoryGelatoRowVolumeBreakdown } from "@/lib/historyGelato";
 import { buildManagerReconciliationSnapshot, MANAGER_INVENTORY_TABS, type ManagerInventoryView } from "@/lib/managerReconciliation";
 import { trpc } from "@/lib/trpc";
@@ -123,6 +124,10 @@ export function getSnapshotValueClassName(value: string) {
     : "mt-3 font-serif text-[clamp(2rem,4vw,3.5rem)] leading-none tracking-tight text-[#1f2b27]";
 }
 
+export function normalizeFlavorPreviewKey(flavor: string) {
+  return normalizeGelatoFlavorName(flavor).trim().toLowerCase();
+}
+
 type SubmissionHistoryPhoto = {
   fileName: string;
   imageUrl: string;
@@ -165,6 +170,27 @@ type SubmissionPhotoEditorRow = SubmissionHistoryPhoto & {
 };
 
 type SubmissionEditMode = "manual" | "photo";
+
+type FlavorPhotoPreviewMap = Map<string, SubmissionHistoryPhoto>;
+
+export function buildFlavorPhotoPreviewMap(submissionHistory: SubmissionHistoryEntryRecord[]) {
+  const previewMap: FlavorPhotoPreviewMap = new Map();
+
+  submissionHistory.forEach(entry => {
+    if (entry.submissionType !== "opening" && entry.submissionType !== "closing") return;
+    (entry.payload.analyzedPhotos ?? []).forEach(photo => {
+      if (!photo.imageUrl) return;
+      const normalizedFlavor = normalizeFlavorPreviewKey(photo.flavor);
+      if (!normalizedFlavor) return;
+      const key = `${entry.submissionType}:${normalizedFlavor}`;
+      if (!previewMap.has(key)) {
+        previewMap.set(key, photo);
+      }
+    });
+  });
+
+  return previewMap;
+}
 
 function getSubmissionEditMode(entry: SubmissionHistoryEntryRecord): SubmissionEditMode {
   return entry.payload.gelatoEntryMode === "photo" && (entry.payload.analyzedPhotos?.length ?? 0) > 0 ? "photo" : "manual";
@@ -246,6 +272,23 @@ function classifyDifference(value: number) {
 
 const AWAITING_CLOSING_FORM_LABEL = "Awaiting closing form";
 const AWAITING_CLOSING_TEXT = "Awaiting closing";
+
+function renderFlavorWeightCell(value: string, photo?: SubmissionHistoryPhoto) {
+  if (!photo) {
+    return <span>{value}</span>;
+  }
+
+  return (
+    <div className="group relative inline-flex">
+      <span className="cursor-default border-b border-dashed border-[#cbbba6] text-[#24332f]">{value}</span>
+      <div className="pointer-events-none absolute left-0 top-full z-20 hidden w-52 rounded-[1.2rem] border border-[#e5ddd0] bg-white p-3 shadow-xl group-hover:block">
+        <img src={photo.imageUrl} alt={`${photo.flavor} scale preview`} loading="lazy" decoding="async" className="h-32 w-full rounded-[0.9rem] bg-[#f6f1e8] object-contain" />
+        <p className="mt-2 text-xs font-medium text-[#24332f]">{photo.fileName}</p>
+        <p className="mt-1 text-[11px] leading-5 text-[#66706a]">{photo.flavor} · {photo.combinedGrossWeightKg.toFixed(3)} kg gross</p>
+      </div>
+    </div>
+  );
+}
 
 export default function ManagerDashboard() {
   const [location, setLocation] = useLocation();
@@ -456,6 +499,7 @@ export default function ManagerDashboard() {
   );
 
   const submissionHistory = useMemo(() => (submissionHistoryQuery.data ?? []) as SubmissionHistoryEntryRecord[], [submissionHistoryQuery.data]);
+  const flavorPhotoPreviewMap = useMemo(() => buildFlavorPhotoPreviewMap(submissionHistory), [submissionHistory]);
   const payrollDateRange = useMemo(() => buildBusinessDateRange(hoursRangeStart, hoursRangeEnd), [hoursRangeStart, hoursRangeEnd]);
   const payrollSummary = payrollHoursQuery.data;
   const timeBook = timeBookQuery.data;
@@ -627,14 +671,21 @@ export default function ManagerDashboard() {
     const totalSold = reconciliationSnapshot.gelato.soldVolumeOunces;
 
     return reconciliationSnapshot.gelato.flavors.map(item => {
+      const normalizedFlavor = normalizeFlavorPreviewKey(item.flavor);
       const openingOunces = roundTo(item.opening.totalVolumeOunces, 0);
       const closingOunces = roundTo(item.closing.totalVolumeOunces, 0);
+      const openingWeightKg = roundTo(item.opening.combinedGrossWeightKg, 3);
+      const closingWeightKg = roundTo(item.closing.combinedGrossWeightKg, 3);
       const distributedOunces = roundTo(item.usedVolumeOunces, 0);
       const soldOunces = totalDistributed > 0 ? roundTo((item.usedVolumeOunces / totalDistributed) * totalSold, 0) : 0;
       const differenceOunces = roundTo(item.usedVolumeOunces - (totalDistributed > 0 ? (item.usedVolumeOunces / totalDistributed) * totalSold : 0), 0);
 
       return {
         flavor: item.flavor,
+        openingWeightKg,
+        closingWeightKg,
+        openingPhotoPreview: flavorPhotoPreviewMap.get(`opening:${normalizedFlavor}`),
+        closingPhotoPreview: flavorPhotoPreviewMap.get(`closing:${normalizedFlavor}`),
         openingOunces,
         closingOunces,
         distributedOunces,
@@ -644,7 +695,7 @@ export default function ManagerDashboard() {
         status: gelatoAwaitingClosing ? AWAITING_CLOSING_TEXT : classifyDifference(differenceOunces),
       };
     });
-  }, [reconciliationSnapshot]);
+  }, [flavorPhotoPreviewMap, reconciliationSnapshot]);
 
   if (loading || (user && !isAdmin)) {
     return <div className="min-h-screen bg-[#f7f2ea]" />;
@@ -1090,7 +1141,7 @@ export default function ManagerDashboard() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Flavor reconciliation</p>
-                  <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Starting ounces, ending ounces, distributed ounces, sold ounces, and difference by flavor</h2>
+                  <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Starting weight, ending weight, starting ounces, ending ounces, distributed ounces, sold ounces, and difference by flavor</h2>
                 </div>
                 <div className="rounded-full bg-[#f1e8da] px-4 py-2 text-sm text-[#566863]">Goal: 0.00 oz difference</div>
               </div>
@@ -1112,6 +1163,8 @@ export default function ManagerDashboard() {
                     <thead className="bg-[#f4ede2] text-[#60706b]">
                       <tr>
                         <th className="px-4 py-3 font-medium">Flavor</th>
+                        <th className="px-4 py-3 font-medium">Starting weight</th>
+                        <th className="px-4 py-3 font-medium">Ending weight</th>
                         <th className="px-4 py-3 font-medium">Starting oz</th>
                         <th className="px-4 py-3 font-medium">Ending oz</th>
                         <th className="px-4 py-3 font-medium">Distributed oz</th>
@@ -1124,6 +1177,8 @@ export default function ManagerDashboard() {
                       {flavorRows.map(item => (
                         <tr key={item.flavor}>
                           <td className="px-4 py-3 font-medium">{item.flavor}</td>
+                          <td className="px-4 py-3">{renderFlavorWeightCell(`${item.openingWeightKg.toFixed(3)} kg`, item.openingPhotoPreview)}</td>
+                          <td className="px-4 py-3">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : renderFlavorWeightCell(`${item.closingWeightKg.toFixed(3)} kg`, item.closingPhotoPreview)}</td>
                           <td className="px-4 py-3">{item.openingOunces.toFixed(2)}</td>
                           <td className="px-4 py-3">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : item.closingOunces.toFixed(2)}</td>
                           <td className="px-4 py-3">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : item.distributedOunces.toFixed(2)}</td>

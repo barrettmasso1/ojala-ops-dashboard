@@ -11,9 +11,11 @@ type GelatoFlavorSnapshot = {
   flavor: string;
   opening: {
     totalVolumeOunces: number;
+    combinedGrossWeightKg: number;
   };
   closing: {
     totalVolumeOunces: number;
+    combinedGrossWeightKg: number;
   };
   usedVolumeOunces: number;
 };

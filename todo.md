@@ -258,3 +258,6 @@
 - [x] Shorten the history snapshot card label from "Submissions on selected day" to "Submissions" while finishing the no-wrap manager dashboard layout fix
 - [x] Refine the live Pacific time header card so the date and time read cleanly on one line or remove the time entirely if that creates the better manager dashboard layout
 - [x] Fix manager editing so photo-based gelato submissions reopen in review-style correction with per-photo pan setup confirmation and total-weight edits, while manual submissions keep the manual small-pan and large-pan weight entry workflow
+- [x] Add total starting weight and total ending weight, including pans, before the ounce columns in the flavor reconciliation table so managers can compare the reported weights directly against the photos
+- [x] If the underlying submission includes photo evidence, let managers hover the starting and ending weight values in flavor reconciliation to preview the corresponding gelato image for quick verification
+- [x] Fix the manager daily glance flavor reconciliation table so starting and ending kilogram weights, including pans, actually appear before the ounce columns for past and current dates when that data exists
