@@ -560,10 +560,9 @@ export const initialReadyMadeGelatoState = (businessDate = todayValue()): ReadyM
   ) as Record<string, ReadyMadeGelatoFlavorState>,
 });
 
-const serviceInventoryPairs: Array<{ left: PairedInputConfig; right?: PairedInputConfig }> = [
+export const serviceInventoryPairs: Array<{ left: PairedInputConfig; right?: PairedInputConfig }> = [
   {
     left: { label: "4oz Cups", stockKey: "cups4oz", itemName: "4oz To-Go Cups" },
-    right: { label: "4oz Lids", stockKey: "lids4oz", itemName: "4oz To-Go Lids" },
   },
   {
     left: { label: "8oz Cups", stockKey: "cups8oz", itemName: "8oz To-Go Cups" },
@@ -1336,7 +1335,7 @@ export default function EmployeePortal(props: any) {
           cups8oz: Number(openingForm.stockCounts.cups8oz || 0),
           cupsPint: Number(openingForm.stockCounts.cupsPint || 0),
           cupsLiter: Number(openingForm.stockCounts.cupsLiter || 0),
-          lids4oz: Number(openingForm.stockCounts.lids4oz || 0),
+          lids4oz: 0,
           lids8oz: Number(openingForm.stockCounts.lids8oz || 0),
           lidsPint: Number(openingForm.stockCounts.lidsPint || 0),
           lidsLiter: Number(openingForm.stockCounts.lidsLiter || 0),

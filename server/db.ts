@@ -502,13 +502,6 @@ function buildServicePackagingReconciliation(
       closingQuantity: resolveClosingQuantity(["4oz To-Go Cups"]),
     },
     {
-      key: "lids4oz",
-      label: "4oz To-Go Lids",
-      openingQuantity: openingStockCounts.lids4oz,
-      expectedUsed: soldToGo.cups4oz,
-      closingQuantity: resolveClosingQuantity(["4oz To-Go Lids"]),
-    },
-    {
       key: "cups8oz",
       label: "8oz To-Go Cups",
       openingQuantity: openingStockCounts.cups8oz,

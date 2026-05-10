@@ -128,7 +128,6 @@ describe("db aggregation helpers", () => {
       ],
       [
         { itemName: "4oz To-Go Cups", currentQuantity: "34", lastCountDate: "2026-04-21" },
-        { itemName: "4oz To-Go Lids", currentQuantity: "33", lastCountDate: "2026-04-21" },
         { itemName: "8oz To-Go Cups", currentQuantity: "16", lastCountDate: "2026-04-21" },
         { itemName: "8oz To-Go Lids", currentQuantity: "16", lastCountDate: "2026-04-21" },
         { itemName: "16oz To-Go Cups", currentQuantity: "6", lastCountDate: "2026-04-21" },
@@ -166,7 +165,7 @@ describe("db aggregation helpers", () => {
     expect(snapshot.gelato.flavors.find(item => item.flavor === "Flavor of the Day")).toMatchObject({
       usedVolumeOunces: expect.closeTo(5.22, 2),
     });
-    expect(snapshot.packaging.varianceCount).toBeCloseTo(-10, 2);
+    expect(snapshot.packaging.varianceCount).toBeCloseTo(-4, 2);
     expect(snapshot.packaging.discrepancyStatus).toBe("major");
     expect(snapshot.packaging.discrepancyLabel).toBe("Major discrepancy");
     expect(snapshot.packaging.items.find(item => item.key === "cups8oz")).toMatchObject({
@@ -175,6 +174,7 @@ describe("db aggregation helpers", () => {
       variance: 8,
       discrepancyStatus: "major",
     });
+    expect(snapshot.packaging.items.find(item => item.key === "lids4oz")).toBeUndefined();
     const comparablePackagingItems = snapshot.packaging.items.filter(item => item.actualUsed != null && item.variance != null && item.closingQuantity != null);
     const packagingOpeningTotal = comparablePackagingItems.reduce((sum, item) => sum + item.openingQuantity, 0);
     const packagingClosingTotal = comparablePackagingItems.reduce((sum, item) => sum + (item.closingQuantity ?? 0), 0);

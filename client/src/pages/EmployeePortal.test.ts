@@ -17,6 +17,7 @@ import {
   replaceAnalyzedPhotosInGelatoState,
   resolveAnalyzedPhotoGrossWeights,
   summarizeAnalyzedPhotosForSubmission,
+  serviceInventoryPairs,
 } from "./EmployeePortal";
 import { getReplacementConfirmationMessage, getResubmissionReplacementDescription } from "@/lib/submissionReplacement";
 
@@ -36,6 +37,13 @@ describe("employee portal gelato helpers", () => {
   it("accepts three-decimal kilogram entries for ready-made gelato weights", () => {
     expect(GELATO_WEIGHT_INPUT_STEP).toBe("0.001");
     expect(GELATO_WEIGHT_INPUT_MODE).toBe("decimal");
+  });
+
+  it("omits 4 oz lids from the opening inventory pairs", () => {
+    const fieldLabels = serviceInventoryPairs.flatMap(pair => [pair.left.label, pair.right?.label].filter(Boolean));
+
+    expect(fieldLabels).toContain("4oz Cups");
+    expect(fieldLabels).not.toContain("4oz Lids");
   });
 
   it("splits a combined analyzed photo weight across small and large pans", () => {

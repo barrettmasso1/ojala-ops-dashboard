@@ -429,7 +429,7 @@ export const appRouter = router({
         cleanlinessStatus: (answersBySection.Cleanliness ?? []).join("\n") || "No cleanliness responses provided",
         setupStatus: [
           `Cup counts — 4oz: ${input.stockCounts.cups4oz}, 8oz: ${input.stockCounts.cups8oz}, Pint: ${input.stockCounts.cupsPint}, Liter: ${input.stockCounts.cupsLiter}`,
-          `Lid counts — 4oz: ${input.stockCounts.lids4oz}, 8oz: ${input.stockCounts.lids8oz}, Pint: ${input.stockCounts.lidsPint}, Liter: ${input.stockCounts.lidsLiter}`,
+          `Lid counts — 8oz: ${input.stockCounts.lids8oz}, Pint: ${input.stockCounts.lidsPint}, Liter: ${input.stockCounts.lidsLiter}`,
           `Spoons stocked: ${input.stockCounts.spoons}`,
           ...(answersBySection.Setup ?? []),
           ...(answersBySection["Employee Preparation"] ?? []),
