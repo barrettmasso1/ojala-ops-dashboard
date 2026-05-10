@@ -1433,6 +1433,18 @@ export async function updateSubmissionHistoryGelato(input: {
     largeGrossWeightKg?: string;
     combinedGrossWeightKg?: string;
   }>;
+  gelatoEntryMode?: "manual" | "photo";
+  analyzedPhotos?: Array<{
+    fileName: string;
+    imageUrl: string;
+    imageKey?: string;
+    flavor: string;
+    smallPanCount: number;
+    largePanCount: number;
+    combinedGrossWeightKg: number;
+    confidence: "high" | "medium" | "low";
+    warning?: string;
+  }>;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -1476,6 +1488,8 @@ export async function updateSubmissionHistoryGelato(input: {
       largePanCount: row.largePanCount,
       largeGrossWeightKg: row.largeGrossWeightKg,
     })),
+    gelatoEntryMode: input.gelatoEntryMode ?? currentPayload.gelatoEntryMode,
+    analyzedPhotos: input.analyzedPhotos ?? currentPayload.analyzedPhotos,
   };
 
   await db.update(submissionHistoryEntries).set({

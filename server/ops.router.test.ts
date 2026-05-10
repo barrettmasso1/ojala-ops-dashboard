@@ -786,6 +786,101 @@ describe("operations router", () => {
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
+  it("forwards photo-based submission corrections with reviewed analyzed photos for admin users", async () => {
+    dbMocks.updateSubmissionHistoryGelato.mockResolvedValue({
+      id: 815,
+      businessDate: "2026-05-09",
+      submissionType: "closing",
+      staffName: "Marco",
+      payload: {
+        gelatoEntryMode: "photo",
+        analyzedPhotos: [
+          {
+            fileName: "closing-scale.jpg",
+            imageUrl: "/manus-storage/photo",
+            imageKey: "uploads/closing-scale.jpg",
+            flavor: "Vanilla",
+            smallPanCount: 1,
+            largePanCount: 1,
+            combinedGrossWeightKg: 5.342,
+            confidence: "high",
+            warning: "",
+          },
+        ],
+        gelatoEntries: [
+          {
+            flavor: "Vanilla",
+            smallPanCount: 1,
+            smallGrossWeightKg: 1.62,
+            largePanCount: 1,
+            largeGrossWeightKg: 3.72,
+          },
+        ],
+      },
+    });
+
+    const adminCaller = appRouter.createCaller(createContext("admin"));
+    await expect(
+      adminCaller.dashboard.updateSubmissionGelato({
+        entryId: 815,
+        gelatoEntryMode: "photo",
+        analyzedPhotos: [
+          {
+            fileName: "closing-scale.jpg",
+            imageUrl: "/manus-storage/photo",
+            imageKey: "uploads/closing-scale.jpg",
+            flavor: "Vanilla",
+            smallPanCount: 1,
+            largePanCount: 1,
+            combinedGrossWeightKg: 5.342,
+            confidence: "high",
+            warning: "",
+          },
+        ],
+        gelatoEntries: [
+          {
+            flavor: "Vanilla",
+            smallPanCount: 1,
+            largePanCount: 1,
+            combinedGrossWeightKg: 5.342,
+          },
+        ],
+      })
+    ).resolves.toEqual({
+      success: true,
+      entry: expect.objectContaining({ id: 815, businessDate: "2026-05-09", submissionType: "closing" }),
+    });
+
+    expect(dbMocks.updateSubmissionHistoryGelato).toHaveBeenCalledWith({
+      entryId: 815,
+      submittedByUserId: 99,
+      gelatoEntryMode: "photo",
+      analyzedPhotos: [
+        {
+          fileName: "closing-scale.jpg",
+          imageUrl: "/manus-storage/photo",
+          imageKey: "uploads/closing-scale.jpg",
+          flavor: "Vanilla",
+          smallPanCount: 1,
+          largePanCount: 1,
+          combinedGrossWeightKg: 5.342,
+          confidence: "high",
+          warning: "",
+        },
+      ],
+      gelatoEntries: [
+        {
+          flavor: "Vanilla",
+          smallPanCount: 1,
+          smallGrossWeightKg: undefined,
+          largePanCount: 1,
+          largeGrossWeightKg: undefined,
+          combinedGrossWeightKg: "5.342",
+        },
+      ],
+    });
+  });
+
   it("allows only admin users to save checklist questions", async () => {
     dbMocks.saveChecklistQuestion.mockResolvedValue({
       id: 22,

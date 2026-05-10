@@ -257,3 +257,4 @@
 - [x] Refine the manager dashboard summary layout so long labels and names fit cleanly and the live Pacific time card expands to avoid awkward wrapping
 - [x] Shorten the history snapshot card label from "Submissions on selected day" to "Submissions" while finishing the no-wrap manager dashboard layout fix
 - [x] Refine the live Pacific time header card so the date and time read cleanly on one line or remove the time entirely if that creates the better manager dashboard layout
+- [x] Fix manager editing so photo-based gelato submissions reopen in review-style correction with per-photo pan setup confirmation and total-weight edits, while manual submissions keep the manual small-pan and large-pan weight entry workflow

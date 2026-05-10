@@ -5,6 +5,7 @@ import { getLoginUrl } from "@/const";
 import { getHistoryGelatoRowVolumeBreakdown } from "@/lib/historyGelato";
 import { buildManagerReconciliationSnapshot, MANAGER_INVENTORY_TABS, type ManagerInventoryView } from "@/lib/managerReconciliation";
 import { trpc } from "@/lib/trpc";
+import { applyAnalyzedPhotoPanSetup, getAnalyzedPhotoCombinedGrossWeightKg, getAnalyzedPhotoPanSetup } from "./EmployeePortal";
 import { formatPacificCalendarDate, formatPacificTime, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart } from "../../../shared/businessDate";
 import {
   AlertTriangle,
@@ -125,6 +126,7 @@ export function getSnapshotValueClassName(value: string) {
 type SubmissionHistoryPhoto = {
   fileName: string;
   imageUrl: string;
+  imageKey?: string;
   flavor: string;
   smallPanCount: number;
   largePanCount: number;
@@ -157,6 +159,23 @@ type SubmissionGelatoEditorRow = {
   largePanCount: string;
   largeGrossWeightKg: string;
 };
+
+type SubmissionPhotoEditorRow = SubmissionHistoryPhoto & {
+  combinedGrossWeightInput: string;
+};
+
+type SubmissionEditMode = "manual" | "photo";
+
+function getSubmissionEditMode(entry: SubmissionHistoryEntryRecord): SubmissionEditMode {
+  return entry.payload.gelatoEntryMode === "photo" && (entry.payload.analyzedPhotos?.length ?? 0) > 0 ? "photo" : "manual";
+}
+
+function createSubmissionPhotoEditorRows(entry: SubmissionHistoryEntryRecord): SubmissionPhotoEditorRow[] {
+  return (entry.payload.analyzedPhotos ?? []).map(photo => ({
+    ...photo,
+    combinedGrossWeightInput: photo.combinedGrossWeightKg > 0 ? String(photo.combinedGrossWeightKg) : "",
+  }));
+}
 
 function createSubmissionGelatoEditorRows(entry: SubmissionHistoryEntryRecord): SubmissionGelatoEditorRow[] {
   if (!entry.payload.gelatoEntries || entry.payload.gelatoEntries.length === 0) {
@@ -287,7 +306,9 @@ export default function ManagerDashboard() {
     displayOrder: "1",
   });
   const [editingSubmissionId, setEditingSubmissionId] = useState<number | null>(null);
+  const [editingSubmissionMode, setEditingSubmissionMode] = useState<SubmissionEditMode | null>(null);
   const [submissionGelatoEditorRows, setSubmissionGelatoEditorRows] = useState<SubmissionGelatoEditorRow[]>([]);
+  const [submissionPhotoEditorRows, setSubmissionPhotoEditorRows] = useState<SubmissionPhotoEditorRow[]>([]);
 
   const isAdmin = user?.role === "admin";
   const maxBusinessDate = todayValue();
@@ -406,7 +427,9 @@ export default function ManagerDashboard() {
     onSuccess: async () => {
       toast.success("Saved submission updated.");
       setEditingSubmissionId(null);
+      setEditingSubmissionMode(null);
       setSubmissionGelatoEditorRows([]);
+      setSubmissionPhotoEditorRows([]);
       await Promise.all([
         utils.dashboard.submissionHistory.invalidate({ businessDate: selectedDate }),
         utils.dashboard.daily.invalidate({ businessDate: selectedDate }),
@@ -438,17 +461,26 @@ export default function ManagerDashboard() {
   const timeBook = timeBookQuery.data;
 
   function startSubmissionGelatoEdit(entry: SubmissionHistoryEntryRecord) {
+    const nextMode = getSubmissionEditMode(entry);
     setEditingSubmissionId(entry.id);
-    setSubmissionGelatoEditorRows(createSubmissionGelatoEditorRows(entry));
+    setEditingSubmissionMode(nextMode);
+    setSubmissionGelatoEditorRows(nextMode === "manual" ? createSubmissionGelatoEditorRows(entry) : []);
+    setSubmissionPhotoEditorRows(nextMode === "photo" ? createSubmissionPhotoEditorRows(entry) : []);
   }
 
   function cancelSubmissionGelatoEdit() {
     setEditingSubmissionId(null);
+    setEditingSubmissionMode(null);
     setSubmissionGelatoEditorRows([]);
+    setSubmissionPhotoEditorRows([]);
   }
 
   function updateSubmissionGelatoEditorRow(index: number, field: keyof SubmissionGelatoEditorRow, value: string) {
     setSubmissionGelatoEditorRows(current => current.map((row, rowIndex) => (rowIndex === index ? { ...row, [field]: value } : row)));
+  }
+
+  function updateSubmissionPhotoEditorRow(index: number, updater: (row: SubmissionPhotoEditorRow) => SubmissionPhotoEditorRow) {
+    setSubmissionPhotoEditorRows(current => current.map((row, rowIndex) => (rowIndex === index ? updater(row) : row)));
   }
 
   function addSubmissionGelatoEditorRow() {
@@ -469,6 +501,73 @@ export default function ManagerDashboard() {
 
   async function saveSubmissionGelatoEdits() {
     if (!editingSubmissionId) return;
+
+    if (editingSubmissionMode === "photo") {
+      const cleanedPhotos = submissionPhotoEditorRows
+        .map(photo => {
+          const flavor = photo.flavor.trim();
+          const smallPanCount = Math.max(0, Math.trunc(photo.smallPanCount));
+          const largePanCount = Math.max(0, Math.trunc(photo.largePanCount));
+          const combinedGrossWeightKg = getAnalyzedPhotoCombinedGrossWeightKg({
+            combinedGrossWeightKg: photo.combinedGrossWeightKg,
+            combinedGrossWeightInput: photo.combinedGrossWeightInput,
+          });
+
+          if (!flavor) return { error: "Enter a flavor for every reviewed photo." } as const;
+          if (smallPanCount <= 0 && largePanCount <= 0) return { error: "Choose a pan setup for every reviewed photo before saving." } as const;
+          if (!Number.isFinite(combinedGrossWeightKg) || combinedGrossWeightKg <= 0) {
+            return { error: "Enter a valid total kilogram reading for every reviewed photo before saving." } as const;
+          }
+
+          return {
+            fileName: photo.fileName,
+            imageUrl: photo.imageUrl,
+            imageKey: photo.imageKey,
+            flavor,
+            smallPanCount,
+            largePanCount,
+            combinedGrossWeightKg,
+            confidence: photo.confidence,
+            warning: photo.warning,
+          };
+        });
+
+      const photoError = cleanedPhotos.find(photo => "error" in photo);
+      if (photoError) {
+        toast.error(photoError.error);
+        return;
+      }
+
+      const reviewedPhotos = cleanedPhotos.filter((photo): photo is {
+        fileName: string;
+        imageUrl: string;
+        imageKey?: string;
+        flavor: string;
+        smallPanCount: number;
+        largePanCount: number;
+        combinedGrossWeightKg: number;
+        confidence: "high" | "medium" | "low";
+        warning?: string;
+      } => !("error" in photo));
+
+      if (reviewedPhotos.length === 0) {
+        toast.error("Review at least one photo before saving the submission edit.");
+        return;
+      }
+
+      await updateSubmissionGelatoMutation.mutateAsync({
+        entryId: editingSubmissionId,
+        gelatoEntryMode: "photo",
+        analyzedPhotos: reviewedPhotos,
+        gelatoEntries: reviewedPhotos.map(photo => ({
+          flavor: photo.flavor,
+          smallPanCount: photo.smallPanCount,
+          largePanCount: photo.largePanCount,
+          combinedGrossWeightKg: photo.combinedGrossWeightKg,
+        })),
+      });
+      return;
+    }
 
     const gelatoEntries = submissionGelatoEditorRows
       .map(row => {
@@ -513,6 +612,7 @@ export default function ManagerDashboard() {
 
     await updateSubmissionGelatoMutation.mutateAsync({
       entryId: editingSubmissionId,
+      gelatoEntryMode: "manual",
       gelatoEntries: cleanedEntries,
     });
   }
@@ -1892,89 +1992,170 @@ export default function ManagerDashboard() {
                           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                             <div>
                               <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">Manager correction</p>
-                              <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#24332f]">Edit saved gelato rows</h3>
-                              <p className="mt-2 max-w-3xl text-sm leading-6 text-[#66706a]">Use this editor to correct the saved pan setup and kilogram values for this submission. Saving here updates the stored gelato rows used by the dashboard totals for this business date.</p>
+                              <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#24332f]">{editingSubmissionMode === "photo" ? "Review saved photo submission" : "Edit saved gelato rows"}</h3>
+                              <p className="mt-2 max-w-3xl text-sm leading-6 text-[#66706a]">{editingSubmissionMode === "photo" ? "Review each saved scale photo, confirm the total kilogram reading, adjust the pan setup if needed, and save. The dashboard totals will recalculate from those reviewed photo corrections." : "Use this editor to correct the saved pan setup and kilogram values for this submission. Saving here updates the stored gelato rows used by the dashboard totals for this business date."}</p>
                             </div>
                             <div className="rounded-2xl bg-[#f7f2ea] px-4 py-3 text-xs leading-6 text-[#625b53]">
-                              Original photo evidence stays visible below for reference while you correct the saved gelato rows.
+                              {editingSubmissionMode === "photo" ? "Each reviewed photo keeps its original image while you correct the pan setup and total weight reading." : "Original photo evidence stays visible below for reference while you correct the saved gelato rows."}
                             </div>
                           </div>
-                          <div className="mt-5 space-y-4">
-                            {submissionGelatoEditorRows.map((row, index) => (
-                              <div key={`${entry.id}-edit-row-${index}`} className="rounded-[1.35rem] border border-[#e5ddd0] bg-[#fcfaf6] p-4">
-                                <div className="grid gap-3 lg:grid-cols-[1.3fr_repeat(4,minmax(0,1fr))_auto] lg:items-end">
-                                  <div>
-                                    <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Flavor</p>
-                                    <input
-                                      className={`${inventoryFieldClassName()} mt-2 w-full`}
-                                      value={row.flavor}
-                                      onChange={event => updateSubmissionGelatoEditorRow(index, "flavor", event.target.value)}
-                                      placeholder="Flavor"
-                                    />
+                          {editingSubmissionMode === "photo" ? (
+                            <div className="mt-5 space-y-4">
+                              {submissionPhotoEditorRows.map((photo, index) => {
+                                const panSetup = getAnalyzedPhotoPanSetup(photo);
+                                const combinedWeightValue = photo.combinedGrossWeightInput || (photo.combinedGrossWeightKg > 0 ? String(photo.combinedGrossWeightKg) : "");
+                                return (
+                                  <div key={`${entry.id}-edit-photo-${index}`} className="overflow-hidden rounded-[1.35rem] border border-[#e5ddd0] bg-[#fcfaf6] p-4 shadow-sm">
+                                    <div className="grid gap-4 lg:grid-cols-[180px_minmax(0,1fr)]">
+                                      <div className="overflow-hidden rounded-[1.2rem] border border-[#e5ddd0] bg-white">
+                                        <img src={photo.imageUrl} alt={photo.fileName} loading="lazy" decoding="async" className="h-full min-h-40 w-full bg-[#f6f1e8] object-contain" />
+                                      </div>
+                                      <div className="grid gap-4">
+                                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                                          <div>
+                                            <p className="text-sm font-medium text-[#24332f]">{photo.fileName}</p>
+                                            <p className="mt-1 text-xs uppercase tracking-[0.22em] text-[#8a9089]">Photo-based correction</p>
+                                          </div>
+                                          <span className="rounded-full border border-[#d7cec0] bg-white px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-[#52665f]">{photo.confidence} confidence</span>
+                                        </div>
+                                        <div className="grid gap-3 md:grid-cols-3">
+                                          <div>
+                                            <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Flavor</p>
+                                            <input
+                                              className={`${inventoryFieldClassName()} mt-2 w-full`}
+                                              value={photo.flavor}
+                                              onChange={event => updateSubmissionPhotoEditorRow(index, current => ({ ...current, flavor: event.target.value }))}
+                                              placeholder="Flavor"
+                                            />
+                                          </div>
+                                          <div>
+                                            <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Pan setup</p>
+                                            <select
+                                              className={`${inventoryFieldClassName()} mt-2 w-full`}
+                                              value={panSetup}
+                                              onChange={event => updateSubmissionPhotoEditorRow(index, current => ({ ...current, ...applyAnalyzedPhotoPanSetup(event.target.value as ReturnType<typeof getAnalyzedPhotoPanSetup>) }))}
+                                            >
+                                              <option value="needs_review">Needs review</option>
+                                              <option value="small">Small pan</option>
+                                              <option value="large">Large pan</option>
+                                              <option value="double_small">Two small pans</option>
+                                              <option value="double_large">Two large pans</option>
+                                              <option value="small_large">Small + large</option>
+                                            </select>
+                                          </div>
+                                          <div>
+                                            <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Total kg on scale</p>
+                                            <input
+                                              className={`${inventoryFieldClassName()} mt-2 w-full`}
+                                              type="number"
+                                              min="0"
+                                              step="0.001"
+                                              value={combinedWeightValue}
+                                              onChange={event => updateSubmissionPhotoEditorRow(index, current => ({
+                                                ...current,
+                                                combinedGrossWeightInput: event.target.value,
+                                                combinedGrossWeightKg: getAnalyzedPhotoCombinedGrossWeightKg({
+                                                  combinedGrossWeightKg: current.combinedGrossWeightKg,
+                                                  combinedGrossWeightInput: event.target.value,
+                                                }),
+                                              }))}
+                                            />
+                                          </div>
+                                        </div>
+                                        <div className="rounded-[1.2rem] border border-[#e5ddd0] bg-white/90 px-4 py-3 text-sm text-[#5f6a64]">
+                                          <p>{photo.smallPanCount} small pan · {photo.largePanCount} large pan · {(combinedWeightValue || "0")} kg total</p>
+                                        </div>
+                                        {photo.warning ? (
+                                          <p className="rounded-[1.2rem] border border-[#efd7cf] bg-[#fff5f1] px-4 py-3 text-sm leading-6 text-[#7c3428]">{photo.warning}</p>
+                                        ) : null}
+                                      </div>
+                                    </div>
                                   </div>
-                                  <div>
-                                    <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Small pans</p>
-                                    <input
-                                      className={`${inventoryFieldClassName()} mt-2 w-full`}
-                                      type="number"
-                                      min="0"
-                                      step="1"
-                                      value={row.smallPanCount}
-                                      onChange={event => updateSubmissionGelatoEditorRow(index, "smallPanCount", event.target.value)}
-                                    />
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="mt-5 space-y-4">
+                              {submissionGelatoEditorRows.map((row, index) => (
+                                <div key={`${entry.id}-edit-row-${index}`} className="rounded-[1.35rem] border border-[#e5ddd0] bg-[#fcfaf6] p-4">
+                                  <div className="grid gap-3 lg:grid-cols-[1.3fr_repeat(4,minmax(0,1fr))_auto] lg:items-end">
+                                    <div>
+                                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Flavor</p>
+                                      <input
+                                        className={`${inventoryFieldClassName()} mt-2 w-full`}
+                                        value={row.flavor}
+                                        onChange={event => updateSubmissionGelatoEditorRow(index, "flavor", event.target.value)}
+                                        placeholder="Flavor"
+                                      />
+                                    </div>
+                                    <div>
+                                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Small pans</p>
+                                      <input
+                                        className={`${inventoryFieldClassName()} mt-2 w-full`}
+                                        type="number"
+                                        min="0"
+                                        step="1"
+                                        value={row.smallPanCount}
+                                        onChange={event => updateSubmissionGelatoEditorRow(index, "smallPanCount", event.target.value)}
+                                      />
+                                    </div>
+                                    <div>
+                                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Small kg</p>
+                                      <input
+                                        className={`${inventoryFieldClassName()} mt-2 w-full`}
+                                        type="number"
+                                        min="0"
+                                        step="0.001"
+                                        value={row.smallGrossWeightKg}
+                                        onChange={event => updateSubmissionGelatoEditorRow(index, "smallGrossWeightKg", event.target.value)}
+                                      />
+                                    </div>
+                                    <div>
+                                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Large pans</p>
+                                      <input
+                                        className={`${inventoryFieldClassName()} mt-2 w-full`}
+                                        type="number"
+                                        min="0"
+                                        step="1"
+                                        value={row.largePanCount}
+                                        onChange={event => updateSubmissionGelatoEditorRow(index, "largePanCount", event.target.value)}
+                                      />
+                                    </div>
+                                    <div>
+                                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Large kg</p>
+                                      <input
+                                        className={`${inventoryFieldClassName()} mt-2 w-full`}
+                                        type="number"
+                                        min="0"
+                                        step="0.001"
+                                        value={row.largeGrossWeightKg}
+                                        onChange={event => updateSubmissionGelatoEditorRow(index, "largeGrossWeightKg", event.target.value)}
+                                      />
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => removeSubmissionGelatoEditorRow(index)}
+                                      className="inline-flex h-11 items-center justify-center rounded-full border border-[#ead4d4] bg-[#fff6f6] px-4 text-xs font-medium uppercase tracking-[0.16em] text-[#8a4343] shadow-sm transition hover:bg-white"
+                                    >
+                                      Remove
+                                    </button>
                                   </div>
-                                  <div>
-                                    <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Small kg</p>
-                                    <input
-                                      className={`${inventoryFieldClassName()} mt-2 w-full`}
-                                      type="number"
-                                      min="0"
-                                      step="0.001"
-                                      value={row.smallGrossWeightKg}
-                                      onChange={event => updateSubmissionGelatoEditorRow(index, "smallGrossWeightKg", event.target.value)}
-                                    />
-                                  </div>
-                                  <div>
-                                    <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Large pans</p>
-                                    <input
-                                      className={`${inventoryFieldClassName()} mt-2 w-full`}
-                                      type="number"
-                                      min="0"
-                                      step="1"
-                                      value={row.largePanCount}
-                                      onChange={event => updateSubmissionGelatoEditorRow(index, "largePanCount", event.target.value)}
-                                    />
-                                  </div>
-                                  <div>
-                                    <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Large kg</p>
-                                    <input
-                                      className={`${inventoryFieldClassName()} mt-2 w-full`}
-                                      type="number"
-                                      min="0"
-                                      step="0.001"
-                                      value={row.largeGrossWeightKg}
-                                      onChange={event => updateSubmissionGelatoEditorRow(index, "largeGrossWeightKg", event.target.value)}
-                                    />
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => removeSubmissionGelatoEditorRow(index)}
-                                    className="inline-flex h-11 items-center justify-center rounded-full border border-[#ead4d4] bg-[#fff6f6] px-4 text-xs font-medium uppercase tracking-[0.16em] text-[#8a4343] shadow-sm transition hover:bg-white"
-                                  >
-                                    Remove
-                                  </button>
                                 </div>
-                              </div>
-                            ))}
-                          </div>
+                              ))}
+                            </div>
+                          )}
                           <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                            <button
-                              type="button"
-                              onClick={addSubmissionGelatoEditorRow}
-                              className="rounded-full border border-[#d7cec0] bg-white/90 px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-[#31423d] shadow-sm transition hover:bg-white"
-                            >
-                              Add gelato row
-                            </button>
+                            {editingSubmissionMode === "manual" ? (
+                              <button
+                                type="button"
+                                onClick={addSubmissionGelatoEditorRow}
+                                className="rounded-full border border-[#d7cec0] bg-white/90 px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-[#31423d] shadow-sm transition hover:bg-white"
+                              >
+                                Add gelato row
+                              </button>
+                            ) : (
+                              <p className="text-sm leading-6 text-[#66706a]">Save after you finish confirming each photo’s flavor, pan setup, and total scale weight.</p>
+                            )}
                             <div className="flex flex-col gap-3 sm:flex-row">
                               <button
                                 type="button"

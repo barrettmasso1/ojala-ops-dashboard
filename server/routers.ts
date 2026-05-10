@@ -630,12 +630,16 @@ export const appRouter = router({
         z.object({
           entryId: z.number().int().positive(),
           gelatoEntries: z.array(readyMadeGelatoEntrySchema).min(1),
+          gelatoEntryMode: z.enum(["manual", "photo"]).optional(),
+          analyzedPhotos: z.array(submissionHistoryPhotoSchema).optional(),
         })
       )
       .mutation(async ({ ctx, input }) => {
         const entry = await updateSubmissionHistoryGelato({
           entryId: input.entryId,
           submittedByUserId: ctx.user.id,
+          gelatoEntryMode: input.gelatoEntryMode,
+          analyzedPhotos: input.analyzedPhotos,
           gelatoEntries: input.gelatoEntries.map(row => ({
             flavor: row.flavor,
             smallPanCount: row.smallPanCount,
