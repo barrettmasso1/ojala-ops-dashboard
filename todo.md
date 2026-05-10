@@ -263,3 +263,5 @@
 - [x] Fix the manager daily glance flavor reconciliation table so starting and ending kilogram weights, including pans, actually appear before the ounce columns for past and current dates when that data exists
 - [x] Enlarge the flavor reconciliation hover photo preview so managers can inspect scale images comfortably, with either a larger default preview or an obvious expand option
 - [x] Remove the 4 oz lids field from the opening inventory form because the shop does not stock 4 oz to-go lids
+- [x] Fix the sold-ounces reconciliation logic so flavor-level sold ounces only reflect valid cup-size totals and do not show impossible values like 3 oz
+- [x] Reformat the manager form-values section so 4 oz here/to-go share one row, 8 oz here/to-go share one row, and pint plus liter appear without invalid here fields

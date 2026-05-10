@@ -586,15 +586,21 @@ export const serviceInventoryPairs: Array<{ left: PairedInputConfig; right?: Pai
   },
 ];
 
-const endOfDayCupRows: Array<{
+export const endOfDayPairedCupRows: Array<{
   label: string;
   hereKey: keyof ClosingForm;
   toGoKey: keyof ClosingForm;
 }> = [
   { label: "4oz", hereKey: "cups4ozHere", toGoKey: "cups4ozToGo" },
   { label: "8oz", hereKey: "cups8ozHere", toGoKey: "cups8ozToGo" },
-  { label: "Pint", hereKey: "cupsPintHere", toGoKey: "cupsPintToGo" },
-  { label: "Liter", hereKey: "cupsLiterHere", toGoKey: "cupsLiterToGo" },
+];
+
+export const endOfDaySingleCupRows: Array<{
+  label: string;
+  key: keyof ClosingForm;
+}> = [
+  { label: "Pint", key: "cupsPintToGo" },
+  { label: "Liter", key: "cupsLiterToGo" },
 ];
 
 function inputClassName() {
@@ -1431,9 +1437,9 @@ export default function EmployeePortal(props: any) {
         cups4ozToGo: Number(closingForm.cups4ozToGo || 0),
         cups8ozHere: Number(closingForm.cups8ozHere || 0),
         cups8ozToGo: Number(closingForm.cups8ozToGo || 0),
-        cupsPintHere: Number(closingForm.cupsPintHere || 0),
+        cupsPintHere: 0,
         cupsPintToGo: Number(closingForm.cupsPintToGo || 0),
-        cupsLiterHere: Number(closingForm.cupsLiterHere || 0),
+        cupsLiterHere: 0,
         cupsLiterToGo: Number(closingForm.cupsLiterToGo || 0),
         cashTotal: Number(closingForm.cashTotal || 0),
         cardTotal: Number(closingForm.cardTotal || 0),
@@ -2299,13 +2305,21 @@ export default function EmployeePortal(props: any) {
                       <span className="text-sm font-medium uppercase tracking-[0.22em] text-[#8a8176] md:text-center">{t("To Go")}</span>
                     </div>
                     <div className="mt-5 space-y-3">
-                      {endOfDayCupRows.map(row => (
+                      {endOfDayPairedCupRows.map(row => (
                         <div key={row.label} className="grid gap-3 rounded-2xl border border-[#eadfce] bg-white/80 p-3 md:grid-cols-[minmax(120px,180px)_minmax(0,1fr)_minmax(0,1fr)] md:items-center">
                           <span className="text-sm font-medium text-[#2f2a26]">{row.label}</span>
                           <input className={smallInputClassName()} type="number" min="0" step="1" value={closingForm[row.hereKey]} onChange={event => setClosingForm(current => ({ ...current, [row.hereKey]: event.target.value }))} />
                           <input className={smallInputClassName()} type="number" min="0" step="1" value={closingForm[row.toGoKey]} onChange={event => setClosingForm(current => ({ ...current, [row.toGoKey]: event.target.value }))} />
                         </div>
                       ))}
+                      <div className="grid gap-3 md:grid-cols-2">
+                        {endOfDaySingleCupRows.map(row => (
+                          <div key={row.label} className="grid gap-3 rounded-2xl border border-[#eadfce] bg-white/80 p-3 md:grid-cols-[minmax(120px,180px)_minmax(0,1fr)] md:items-center">
+                            <span className="text-sm font-medium text-[#2f2a26]">{row.label}</span>
+                            <input className={smallInputClassName()} type="number" min="0" step="1" value={closingForm[row.key]} onChange={event => setClosingForm(current => ({ ...current, [row.key]: event.target.value }))} />
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
 

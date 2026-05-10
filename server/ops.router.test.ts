@@ -963,11 +963,11 @@ describe("operations router", () => {
         cups8oz: 18,
         cups8ozHere: 6,
         cups8ozToGo: 12,
-        cupsPint: 6,
-        cupsPintHere: 2,
+        cupsPint: 4,
+        cupsPintHere: 0,
         cupsPintToGo: 4,
-        cupsLiter: 2,
-        cupsLiterHere: 1,
+        cupsLiter: 1,
+        cupsLiterHere: 0,
         cupsLiterToGo: 1,
       })
     );

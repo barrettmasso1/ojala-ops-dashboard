@@ -192,6 +192,132 @@ export function buildFlavorPhotoPreviewMap(submissionHistory: SubmissionHistoryE
   return previewMap;
 }
 
+export function allocateEstimatedFlavorSoldOunces(distributedVolumeOunces: number[], totalSoldOunces: number, incrementOunces = 2) {
+  const normalizedDistributed = distributedVolumeOunces.map(value => Math.max(0, value || 0));
+  const normalizedIncrement = Math.max(1, Math.round(incrementOunces));
+  const normalizedTotalSold = Math.max(0, Math.round(totalSoldOunces / normalizedIncrement) * normalizedIncrement);
+  const totalDistributed = normalizedDistributed.reduce((sum, value) => sum + value, 0);
+
+  if (normalizedTotalSold <= 0 || totalDistributed <= 0 || normalizedDistributed.length === 0) {
+    return normalizedDistributed.map(() => 0);
+  }
+
+  const totalBlocks = Math.round(normalizedTotalSold / normalizedIncrement);
+  const exactBlocks = normalizedDistributed.map(value => (value / totalDistributed) * totalBlocks);
+  const baseBlocks = exactBlocks.map(value => Math.floor(value));
+  let remainingBlocks = totalBlocks - baseBlocks.reduce((sum, value) => sum + value, 0);
+
+  const rankedRemainders = exactBlocks
+    .map((value, index) => ({
+      index,
+      remainder: value - baseBlocks[index],
+      weight: normalizedDistributed[index],
+    }))
+    .sort((left, right) => right.remainder - left.remainder || right.weight - left.weight || left.index - right.index);
+
+  for (let index = 0; index < rankedRemainders.length && remainingBlocks > 0; index += 1) {
+    baseBlocks[rankedRemainders[index].index] += 1;
+    remainingBlocks -= 1;
+  }
+
+  return baseBlocks.map(value => value * normalizedIncrement);
+}
+
+function toDisplayString(value: unknown) {
+  if (value == null || value === "") return "—";
+  return String(value);
+}
+
+type SubmissionFormValueField = {
+  key: string;
+  label: string;
+  value: string;
+};
+
+export function buildSubmissionFormValueRows(form: Record<string, unknown>) {
+  const primitiveEntries = Object.entries(form).filter(([, value]) => typeof value !== "object");
+  const valueByKey = new Map(primitiveEntries);
+  const consumedKeys = new Set<string>();
+  const rows: SubmissionFormValueField[][] = [];
+  const hasClosingCupBreakdown = valueByKey.has("cups4ozHere") || valueByKey.has("cups4ozToGo") || valueByKey.has("cups8ozHere") || valueByKey.has("cups8ozToGo");
+
+  const addRow = (keys: string[]) => {
+    const row = keys
+      .filter(key => valueByKey.has(key))
+      .map(key => {
+        consumedKeys.add(key);
+        return {
+          key,
+          label: formatFieldLabel(key),
+          value: toDisplayString(valueByKey.get(key)),
+        };
+      });
+
+    if (row.length > 0) {
+      rows.push(row);
+    }
+  };
+
+  const addCombinedRow = (key: string, label: string, value: unknown) => {
+    consumedKeys.add(key);
+    rows.push([
+      {
+        key,
+        label,
+        value: toDisplayString(value),
+      },
+    ]);
+  };
+
+  if (hasClosingCupBreakdown) {
+    addRow(["businessDate", "staffName"]);
+    addRow(["cashCounted", "cashMatchesSystem"]);
+    addRow(["notes"]);
+    addRow(["cups4ozHere", "cups4ozToGo"]);
+    addRow(["cups8ozHere", "cups8ozToGo"]);
+
+    const pintTotal = valueByKey.has("cupsPint") ? valueByKey.get("cupsPint") : valueByKey.get("cupsPintToGo");
+    const literTotal = valueByKey.has("cupsLiter") ? valueByKey.get("cupsLiter") : valueByKey.get("cupsLiterToGo");
+    consumedKeys.add("cupsPintHere");
+    consumedKeys.add("cupsPintToGo");
+    consumedKeys.add("cupsLiterHere");
+    consumedKeys.add("cupsLiterToGo");
+
+    rows.push(
+      [
+        {
+          key: "cupsPint",
+          label: "Cups Pint",
+          value: toDisplayString(pintTotal),
+        },
+        {
+          key: "cupsLiter",
+          label: "Cups Liter",
+          value: toDisplayString(literTotal),
+        },
+      ].filter(field => field.value !== "—" || field.key === "cupsPint" || field.key === "cupsLiter")
+    );
+
+    addRow(["cashTotal"]);
+    addRow(["cardTotal", "zelleTotal"]);
+    addRow(["venmoTotal", "wasteNotes"]);
+    addRow(["lowItemNotes", "generalNotes"]);
+  }
+
+  primitiveEntries.forEach(([key, value]) => {
+    if (consumedKeys.has(key)) return;
+    rows.push([
+      {
+        key,
+        label: formatFieldLabel(key),
+        value: toDisplayString(value),
+      },
+    ]);
+  });
+
+  return rows.filter(row => row.length > 0);
+}
+
 function getSubmissionEditMode(entry: SubmissionHistoryEntryRecord): SubmissionEditMode {
   return entry.payload.gelatoEntryMode === "photo" && (entry.payload.analyzedPhotos?.length ?? 0) > 0 ? "photo" : "manual";
 }
@@ -667,18 +793,21 @@ export default function ManagerDashboard() {
     if (!reconciliationSnapshot.gelato) return [];
 
     const gelatoAwaitingClosing = reconciliationSnapshot.gelato.discrepancyLabel === AWAITING_CLOSING_FORM_LABEL;
-    const totalDistributed = reconciliationSnapshot.gelato.distributedVolumeOunces;
-    const totalSold = reconciliationSnapshot.gelato.soldVolumeOunces;
+    const soldOunceAllocations = allocateEstimatedFlavorSoldOunces(
+      reconciliationSnapshot.gelato.flavors.map(item => item.usedVolumeOunces),
+      reconciliationSnapshot.gelato.soldVolumeOunces,
+      2
+    );
 
-    return reconciliationSnapshot.gelato.flavors.map(item => {
+    return reconciliationSnapshot.gelato.flavors.map((item, index) => {
       const normalizedFlavor = normalizeFlavorPreviewKey(item.flavor);
       const openingOunces = roundTo(item.opening.totalVolumeOunces, 0);
       const closingOunces = roundTo(item.closing.totalVolumeOunces, 0);
       const openingWeightKg = roundTo(item.opening.combinedGrossWeightKg, 3);
       const closingWeightKg = roundTo(item.closing.combinedGrossWeightKg, 3);
       const distributedOunces = roundTo(item.usedVolumeOunces, 0);
-      const soldOunces = totalDistributed > 0 ? roundTo((item.usedVolumeOunces / totalDistributed) * totalSold, 0) : 0;
-      const differenceOunces = roundTo(item.usedVolumeOunces - (totalDistributed > 0 ? (item.usedVolumeOunces / totalDistributed) * totalSold : 0), 0);
+      const soldOunces = soldOunceAllocations[index] ?? 0;
+      const differenceOunces = roundTo(distributedOunces - soldOunces, 0);
 
       return {
         flavor: item.flavor,
@@ -1022,7 +1151,7 @@ export default function ManagerDashboard() {
                 <div className="mt-6 rounded-[1.5rem] border border-[#e5ddd0] bg-[#fbf7f0] p-4 text-sm leading-6 text-[#66706a]">
                   {reconciliationSnapshot.gelato?.discrepancyLabel === AWAITING_CLOSING_FORM_LABEL
                     ? "Opening gelato counts are saved. Closing ounces, distributed ounces, and variance will appear after a same-day closing form is submitted."
-                    : "Flavor-level sold ounces are currently shown as an allocated share of the day's total sold volume, based on each flavor's measured distributed ounces, so managers can spot over/under patterns even before flavor-level sales tracking is added."}
+                    : "Flavor-level sold ounces are estimated from each flavor's measured distributed share, then rounded into 2-ounce serving blocks so the table never shows impossible values like 3 oz while flavor-by-flavor sales tracking is still unavailable."}
                 </div>
               </SurfaceCard>
             </div>
@@ -2256,19 +2385,22 @@ export default function ManagerDashboard() {
                       <div className="mt-5 grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
                         <div className="space-y-4">
                           {entry.payload.form ? (
-                            <div className="rounded-[1.35rem] border border-[#e5ddd0] bg-white/90 p-4">
+                              <div className="rounded-[1.35rem] border border-[#e5ddd0] bg-white/90 p-4">
                               <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">Form values</p>
-                              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                                {Object.entries(entry.payload.form)
-                                  .filter(([, value]) => typeof value !== "object")
-                                  .map(([key, value]) => (
-                                    <div key={`${entry.id}-${key}`} className="rounded-2xl bg-[#f7f2ea] px-4 py-3 text-sm text-[#5f6a64]">
-                                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">{formatFieldLabel(key)}</p>
-                                      <p className="mt-2 font-medium text-[#24332f]">{String(value ?? "—")}</p>
-                                    </div>
-                                  ))}
+                              <div className="mt-3 space-y-3">
+                                {buildSubmissionFormValueRows(entry.payload.form).map((row, rowIndex) => (
+                                  <div key={`${entry.id}-form-row-${rowIndex}`} className={`grid gap-3 ${row.length > 1 ? "sm:grid-cols-2" : ""}`}>
+                                    {row.map(field => (
+                                      <div key={`${entry.id}-${field.key}`} className="rounded-2xl bg-[#f7f2ea] px-4 py-3 text-sm text-[#5f6a64]">
+                                        <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">{field.label}</p>
+                                        <p className="mt-2 font-medium text-[#24332f]">{field.value}</p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ))}
                               </div>
                             </div>
+
                           ) : null}
 
                           {entry.payload.checklistAnswers && entry.payload.checklistAnswers.length > 0 ? (

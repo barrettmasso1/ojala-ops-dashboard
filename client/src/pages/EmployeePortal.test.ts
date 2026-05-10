@@ -18,6 +18,8 @@ import {
   resolveAnalyzedPhotoGrossWeights,
   summarizeAnalyzedPhotosForSubmission,
   serviceInventoryPairs,
+  endOfDayPairedCupRows,
+  endOfDaySingleCupRows,
 } from "./EmployeePortal";
 import { getReplacementConfirmationMessage, getResubmissionReplacementDescription } from "@/lib/submissionReplacement";
 
@@ -44,6 +46,14 @@ describe("employee portal gelato helpers", () => {
 
     expect(fieldLabels).toContain("4oz Cups");
     expect(fieldLabels).not.toContain("4oz Lids");
+  });
+
+  it("keeps only 4 oz and 8 oz as here-versus-to-go rows while pint and liter stay single-field totals", () => {
+    expect(endOfDayPairedCupRows.map(row => row.label)).toEqual(["4oz", "8oz"]);
+    expect(endOfDaySingleCupRows).toEqual([
+      { label: "Pint", key: "cupsPintToGo" },
+      { label: "Liter", key: "cupsLiterToGo" },
+    ]);
   });
 
   it("splits a combined analyzed photo weight across small and large pans", () => {

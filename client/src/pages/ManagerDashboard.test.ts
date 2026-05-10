@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { buildFlavorPhotoPreviewMap, getCompactSnapshotName, getSnapshotValueClassName } from "./ManagerDashboard";
+import {
+  allocateEstimatedFlavorSoldOunces,
+  buildFlavorPhotoPreviewMap,
+  buildSubmissionFormValueRows,
+  getCompactSnapshotName,
+  getSnapshotValueClassName,
+} from "./ManagerDashboard";
 
 describe("manager dashboard layout helpers", () => {
   it("keeps short names intact but collapses long staff names to the first name for snapshot cards", () => {
@@ -61,5 +67,43 @@ describe("manager dashboard layout helpers", () => {
 
     expect(previewMap.get("opening:vanilla")?.fileName).toBe("opening-vanilla.jpg");
     expect(previewMap.get("closing:banana")?.fileName).toBe("closing-bananas.jpg");
+  });
+
+  it("allocates estimated flavor sold ounces in 2-ounce increments so impossible values like 3 oz never appear", () => {
+    const allocation = allocateEstimatedFlavorSoldOunces([2, 10, 14], 20, 2);
+
+    expect(allocation).toEqual([2, 8, 10]);
+    expect(allocation.every(value => value % 2 === 0)).toBe(true);
+    expect(allocation.reduce((sum, value) => sum + value, 0)).toBe(20);
+  });
+
+  it("groups closing form values so 4 oz and 8 oz stay paired while pint and liter render without invalid here fields", () => {
+    const rows = buildSubmissionFormValueRows({
+      businessDate: "2026-05-09",
+      staffName: "Karol Mendez",
+      cups4ozHere: 11,
+      cups4ozToGo: 0,
+      cups8ozHere: 8,
+      cups8ozToGo: 13,
+      cupsPintHere: 0,
+      cupsPintToGo: 3,
+      cupsLiterHere: 0,
+      cupsLiterToGo: 1,
+      cashTotal: 1820,
+    });
+
+    expect(rows.some(row => row.some(field => field.key === "cupsPintHere" || field.key === "cupsLiterHere"))).toBe(false);
+    expect(rows).toContainEqual([
+      { key: "cups4ozHere", label: "Cups4oz Here", value: "11" },
+      { key: "cups4ozToGo", label: "Cups4oz To Go", value: "0" },
+    ]);
+    expect(rows).toContainEqual([
+      { key: "cups8ozHere", label: "Cups8oz Here", value: "8" },
+      { key: "cups8ozToGo", label: "Cups8oz To Go", value: "13" },
+    ]);
+    expect(rows).toContainEqual([
+      { key: "cupsPint", label: "Cups Pint", value: "3" },
+      { key: "cupsLiter", label: "Cups Liter", value: "1" },
+    ]);
   });
 });
