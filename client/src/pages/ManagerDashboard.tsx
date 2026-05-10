@@ -259,6 +259,7 @@ export default function ManagerDashboard() {
   const [hoursRangeEnd, setHoursRangeEnd] = useState(todayValue());
   const currentPacificDateLabel = useMemo(() => formatPacificCalendarDate(liveNow, "en-US"), [liveNow]);
   const currentPacificTimeLabel = useMemo(() => formatPacificTime(liveNow, "en-US"), [liveNow]);
+  const currentPacificDateTimeLabel = useMemo(() => `${currentPacificDateLabel} · ${currentPacificTimeLabel}`, [currentPacificDateLabel, currentPacificTimeLabel]);
   const [inventoryDashboardView, setInventoryDashboardView] = useState<ManagerInventoryView>("product");
   const [inventoryForm, setInventoryForm] = useState({
     id: undefined as number | undefined,
@@ -715,10 +716,9 @@ export default function ManagerDashboard() {
                         : `Manager workspace filtered by ${selectedDate}.`}
                   </span>
                 </div>
-                <div className="inline-flex shrink-0 flex-col whitespace-nowrap rounded-[1.75rem] border border-[#ded5c8] bg-white/80 px-6 py-3 text-sm text-[#4f5b55] shadow-sm">
+                <div className="inline-flex w-max max-w-full shrink-0 flex-col rounded-[1.75rem] border border-[#ded5c8] bg-white/80 px-6 py-3 text-sm text-[#4f5b55] shadow-sm">
                   <p className="text-[10px] uppercase tracking-[0.24em] text-[#8b9088]">Live Pacific time</p>
-                  <p className="mt-1 font-medium text-[#24332f]">{currentPacificDateLabel}</p>
-                  <p className="mt-1 text-base font-semibold tracking-[-0.02em] text-[#1f2b27]">{currentPacificTimeLabel}</p>
+                  <p className="mt-1 whitespace-nowrap font-medium text-[#24332f]">{currentPacificDateTimeLabel}</p>
                 </div>
               </div>
             </div>

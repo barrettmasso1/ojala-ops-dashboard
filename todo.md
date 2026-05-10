@@ -256,3 +256,4 @@
 - [x] Verify whether managers can already edit saved submissions and, if not, add a manager workflow to correct saved gelato entries such as pan setup and weights
 - [x] Refine the manager dashboard summary layout so long labels and names fit cleanly and the live Pacific time card expands to avoid awkward wrapping
 - [x] Shorten the history snapshot card label from "Submissions on selected day" to "Submissions" while finishing the no-wrap manager dashboard layout fix
+- [x] Refine the live Pacific time header card so the date and time read cleanly on one line or remove the time entirely if that creates the better manager dashboard layout
