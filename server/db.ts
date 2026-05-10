@@ -1422,6 +1422,76 @@ export async function saveReadyMadeGelatoWeights(input: {
   return savedRows;
 }
 
+export async function updateSubmissionHistoryGelato(input: {
+  entryId: number;
+  submittedByUserId: number;
+  gelatoEntries: Array<{
+    flavor: string;
+    smallPanCount: number;
+    smallGrossWeightKg?: string;
+    largePanCount: number;
+    largeGrossWeightKg?: string;
+    combinedGrossWeightKg?: string;
+  }>;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const existing = await db
+    .select()
+    .from(submissionHistoryEntries)
+    .where(eq(submissionHistoryEntries.id, input.entryId))
+    .limit(1);
+
+  const currentEntry = existing[0];
+  if (!currentEntry) {
+    throw new Error("Saved submission could not be found.");
+  }
+
+  const businessDate = normalizeDate(currentEntry.businessDate);
+  const submissionType = currentEntry.submissionType as SubmissionHistoryType;
+  const shiftType: ReadyMadeShiftType = submissionType === "closing" ? "closing" : "opening";
+  const currentPayload = safeParseJson<Record<string, unknown>>(currentEntry.payloadJson, {});
+
+  await db.delete(readyMadeGelatoWeights).where(
+    and(
+      eq(readyMadeGelatoWeights.businessDate, businessDate),
+      eq(readyMadeGelatoWeights.shiftType, shiftType)
+    )
+  );
+
+  const savedRows = await saveReadyMadeGelatoWeights({
+    businessDate,
+    shiftType,
+    submittedByUserId: input.submittedByUserId,
+    entries: input.gelatoEntries,
+  });
+
+  const nextPayload = {
+    ...currentPayload,
+    gelatoEntries: savedRows.map(row => ({
+      flavor: row.flavor,
+      smallPanCount: row.smallPanCount,
+      smallGrossWeightKg: row.smallGrossWeightKg,
+      largePanCount: row.largePanCount,
+      largeGrossWeightKg: row.largeGrossWeightKg,
+    })),
+  };
+
+  await db.update(submissionHistoryEntries).set({
+    payloadJson: JSON.stringify(nextPayload),
+    submittedByUserId: input.submittedByUserId,
+  }).where(eq(submissionHistoryEntries.id, input.entryId));
+
+  return {
+    id: currentEntry.id,
+    businessDate,
+    submissionType,
+    staffName: currentEntry.staffName,
+    payload: nextPayload,
+  };
+}
+
 export async function createSubmissionHistoryEntry(input: {
   businessDate?: string;
   submissionType: SubmissionHistoryType;

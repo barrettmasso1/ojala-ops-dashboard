@@ -26,6 +26,7 @@ const dbMocks = vi.hoisted(() => ({
   createSubmissionHistoryEntry: vi.fn(),
   listSubmissionHistoryEntries: vi.fn(),
   updateInventoryCount: vi.fn(),
+  updateSubmissionHistoryGelato: vi.fn(),
   upsertUser: vi.fn(),
 }));
 
@@ -689,7 +690,18 @@ describe("operations router", () => {
         createdAt: new Date("2026-04-30T05:15:00.000Z"),
         payload: {
           notes: { general: "Everything cleaned." },
-          analyzedPhotos: [{ fileName: "IMG_2002.jpeg", imageUrl: "/manus-storage/closing.jpg", flavor: "Chocolate", smallPanCount: 0, largePanCount: 1, combinedGrossWeightKg: 4.1, confidence: "medium" }],
+          analyzedPhotos: [
+            {
+              fileName: "closing-scale.jpg",
+              imageUrl: "/manus-storage/photo",
+              flavor: "Vanilla",
+              smallPanCount: 1,
+              largePanCount: 1,
+              combinedGrossWeightKg: 3.95,
+              confidence: "high",
+              warning: "",
+            },
+          ],
         },
       },
     ]);
@@ -702,6 +714,76 @@ describe("operations router", () => {
 
     const employeeCaller = appRouter.createCaller(createContext("user"));
     await expect(employeeCaller.dashboard.submissionHistory({ businessDate: "2026-04-29" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("allows admin users to overwrite saved gelato rows for a historical submission", async () => {
+    dbMocks.updateSubmissionHistoryGelato.mockResolvedValue({
+      id: 812,
+      businessDate: "2026-05-09",
+      submissionType: "closing",
+      staffName: "Marco",
+      payload: {
+        gelatoEntries: [
+          {
+            flavor: "Vanilla",
+            smallPanCount: 1,
+            smallGrossWeightKg: 1.62,
+            largePanCount: 1,
+            largeGrossWeightKg: 3.72,
+          },
+        ],
+      },
+    });
+
+    const adminCaller = appRouter.createCaller(createContext("admin"));
+    await expect(
+      adminCaller.dashboard.updateSubmissionGelato({
+        entryId: 812,
+        gelatoEntries: [
+          {
+            flavor: "Vanilla",
+            smallPanCount: 1,
+            smallGrossWeightKg: 1.618,
+            largePanCount: 1,
+            largeGrossWeightKg: 3.724,
+          },
+        ],
+      })
+    ).resolves.toEqual({
+      success: true,
+      entry: expect.objectContaining({ id: 812, businessDate: "2026-05-09", submissionType: "closing" }),
+    });
+
+    expect(dbMocks.updateSubmissionHistoryGelato).toHaveBeenCalledWith({
+      entryId: 812,
+      submittedByUserId: 99,
+      gelatoEntries: [
+        {
+          flavor: "Vanilla",
+          smallPanCount: 1,
+          smallGrossWeightKg: "1.618",
+          largePanCount: 1,
+          largeGrossWeightKg: "3.724",
+          combinedGrossWeightKg: undefined,
+        },
+      ],
+    });
+
+    const employeeCaller = appRouter.createCaller(createContext("user"));
+    await expect(
+      employeeCaller.dashboard.updateSubmissionGelato({
+        entryId: 812,
+        gelatoEntries: [
+          {
+            flavor: "Vanilla",
+            smallPanCount: 1,
+            smallGrossWeightKg: 1.618,
+            largePanCount: 1,
+            largeGrossWeightKg: 3.724,
+          },
+        ],
+      })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("allows only admin users to save checklist questions", async () => {

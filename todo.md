@@ -253,3 +253,4 @@
 - [x] Remove the duplicate "bananas" flavor option so only one banana flavor appears in the manual opening and closing gelato forms
 - [x] Fix the unexpected ready-made gelato prefilled values appearing when staff open the form so opening and closing inputs only populate from intended sources
 - [x] Change the photo-review default for two-pan gelato detections so staff start from one small pan and one large pan instead of two large pans
+- [x] Verify whether managers can already edit saved submissions and, if not, add a manager workflow to correct saved gelato entries such as pan setup and weights

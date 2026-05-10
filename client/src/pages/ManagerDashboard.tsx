@@ -136,6 +136,36 @@ type SubmissionHistoryEntryRecord = {
   };
 };
 
+type SubmissionGelatoEditorRow = {
+  flavor: string;
+  smallPanCount: string;
+  smallGrossWeightKg: string;
+  largePanCount: string;
+  largeGrossWeightKg: string;
+};
+
+function createSubmissionGelatoEditorRows(entry: SubmissionHistoryEntryRecord): SubmissionGelatoEditorRow[] {
+  if (!entry.payload.gelatoEntries || entry.payload.gelatoEntries.length === 0) {
+    return [
+      {
+        flavor: "",
+        smallPanCount: "",
+        smallGrossWeightKg: "",
+        largePanCount: "",
+        largeGrossWeightKg: "",
+      },
+    ];
+  }
+
+  return entry.payload.gelatoEntries.map(row => ({
+    flavor: row.flavor,
+    smallPanCount: String(row.smallPanCount || ""),
+    smallGrossWeightKg: row.smallGrossWeightKg > 0 ? String(row.smallGrossWeightKg) : "",
+    largePanCount: String(row.largePanCount || ""),
+    largeGrossWeightKg: row.largeGrossWeightKg > 0 ? String(row.largeGrossWeightKg) : "",
+  }));
+}
+
 function SurfaceCard({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <section className={`rounded-[2rem] border border-white/70 bg-white/82 p-6 shadow-[0_24px_70px_rgba(88,83,72,0.10)] backdrop-blur ${className}`}>{children}</section>;
 }
@@ -241,6 +271,8 @@ export default function ManagerDashboard() {
     detailTrigger: "No" as "Yes" | "No" | "Never",
     displayOrder: "1",
   });
+  const [editingSubmissionId, setEditingSubmissionId] = useState<number | null>(null);
+  const [submissionGelatoEditorRows, setSubmissionGelatoEditorRows] = useState<SubmissionGelatoEditorRow[]>([]);
 
   const isAdmin = user?.role === "admin";
   const maxBusinessDate = todayValue();
@@ -355,6 +387,20 @@ export default function ManagerDashboard() {
     onError: error => toast.error(error.message),
   });
 
+  const updateSubmissionGelatoMutation = trpc.dashboard.updateSubmissionGelato.useMutation({
+    onSuccess: async () => {
+      toast.success("Saved submission updated.");
+      setEditingSubmissionId(null);
+      setSubmissionGelatoEditorRows([]);
+      await Promise.all([
+        utils.dashboard.submissionHistory.invalidate({ businessDate: selectedDate }),
+        utils.dashboard.daily.invalidate({ businessDate: selectedDate }),
+        utils.forms.readyMadeGelatoWeights.invalidate({ businessDate: selectedDate }),
+      ]);
+    },
+    onError: error => toast.error(error.message),
+  });
+
   const recentNotes = useMemo(
     () =>
       (notesQuery.data ?? []).filter(
@@ -375,6 +421,86 @@ export default function ManagerDashboard() {
   const payrollDateRange = useMemo(() => buildBusinessDateRange(hoursRangeStart, hoursRangeEnd), [hoursRangeStart, hoursRangeEnd]);
   const payrollSummary = payrollHoursQuery.data;
   const timeBook = timeBookQuery.data;
+
+  function startSubmissionGelatoEdit(entry: SubmissionHistoryEntryRecord) {
+    setEditingSubmissionId(entry.id);
+    setSubmissionGelatoEditorRows(createSubmissionGelatoEditorRows(entry));
+  }
+
+  function cancelSubmissionGelatoEdit() {
+    setEditingSubmissionId(null);
+    setSubmissionGelatoEditorRows([]);
+  }
+
+  function updateSubmissionGelatoEditorRow(index: number, field: keyof SubmissionGelatoEditorRow, value: string) {
+    setSubmissionGelatoEditorRows(current => current.map((row, rowIndex) => (rowIndex === index ? { ...row, [field]: value } : row)));
+  }
+
+  function addSubmissionGelatoEditorRow() {
+    setSubmissionGelatoEditorRows(current => [
+      ...current,
+      { flavor: "", smallPanCount: "", smallGrossWeightKg: "", largePanCount: "", largeGrossWeightKg: "" },
+    ]);
+  }
+
+  function removeSubmissionGelatoEditorRow(index: number) {
+    setSubmissionGelatoEditorRows(current => {
+      const nextRows = current.filter((_, rowIndex) => rowIndex !== index);
+      return nextRows.length > 0
+        ? nextRows
+        : [{ flavor: "", smallPanCount: "", smallGrossWeightKg: "", largePanCount: "", largeGrossWeightKg: "" }];
+    });
+  }
+
+  async function saveSubmissionGelatoEdits() {
+    if (!editingSubmissionId) return;
+
+    const gelatoEntries = submissionGelatoEditorRows
+      .map(row => {
+        const flavor = row.flavor.trim();
+        const smallPanCount = Math.max(0, Math.trunc(Number(row.smallPanCount || 0)));
+        const largePanCount = Math.max(0, Math.trunc(Number(row.largePanCount || 0)));
+        const smallGrossWeightKg = row.smallGrossWeightKg.trim() === "" ? undefined : Number(row.smallGrossWeightKg);
+        const largeGrossWeightKg = row.largeGrossWeightKg.trim() === "" ? undefined : Number(row.largeGrossWeightKg);
+
+        if (!flavor) return null;
+        if ((smallPanCount <= 0 && largePanCount <= 0) && smallGrossWeightKg == null && largeGrossWeightKg == null) return null;
+        if ((smallGrossWeightKg != null && !Number.isFinite(smallGrossWeightKg)) || (largeGrossWeightKg != null && !Number.isFinite(largeGrossWeightKg))) {
+          return { error: true } as const;
+        }
+
+        return {
+          flavor,
+          smallPanCount,
+          smallGrossWeightKg,
+          largePanCount,
+          largeGrossWeightKg,
+        };
+      });
+
+    if (gelatoEntries.some(entry => entry && "error" in entry)) {
+      toast.error("Please enter valid kilogram values before saving.");
+      return;
+    }
+
+    const cleanedEntries = gelatoEntries.filter((entry): entry is {
+      flavor: string;
+      smallPanCount: number;
+      smallGrossWeightKg?: number;
+      largePanCount: number;
+      largeGrossWeightKg?: number;
+    } => entry != null && !("error" in entry));
+
+    if (cleanedEntries.length === 0) {
+      toast.error("Add at least one gelato row before saving the submission edit.");
+      return;
+    }
+
+    await updateSubmissionGelatoMutation.mutateAsync({
+      entryId: editingSubmissionId,
+      gelatoEntries: cleanedEntries,
+    });
+  }
 
   const daily = dailyQuery.data;
   const reconciliationSnapshot = buildManagerReconciliationSnapshot(daily);
@@ -1726,10 +1852,130 @@ export default function ManagerDashboard() {
                           </div>
                           <p className="mt-3 text-sm text-[#66706a]">Saved {formatDateTime(entry.createdAt)} · Business date {entry.businessDate}</p>
                         </div>
-                        <div className="rounded-[1.2rem] border border-[#e4dccf] bg-white/90 px-4 py-3 text-sm text-[#52665f]">
-                          {entry.payload.gelatoEntryMode ? `Gelato entry: ${entry.payload.gelatoEntryMode}` : "Manual form record"}
+                        <div className="flex flex-col items-start gap-3 lg:items-end">
+                          <div className="rounded-[1.2rem] border border-[#e4dccf] bg-white/90 px-4 py-3 text-sm text-[#52665f]">
+                            {entry.payload.gelatoEntryMode ? `Gelato entry: ${entry.payload.gelatoEntryMode}` : "Manual form record"}
+                          </div>
+                          {entry.payload.gelatoEntries && entry.payload.gelatoEntries.length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => editingSubmissionId === entry.id ? cancelSubmissionGelatoEdit() : startSubmissionGelatoEdit(entry)}
+                              className="rounded-full border border-[#d7cec0] bg-white/90 px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-[#31423d] shadow-sm transition hover:bg-white"
+                            >
+                              {editingSubmissionId === entry.id ? "Cancel submission edit" : "Edit gelato submission"}
+                            </button>
+                          ) : null}
                         </div>
                       </div>
+
+                      {editingSubmissionId === entry.id ? (
+                        <div className="mt-5 rounded-[1.5rem] border border-[#d8d0c2] bg-white/90 p-5 shadow-sm">
+                          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                            <div>
+                              <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">Manager correction</p>
+                              <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#24332f]">Edit saved gelato rows</h3>
+                              <p className="mt-2 max-w-3xl text-sm leading-6 text-[#66706a]">Use this editor to correct the saved pan setup and kilogram values for this submission. Saving here updates the stored gelato rows used by the dashboard totals for this business date.</p>
+                            </div>
+                            <div className="rounded-2xl bg-[#f7f2ea] px-4 py-3 text-xs leading-6 text-[#625b53]">
+                              Original photo evidence stays visible below for reference while you correct the saved gelato rows.
+                            </div>
+                          </div>
+                          <div className="mt-5 space-y-4">
+                            {submissionGelatoEditorRows.map((row, index) => (
+                              <div key={`${entry.id}-edit-row-${index}`} className="rounded-[1.35rem] border border-[#e5ddd0] bg-[#fcfaf6] p-4">
+                                <div className="grid gap-3 lg:grid-cols-[1.3fr_repeat(4,minmax(0,1fr))_auto] lg:items-end">
+                                  <div>
+                                    <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Flavor</p>
+                                    <input
+                                      className={`${inventoryFieldClassName()} mt-2 w-full`}
+                                      value={row.flavor}
+                                      onChange={event => updateSubmissionGelatoEditorRow(index, "flavor", event.target.value)}
+                                      placeholder="Flavor"
+                                    />
+                                  </div>
+                                  <div>
+                                    <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Small pans</p>
+                                    <input
+                                      className={`${inventoryFieldClassName()} mt-2 w-full`}
+                                      type="number"
+                                      min="0"
+                                      step="1"
+                                      value={row.smallPanCount}
+                                      onChange={event => updateSubmissionGelatoEditorRow(index, "smallPanCount", event.target.value)}
+                                    />
+                                  </div>
+                                  <div>
+                                    <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Small kg</p>
+                                    <input
+                                      className={`${inventoryFieldClassName()} mt-2 w-full`}
+                                      type="number"
+                                      min="0"
+                                      step="0.001"
+                                      value={row.smallGrossWeightKg}
+                                      onChange={event => updateSubmissionGelatoEditorRow(index, "smallGrossWeightKg", event.target.value)}
+                                    />
+                                  </div>
+                                  <div>
+                                    <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Large pans</p>
+                                    <input
+                                      className={`${inventoryFieldClassName()} mt-2 w-full`}
+                                      type="number"
+                                      min="0"
+                                      step="1"
+                                      value={row.largePanCount}
+                                      onChange={event => updateSubmissionGelatoEditorRow(index, "largePanCount", event.target.value)}
+                                    />
+                                  </div>
+                                  <div>
+                                    <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">Large kg</p>
+                                    <input
+                                      className={`${inventoryFieldClassName()} mt-2 w-full`}
+                                      type="number"
+                                      min="0"
+                                      step="0.001"
+                                      value={row.largeGrossWeightKg}
+                                      onChange={event => updateSubmissionGelatoEditorRow(index, "largeGrossWeightKg", event.target.value)}
+                                    />
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeSubmissionGelatoEditorRow(index)}
+                                    className="inline-flex h-11 items-center justify-center rounded-full border border-[#ead4d4] bg-[#fff6f6] px-4 text-xs font-medium uppercase tracking-[0.16em] text-[#8a4343] shadow-sm transition hover:bg-white"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <button
+                              type="button"
+                              onClick={addSubmissionGelatoEditorRow}
+                              className="rounded-full border border-[#d7cec0] bg-white/90 px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-[#31423d] shadow-sm transition hover:bg-white"
+                            >
+                              Add gelato row
+                            </button>
+                            <div className="flex flex-col gap-3 sm:flex-row">
+                              <button
+                                type="button"
+                                onClick={cancelSubmissionGelatoEdit}
+                                className="rounded-full border border-[#d7cec0] bg-white/90 px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-[#31423d] shadow-sm transition hover:bg-white"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void saveSubmissionGelatoEdits()}
+                                disabled={updateSubmissionGelatoMutation.isPending}
+                                className="rounded-full bg-[#52665f] px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-white shadow-lg shadow-[#52665f]/20 transition hover:bg-[#43554f] disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {updateSubmissionGelatoMutation.isPending ? "Saving correction..." : "Save submission correction"}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
 
                       {entry.payload.analyzedPhotos && entry.payload.analyzedPhotos.length > 0 ? (
                         <div className="mt-5">
@@ -1789,7 +2035,10 @@ export default function ManagerDashboard() {
                         <div className="space-y-4">
                           {entry.payload.gelatoEntries && entry.payload.gelatoEntries.length > 0 ? (
                             <div className="rounded-[1.35rem] border border-[#e5ddd0] bg-white/90 p-4">
-                              <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">Gelato rows</p>
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">Gelato rows</p>
+                                <p className="text-xs leading-5 text-[#7d847d]">Managers can now correct the saved pan setup and kilogram values directly from this history card.</p>
+                              </div>
                               <div className="mt-3 space-y-3">
                                 {entry.payload.gelatoEntries.map((row, index) => {
                                   const volumeBreakdown = getHistoryGelatoRowVolumeBreakdown(row);

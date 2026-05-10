@@ -33,6 +33,7 @@ import {
   saveReadyMadeGelatoWeights,
   STAFF_ATTENDANCE_NAMES,
   updateInventoryCount,
+  updateSubmissionHistoryGelato,
   upsertUser,
 } from "./db";
 import { extractGelatoPhotos } from "./gelatoPhotoPilot";
@@ -624,6 +625,29 @@ export const appRouter = router({
         }).optional()
       )
       .query(async ({ input }) => listSubmissionHistoryEntries(input?.businessDate)),
+    updateSubmissionGelato: adminProcedure
+      .input(
+        z.object({
+          entryId: z.number().int().positive(),
+          gelatoEntries: z.array(readyMadeGelatoEntrySchema).min(1),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const entry = await updateSubmissionHistoryGelato({
+          entryId: input.entryId,
+          submittedByUserId: ctx.user.id,
+          gelatoEntries: input.gelatoEntries.map(row => ({
+            flavor: row.flavor,
+            smallPanCount: row.smallPanCount,
+            smallGrossWeightKg: row.smallGrossWeightKg?.toFixed(3),
+            largePanCount: row.largePanCount,
+            largeGrossWeightKg: row.largeGrossWeightKg?.toFixed(3),
+            combinedGrossWeightKg: row.combinedGrossWeightKg?.toFixed(3),
+          })),
+        });
+
+        return { success: true, entry } as const;
+      }),
   }),
 });
 
