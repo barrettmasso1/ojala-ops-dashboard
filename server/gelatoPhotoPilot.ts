@@ -90,24 +90,10 @@ export function normalizeSinglePanPhotoCounts(input: Pick<ExtractedGelatoPhoto, 
     };
   }
 
-  if (smallPanCount > 0 && largePanCount > 0) {
+  if (totalPanCount === 2) {
     return {
       smallPanCount: 1,
       largePanCount: 1,
-    };
-  }
-
-  if (smallPanCount >= 2) {
-    return {
-      smallPanCount: 2,
-      largePanCount: 0,
-    };
-  }
-
-  if (largePanCount >= 2) {
-    return {
-      smallPanCount: 0,
-      largePanCount: 2,
     };
   }
 

@@ -20,7 +20,7 @@ import {
 } from "./gelatoPhotoPilot";
 
 describe("normalizeSinglePanPhotoCounts", () => {
-  it("defaults any single detected pan to the small-pan workflow while preserving valid same-size two-pan reads", () => {
+  it("defaults any single detected pan to the small-pan workflow and any two-pan detection to one small plus one large", () => {
     expect(normalizeSinglePanPhotoCounts({ smallPanCount: 0, largePanCount: 1 })).toEqual({
       smallPanCount: 1,
       largePanCount: 0,
@@ -30,12 +30,12 @@ describe("normalizeSinglePanPhotoCounts", () => {
       largePanCount: 0,
     });
     expect(normalizeSinglePanPhotoCounts({ smallPanCount: 2, largePanCount: 0 })).toEqual({
-      smallPanCount: 2,
-      largePanCount: 0,
+      smallPanCount: 1,
+      largePanCount: 1,
     });
     expect(normalizeSinglePanPhotoCounts({ smallPanCount: 0, largePanCount: 2 })).toEqual({
-      smallPanCount: 0,
-      largePanCount: 2,
+      smallPanCount: 1,
+      largePanCount: 1,
     });
     expect(normalizeSinglePanPhotoCounts({ smallPanCount: 1, largePanCount: 1 })).toEqual({
       smallPanCount: 1,
