@@ -261,3 +261,4 @@
 - [x] Add total starting weight and total ending weight, including pans, before the ounce columns in the flavor reconciliation table so managers can compare the reported weights directly against the photos
 - [x] If the underlying submission includes photo evidence, let managers hover the starting and ending weight values in flavor reconciliation to preview the corresponding gelato image for quick verification
 - [x] Fix the manager daily glance flavor reconciliation table so starting and ending kilogram weights, including pans, actually appear before the ounce columns for past and current dates when that data exists
+- [x] Enlarge the flavor reconciliation hover photo preview so managers can inspect scale images comfortably, with either a larger default preview or an obvious expand option

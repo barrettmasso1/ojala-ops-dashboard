@@ -281,10 +281,10 @@ function renderFlavorWeightCell(value: string, photo?: SubmissionHistoryPhoto) {
   return (
     <div className="group relative inline-flex">
       <span className="cursor-default border-b border-dashed border-[#cbbba6] text-[#24332f]">{value}</span>
-      <div className="pointer-events-none absolute left-0 top-full z-20 hidden w-52 rounded-[1.2rem] border border-[#e5ddd0] bg-white p-3 shadow-xl group-hover:block">
-        <img src={photo.imageUrl} alt={`${photo.flavor} scale preview`} loading="lazy" decoding="async" className="h-32 w-full rounded-[0.9rem] bg-[#f6f1e8] object-contain" />
-        <p className="mt-2 text-xs font-medium text-[#24332f]">{photo.fileName}</p>
-        <p className="mt-1 text-[11px] leading-5 text-[#66706a]">{photo.flavor} · {photo.combinedGrossWeightKg.toFixed(3)} kg gross</p>
+      <div className="pointer-events-none absolute left-1/2 top-full z-20 hidden w-[22rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-[1.35rem] border border-[#e5ddd0] bg-white p-4 shadow-xl group-hover:block">
+        <img src={photo.imageUrl} alt={`${photo.flavor} scale preview`} loading="lazy" decoding="async" className="h-56 w-full rounded-[1rem] bg-[#f6f1e8] object-contain" />
+        <p className="mt-3 text-sm font-medium text-[#24332f]">{photo.fileName}</p>
+        <p className="mt-1 text-xs leading-5 text-[#66706a]">{photo.flavor} · {photo.combinedGrossWeightKg.toFixed(3)} kg gross</p>
       </div>
     </div>
   );
