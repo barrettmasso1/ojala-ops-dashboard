@@ -108,6 +108,20 @@ function formatFieldLabel(key: string) {
     .replace(/\b\w/g, character => character.toUpperCase());
 }
 
+export function getCompactSnapshotName(name: string | null | undefined) {
+  const trimmed = name?.trim() ?? "";
+  if (!trimmed) return "—";
+  const parts = trimmed.split(/\s+/).filter(Boolean);
+  if (parts.length <= 1) return trimmed;
+  return parts[0] ?? trimmed;
+}
+
+export function getSnapshotValueClassName(value: string) {
+  return value.length > 10
+    ? "mt-3 font-serif text-[clamp(1.75rem,3vw,2.85rem)] leading-[0.95] tracking-tight text-[#1f2b27]"
+    : "mt-3 font-serif text-[clamp(2rem,4vw,3.5rem)] leading-none tracking-tight text-[#1f2b27]";
+}
+
 type SubmissionHistoryPhoto = {
   fileName: string;
   imageUrl: string;
@@ -582,6 +596,9 @@ export default function ManagerDashboard() {
             ? "Use this workspace to audit exactly what staff submitted, including gelato analysis photos, editable values, inventory updates, and notes, all grouped under the selected Pacific business date."
             : "Use this page to answer the core questions fast: what sold, whether opening and closing were completed, how much volume started and ended the day, and where the differences landed.";
 
+  const latestSubmissionFullName = submissionHistory[0]?.staffName ?? "—";
+  const latestSubmissionDisplayName = getCompactSnapshotName(latestSubmissionFullName);
+
   const snapshotCards = isInventoryWorkspaceRoute
     ? [
         { label: "Ingredients tracked", value: inventoryItems.filter(item => item.department === "Ingredients").length.toString(), helper: "Manager-maintained ingredient records." },
@@ -613,7 +630,7 @@ export default function ManagerDashboard() {
           ? [
               { label: "Submissions on selected day", value: submissionHistory.length.toString(), helper: "Opening, closing, and inventory history records available for review." },
               { label: "Photo uploads", value: submissionHistory.reduce((sum, entry) => sum + (entry.payload.analyzedPhotos?.length ?? 0), 0).toString(), helper: "Submitted gelato evidence saved with those records." },
-              { label: "Latest submission", value: submissionHistory[0]?.staffName ?? "—", helper: "Most recent staff member recorded on the selected date." },
+              { label: "Latest submission", value: latestSubmissionDisplayName, helper: "Most recent staff member recorded on the selected date.", valueTitle: latestSubmissionFullName },
             ]
           : [
               { label: "Total sales", value: formatCurrency(daily?.sales.total ?? 0), helper: "What sold today." },
@@ -688,18 +705,20 @@ export default function ManagerDashboard() {
                     />
                   </div>
                 )}
-                <div className="inline-flex items-center gap-2 rounded-full border border-[#ded5c8] bg-white/80 px-4 py-3 text-sm text-[#66706a] shadow-sm">
-                  <CalendarRange className="h-4 w-4 text-[#52665f]" />
-                  {isTimeBookRoute
-                    ? `Payroll period ${hoursRangeStart} through ${hoursRangeEnd}.`
-                    : isOverviewRoute
-                      ? `Quick day view active for ${selectedDate}.`
-                      : `Manager workspace filtered by ${selectedDate}.`}
+                <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-[#ded5c8] bg-white/80 px-4 py-3 text-sm text-[#66706a] shadow-sm md:whitespace-nowrap">
+                  <CalendarRange className="h-4 w-4 shrink-0 text-[#52665f]" />
+                  <span className="min-w-0 break-words md:overflow-hidden md:text-ellipsis">
+                    {isTimeBookRoute
+                      ? `Payroll period ${hoursRangeStart} through ${hoursRangeEnd}.`
+                      : isOverviewRoute
+                        ? `Quick day view active for ${selectedDate}.`
+                        : `Manager workspace filtered by ${selectedDate}.`}
+                  </span>
                 </div>
-                <div className="rounded-full border border-[#ded5c8] bg-white/80 px-4 py-3 text-sm text-[#4f5b55] shadow-sm">
-                  <p className="text-[10px] uppercase tracking-[0.24em] text-[#8b9088]">Live Pacific time</p>
-                  <p className="mt-1 font-medium text-[#24332f]">{currentPacificDateLabel}</p>
-                  <p className="mt-1 text-base font-semibold tracking-[-0.02em] text-[#1f2b27]">{currentPacificTimeLabel}</p>
+                <div className="w-fit min-w-[15.5rem] rounded-[1.75rem] border border-[#ded5c8] bg-white/80 px-5 py-3 text-sm text-[#4f5b55] shadow-sm md:min-w-max">
+                  <p className="whitespace-nowrap text-[10px] uppercase tracking-[0.24em] text-[#8b9088]">Live Pacific time</p>
+                  <p className="mt-1 whitespace-nowrap font-medium text-[#24332f]">{currentPacificDateLabel}</p>
+                  <p className="mt-1 whitespace-nowrap text-base font-semibold tracking-[-0.02em] text-[#1f2b27]">{currentPacificTimeLabel}</p>
                 </div>
               </div>
             </div>
@@ -722,8 +741,8 @@ export default function ManagerDashboard() {
                   <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
                     {snapshotCards.map(card => (
                       <div key={card.label} className="min-w-0 rounded-2xl bg-white/80 px-5 py-4 shadow-sm md:px-6 md:py-5">
-                        <p className="truncate text-[0.95rem] leading-tight text-[#6f776f] md:text-base" title={card.label}>{card.label}</p>
-                        <p className="mt-3 whitespace-nowrap font-serif text-[clamp(2rem,4vw,3.5rem)] leading-none tracking-tight text-[#1f2b27]" title={card.value}>{card.value}</p>
+                        <p className="text-[0.95rem] leading-snug text-[#6f776f] md:text-base" title={card.label}>{card.label}</p>
+                        <p className={getSnapshotValueClassName(card.value)} title={"valueTitle" in card ? card.valueTitle : card.value}>{card.value}</p>
                       </div>
                     ))}
                   </div>
