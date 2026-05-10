@@ -265,3 +265,5 @@
 - [x] Remove the 4 oz lids field from the opening inventory form because the shop does not stock 4 oz to-go lids
 - [x] Fix the sold-ounces reconciliation logic so flavor-level sold ounces only reflect valid cup-size totals and do not show impossible values like 3 oz
 - [x] Reformat the manager form-values section so 4 oz here/to-go share one row, 8 oz here/to-go share one row, and pint plus liter appear without invalid here fields
+- [x] Replace the redundant right-side daily formula card with a selected-date staffing activity summary showing who worked, check-in time, check-out time, and total hours
+- [x] Remove the separate staffing and payroll section from the manager dashboard once the selected-date staffing activity is shown in the top daily summary area

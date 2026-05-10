@@ -83,6 +83,41 @@ function formatTimeOnly(value: number | null | undefined) {
   }).format(new Date(value));
 }
 
+type DailyStaffActivityRowInput = {
+  staffName: string;
+  totalHoursToday: number;
+  todayEntries: Array<{
+    clockInAt: number;
+    clockOutAt: number | null;
+  }>;
+  activeEntry?: {
+    clockInAt: number;
+    clockOutAt: number | null;
+  } | null;
+};
+
+export function buildSelectedDayStaffActivityRows(staff: DailyStaffActivityRowInput[]) {
+  return staff
+    .map(member => {
+      const entries = [...(member.todayEntries ?? [])].sort((left, right) => left.clockInAt - right.clockInAt);
+      const firstClockIn = entries[0]?.clockInAt ?? member.activeEntry?.clockInAt ?? null;
+      const closedEntries = entries.filter(entry => entry.clockOutAt != null);
+      const lastClockOut = closedEntries.length > 0 ? closedEntries[closedEntries.length - 1]?.clockOutAt ?? null : null;
+      const hasWorked = entries.length > 0 || member.totalHoursToday > 0 || Boolean(member.activeEntry);
+
+      return {
+        staffName: member.staffName,
+        hasWorked,
+        checkInLabel: formatTimeOnly(firstClockIn),
+        checkOutLabel: member.activeEntry && member.activeEntry.clockOutAt == null ? "Open shift" : formatTimeOnly(lastClockOut),
+        totalHoursLabel: `${member.totalHoursToday.toFixed(2)} hrs`,
+        shiftCountLabel: `${entries.length} shift${entries.length === 1 ? "" : "s"}`,
+      };
+    })
+    .filter(member => member.hasWorked)
+    .sort((left, right) => left.staffName.localeCompare(right.staffName));
+}
+
 function addDaysToBusinessDate(dateString: string, dayOffset: number) {
   const [year, month, day] = dateString.split("-").map(Number);
   const utcMidday = new Date(Date.UTC(year, month - 1, day, 12));
@@ -524,13 +559,17 @@ export default function ManagerDashboard() {
   const closingChecklistQuery = trpc.dashboard.checklistQuestions.useQuery({ checklistType: "closing" }, { enabled: isAdmin, refetchOnWindowFocus: false });
   const notesQuery = trpc.dashboard.recentNotes.useQuery({ limit: 10 }, { enabled: isAdmin, refetchOnWindowFocus: false });
   const submissionHistoryQuery = trpc.dashboard.submissionHistory.useQuery({ businessDate: selectedDate }, { enabled: isAdmin, refetchOnWindowFocus: false });
+  const selectedDayStaffQuery = trpc.timeclock.todayStatus.useQuery(
+    { businessDate: selectedDate },
+    { enabled: isAdmin && isOverviewRoute, refetchOnWindowFocus: false }
+  );
   const payrollHoursQuery = trpc.timeclock.weeklyHours.useQuery(
     { startDate: hoursRangeStart, endDate: hoursRangeEnd },
-    { enabled: isAdmin, refetchOnWindowFocus: false }
+    { enabled: isAdmin && isTimeBookRoute, refetchOnWindowFocus: false }
   );
   const timeBookQuery = trpc.timeclock.timeBook.useQuery(
     { startDate: hoursRangeStart, endDate: hoursRangeEnd },
-    { enabled: isAdmin, refetchOnWindowFocus: false }
+    { enabled: isAdmin && isTimeBookRoute, refetchOnWindowFocus: false }
   );
 
   const saveInventoryMutation = trpc.dashboard.saveInventoryItem.useMutation({
@@ -626,6 +665,7 @@ export default function ManagerDashboard() {
 
   const submissionHistory = useMemo(() => (submissionHistoryQuery.data ?? []) as SubmissionHistoryEntryRecord[], [submissionHistoryQuery.data]);
   const flavorPhotoPreviewMap = useMemo(() => buildFlavorPhotoPreviewMap(submissionHistory), [submissionHistory]);
+  const selectedDayStaffRows = useMemo(() => buildSelectedDayStaffActivityRows(selectedDayStaffQuery.data?.staff ?? []), [selectedDayStaffQuery.data]);
   const payrollDateRange = useMemo(() => buildBusinessDateRange(hoursRangeStart, hoursRangeEnd), [hoursRangeStart, hoursRangeEnd]);
   const payrollSummary = payrollHoursQuery.data;
   const timeBook = timeBookQuery.data;
@@ -1129,142 +1169,53 @@ export default function ManagerDashboard() {
               <SurfaceCard>
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Daily formula</p>
-                    <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Opening − closing = distributed. Distributed − sold = difference.</h2>
-                    <p className="mt-3 text-sm leading-7 text-[#6b6258]">Goal: zero difference. The table below shows the flavor-by-flavor inventory picture clearly, while the packaging summary keeps cup, lid, and spoon variance visible.</p>
+                    <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Staff activity</p>
+                    <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Who worked on {selectedDate}</h2>
+                    <p className="mt-3 text-sm leading-7 text-[#6b6258]">This section only shows the selected day’s staffing activity, including first check-in, final check-out, and total hours worked.</p>
                   </div>
+                  <div className="rounded-full bg-[#f1e8da] px-4 py-2 text-sm text-[#566863]">{selectedDayStaffRows.length} staff worked</div>
                 </div>
-                <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-                  {[
-                    { label: "Opening", value: `${reconciliationSnapshot.gelato?.openingVolumeOunces.toFixed(2) ?? "0.00"} oz` },
-                    { label: "Closing", value: reconciliationSnapshot.gelato?.discrepancyLabel === AWAITING_CLOSING_FORM_LABEL ? AWAITING_CLOSING_TEXT : `${reconciliationSnapshot.gelato?.closingVolumeOunces.toFixed(2) ?? "0.00"} oz` },
-                    { label: "Distributed", value: reconciliationSnapshot.gelato?.discrepancyLabel === AWAITING_CLOSING_FORM_LABEL ? AWAITING_CLOSING_TEXT : `${reconciliationSnapshot.gelato?.distributedVolumeOunces.toFixed(2) ?? "0.00"} oz` },
-                    { label: "Sold", value: `${reconciliationSnapshot.gelato?.soldVolumeOunces.toFixed(2) ?? "0.00"} oz` },
-                    { label: "Difference", value: reconciliationSnapshot.gelato?.discrepancyLabel === AWAITING_CLOSING_FORM_LABEL ? AWAITING_CLOSING_TEXT : `${formatSignedValue(reconciliationSnapshot.gelato?.differenceVolumeOunces)} oz` },
-                  ].map(item => (
-                    <div key={item.label} className="rounded-2xl border border-[#e5ddd0] bg-[#fbf7f0] p-4 shadow-sm">
-                      <p className="text-xs uppercase tracking-[0.18em] text-[#8b9088]">{item.label}</p>
-                      <p className="mt-3 font-serif text-2xl text-[#1f2b27]">{item.value}</p>
+                <div className="mt-6 overflow-hidden rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6]">
+                  {selectedDayStaffQuery.isLoading ? (
+                    <div className="p-5">
+                      <StatePanel title="Loading selected-day staffing" description="Pulling who worked, their punch times, and total hours for the chosen business date." />
                     </div>
-                  ))}
-                </div>
-                <div className="mt-6 rounded-[1.5rem] border border-[#e5ddd0] bg-[#fbf7f0] p-4 text-sm leading-6 text-[#66706a]">
-                  {reconciliationSnapshot.gelato?.discrepancyLabel === AWAITING_CLOSING_FORM_LABEL
-                    ? "Opening gelato counts are saved. Closing ounces, distributed ounces, and variance will appear after a same-day closing form is submitted."
-                    : "Flavor-level sold ounces are estimated from each flavor's measured distributed share, then rounded into 2-ounce serving blocks so the table never shows impossible values like 3 oz while flavor-by-flavor sales tracking is still unavailable."}
+                  ) : selectedDayStaffQuery.error ? (
+                    <div className="p-5">
+                      <StatePanel title="Unable to load selected-day staffing" description="The staff activity summary could not be loaded right now." tone="error" />
+                    </div>
+                  ) : selectedDayStaffRows.length === 0 ? (
+                    <div className="p-5">
+                      <StatePanel title="No staff activity recorded for this day" description="When staff clock in and out on the selected business date, their activity will appear here automatically." tone="warning" />
+                    </div>
+                  ) : (
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-[#f4ede2] text-[#60706b]">
+                        <tr>
+                          <th className="px-4 py-3 font-medium">Staff</th>
+                          <th className="px-4 py-3 font-medium">Checked in</th>
+                          <th className="px-4 py-3 font-medium">Checked out</th>
+                          <th className="px-4 py-3 font-medium">Hours worked</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
+                        {selectedDayStaffRows.map(staffMember => (
+                          <tr key={staffMember.staffName}>
+                            <td className="px-4 py-3 font-medium">
+                              <div>{staffMember.staffName}</div>
+                              <div className="text-xs text-[#7d756b]">{staffMember.shiftCountLabel}</div>
+                            </td>
+                            <td className="px-4 py-3">{staffMember.checkInLabel}</td>
+                            <td className="px-4 py-3">{staffMember.checkOutLabel}</td>
+                            <td className="px-4 py-3 font-medium">{staffMember.totalHoursLabel}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               </SurfaceCard>
             </div>
-
-            <SurfaceCard>
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Payroll hours</p>
-                  <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Daily staff hours and payroll totals</h2>
-                  <p className="mt-3 max-w-3xl text-sm leading-7 text-[#6b6258]">Review each employee's daily hours across the selected date range, then use the totals tab for a cleaner payroll-ready weekly summary.</p>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2 lg:w-[360px]">
-                  <label className="flex flex-col gap-2 text-sm text-[#5f6a64]">
-                    <span className="text-xs uppercase tracking-[0.18em] text-[#8a9089]">Start date</span>
-                    <input
-                      type="date"
-                      value={hoursRangeStart}
-                      max={hoursRangeEnd}
-                      onChange={event => setHoursRangeStart(event.target.value > hoursRangeEnd ? hoursRangeEnd : event.target.value)}
-                      className={inventoryFieldClassName()}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-2 text-sm text-[#5f6a64]">
-                    <span className="text-xs uppercase tracking-[0.18em] text-[#8a9089]">End date</span>
-                    <input
-                      type="date"
-                      value={hoursRangeEnd}
-                      min={hoursRangeStart}
-                      max={maxBusinessDate}
-                      onChange={event => setHoursRangeEnd(event.target.value > maxBusinessDate ? maxBusinessDate : event.target.value)}
-                      className={inventoryFieldClassName()}
-                    />
-                  </label>
-                </div>
-              </div>
-              <Tabs defaultValue="daily" className="mt-6 w-full gap-4">
-                <TabsList className="h-auto w-full flex-wrap rounded-[1.25rem] border border-[#ddd4c7] bg-[#f4ede2] p-1.5">
-                  <TabsTrigger value="daily" className="rounded-[1rem] px-4 py-2 data-[state=active]:bg-white data-[state=active]:text-[#1f2b27]">Daily hours</TabsTrigger>
-                  <TabsTrigger value="totals" className="rounded-[1rem] px-4 py-2 data-[state=active]:bg-white data-[state=active]:text-[#1f2b27]">Payroll totals</TabsTrigger>
-                </TabsList>
-                <TabsContent value="daily" className="mt-4 overflow-hidden rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6]">
-                  {payrollHoursQuery.isLoading ? (
-                    <div className="p-5">
-                      <StatePanel title="Loading payroll hours" description="Gathering the selected date range of sign-in and sign-out records." />
-                    </div>
-                  ) : payrollHoursQuery.error ? (
-                    <div className="p-5">
-                      <StatePanel title="Unable to load payroll hours" description="The staff attendance summary could not be loaded right now." tone="error" />
-                    </div>
-                  ) : !payrollSummary ? (
-                    <div className="p-5">
-                      <StatePanel title="No payroll data available" description="Attendance records will appear here once staff begin using the new time clock." tone="warning" />
-                    </div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full min-w-[880px] text-left text-sm">
-                        <thead className="bg-[#f4ede2] text-[#60706b]">
-                          <tr>
-                            <th className="px-4 py-3 font-medium">Staff</th>
-                            {payrollDateRange.map(date => (
-                              <th key={date} className="px-4 py-3 font-medium">{date.slice(5)}</th>
-                            ))}
-                            <th className="px-4 py-3 font-medium">Total</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
-                          {payrollSummary.staff.map(staffMember => (
-                            <tr key={staffMember.staffName}>
-                              <td className="px-4 py-3 font-medium">{staffMember.staffName}</td>
-                              {payrollDateRange.map(date => {
-                                const day = staffMember.dailyHours.find(entry => entry.businessDate === date);
-                                return (
-                                  <td key={`${staffMember.staffName}-${date}`} className="px-4 py-3">
-                                    <div className="font-medium">{day ? day.hours.toFixed(2) : "—"}</div>
-                                    <div className="text-xs text-[#7d756b]">{day ? `${day.shiftCount} shift${day.shiftCount === 1 ? "" : "s"}` : "No shifts"}</div>
-                                  </td>
-                                );
-                              })}
-                              <td className="px-4 py-3 font-medium">{staffMember.weeklyHours.toFixed(2)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </TabsContent>
-                <TabsContent value="totals" className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                  {payrollHoursQuery.isLoading ? (
-                    Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-32 animate-pulse rounded-[1.5rem] bg-[#f4ede2]" />)
-                  ) : payrollHoursQuery.error ? (
-                    <div className="md:col-span-2 xl:col-span-4">
-                      <StatePanel title="Unable to load payroll totals" description="The date-range totals are temporarily unavailable." tone="error" />
-                    </div>
-                  ) : !payrollSummary ? (
-                    <div className="md:col-span-2 xl:col-span-4">
-                      <StatePanel title="No payroll totals yet" description="Sign-in and sign-out records will create payroll totals automatically." tone="warning" />
-                    </div>
-                  ) : (
-                    payrollSummary.staff.map(staffMember => (
-                      <article key={staffMember.staffName} className="rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6] p-5 shadow-sm">
-                        <p className="text-xs uppercase tracking-[0.18em] text-[#8a9089]">{staffMember.staffName}</p>
-                        <p className="mt-3 font-serif text-3xl text-[#1f2b27]">{staffMember.weeklyHours.toFixed(2)} hrs</p>
-                        <div className="mt-4 space-y-2 text-sm text-[#5f6a64]">
-                          <p>{staffMember.totalShiftCount} recorded shift{staffMember.totalShiftCount === 1 ? "" : "s"}</p>
-                          <p>{staffMember.openShiftCount} open shift{staffMember.openShiftCount === 1 ? "" : "s"}</p>
-                          <p>{payrollSummary.startDate} → {payrollSummary.endDate}</p>
-                        </div>
-                      </article>
-                    ))
-                  )}
-                </TabsContent>
-              </Tabs>
-            </SurfaceCard>
 
             <SurfaceCard>
               <div className="flex items-center justify-between gap-4">

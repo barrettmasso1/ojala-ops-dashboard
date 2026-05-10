@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   allocateEstimatedFlavorSoldOunces,
   buildFlavorPhotoPreviewMap,
+  buildSelectedDayStaffActivityRows,
   buildSubmissionFormValueRows,
   getCompactSnapshotName,
   getSnapshotValueClassName,
@@ -105,5 +106,37 @@ describe("manager dashboard layout helpers", () => {
       { key: "cupsPint", label: "Cups Pint", value: "3" },
       { key: "cupsLiter", label: "Cups Liter", value: "1" },
     ]);
+  });
+
+  it("builds selected-day staffing rows only for team members who actually worked the chosen day", () => {
+    const rows = buildSelectedDayStaffActivityRows([
+      {
+        staffName: "Karol",
+        totalHoursToday: 7.5,
+        todayEntries: [{ clockInAt: Date.parse("2026-05-10T16:00:00.000Z"), clockOutAt: Date.parse("2026-05-10T23:30:00.000Z") }],
+        activeEntry: null,
+      },
+      {
+        staffName: "Anhec",
+        totalHoursToday: 0,
+        todayEntries: [],
+        activeEntry: null,
+      },
+      {
+        staffName: "Esme",
+        totalHoursToday: 2,
+        todayEntries: [{ clockInAt: Date.parse("2026-05-10T19:00:00.000Z"), clockOutAt: null }],
+        activeEntry: { clockInAt: Date.parse("2026-05-10T19:00:00.000Z"), clockOutAt: null },
+      },
+    ]);
+
+    expect(rows.map(row => row.staffName)).toEqual(["Esme", "Karol"]);
+    expect(rows[0]).toMatchObject({
+      checkOutLabel: "Open shift",
+      totalHoursLabel: "2.00 hrs",
+      shiftCountLabel: "1 shift",
+    });
+    expect(rows[1].checkInLabel).not.toBe("—");
+    expect(rows[1].checkOutLabel).not.toBe("—");
   });
 });
