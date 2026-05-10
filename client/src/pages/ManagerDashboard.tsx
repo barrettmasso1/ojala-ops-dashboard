@@ -628,7 +628,7 @@ export default function ManagerDashboard() {
           ]
         : isHistoryRoute
           ? [
-              { label: "Submissions on selected day", value: submissionHistory.length.toString(), helper: "Opening, closing, and inventory history records available for review." },
+              { label: "Submissions", value: submissionHistory.length.toString(), helper: "Opening, closing, and inventory history records available for review." },
               { label: "Photo uploads", value: submissionHistory.reduce((sum, entry) => sum + (entry.payload.analyzedPhotos?.length ?? 0), 0).toString(), helper: "Submitted gelato evidence saved with those records." },
               { label: "Latest submission", value: latestSubmissionDisplayName, helper: "Most recent staff member recorded on the selected date.", valueTitle: latestSubmissionFullName },
             ]
@@ -715,10 +715,10 @@ export default function ManagerDashboard() {
                         : `Manager workspace filtered by ${selectedDate}.`}
                   </span>
                 </div>
-                <div className="w-fit min-w-[15.5rem] rounded-[1.75rem] border border-[#ded5c8] bg-white/80 px-5 py-3 text-sm text-[#4f5b55] shadow-sm md:min-w-max">
-                  <p className="whitespace-nowrap text-[10px] uppercase tracking-[0.24em] text-[#8b9088]">Live Pacific time</p>
-                  <p className="mt-1 whitespace-nowrap font-medium text-[#24332f]">{currentPacificDateLabel}</p>
-                  <p className="mt-1 whitespace-nowrap text-base font-semibold tracking-[-0.02em] text-[#1f2b27]">{currentPacificTimeLabel}</p>
+                <div className="inline-flex shrink-0 flex-col whitespace-nowrap rounded-[1.75rem] border border-[#ded5c8] bg-white/80 px-6 py-3 text-sm text-[#4f5b55] shadow-sm">
+                  <p className="text-[10px] uppercase tracking-[0.24em] text-[#8b9088]">Live Pacific time</p>
+                  <p className="mt-1 font-medium text-[#24332f]">{currentPacificDateLabel}</p>
+                  <p className="mt-1 text-base font-semibold tracking-[-0.02em] text-[#1f2b27]">{currentPacificTimeLabel}</p>
                 </div>
               </div>
             </div>

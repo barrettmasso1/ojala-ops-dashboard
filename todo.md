@@ -255,3 +255,4 @@
 - [x] Change the photo-review default for two-pan gelato detections so staff start from one small pan and one large pan instead of two large pans
 - [x] Verify whether managers can already edit saved submissions and, if not, add a manager workflow to correct saved gelato entries such as pan setup and weights
 - [x] Refine the manager dashboard summary layout so long labels and names fit cleanly and the live Pacific time card expands to avoid awkward wrapping
+- [x] Shorten the history snapshot card label from "Submissions on selected day" to "Submissions" while finishing the no-wrap manager dashboard layout fix
