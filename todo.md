@@ -271,3 +271,6 @@
 - [x] Add a manager workflow to edit employee check-in and check-out times manually when punches are missed
 - [x] Add a manager workflow to correct incorrectly entered opening and closing form counts for cups, spoons, and related quantity fields
 - [x] Remove the nested scroll frame around the manager gelato flavor reconciliation list so rows and image previews flow in the main page without an inner scrolling region
+- [x] Fix the flavor reconciliation hover preview so it overlays above surrounding sections instead of rendering underneath lower page content
+- [x] Rebalance the flavor reconciliation table columns so spacing is more even across the row
+- [x] Simplify the flavor reconciliation section header by reducing it to a basic title and removing the goal badge

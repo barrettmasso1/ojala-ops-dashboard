@@ -541,9 +541,9 @@ function renderFlavorWeightCell(value: string, photo?: SubmissionHistoryPhoto) {
   }
 
   return (
-    <div className="group relative inline-flex">
+    <div className="group relative z-10 inline-flex">
       <span className="cursor-default border-b border-dashed border-[#cbbba6] text-[#24332f]">{value}</span>
-      <div className="pointer-events-none absolute left-1/2 top-full z-20 hidden w-[22rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-[1.35rem] border border-[#e5ddd0] bg-white p-4 shadow-xl group-hover:block">
+      <div className="pointer-events-none absolute left-1/2 top-[calc(100%+0.65rem)] z-[120] hidden w-[22rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-[1.35rem] border border-[#e5ddd0] bg-white p-4 shadow-2xl group-hover:block">
         <img src={photo.imageUrl} alt={`${photo.flavor} scale preview`} loading="lazy" decoding="async" className="h-56 w-full rounded-[1rem] bg-[#f6f1e8] object-contain" />
         <p className="mt-3 text-sm font-medium text-[#24332f]">{photo.fileName}</p>
         <p className="mt-1 text-xs leading-5 text-[#66706a]">{photo.flavor} · {photo.combinedGrossWeightKg.toFixed(3)} kg gross</p>
@@ -1395,13 +1395,10 @@ export default function ManagerDashboard() {
               </SurfaceCard>
             </div>
 
-            <SurfaceCard>
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Flavor reconciliation</p>
-                  <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Starting weight, ending weight, starting ounces, ending ounces, distributed ounces, sold ounces, and difference by flavor</h2>
-                </div>
-                <div className="rounded-full bg-[#f1e8da] px-4 py-2 text-sm text-[#566863]">Goal: 0.00 oz difference</div>
+            <SurfaceCard className="relative z-20 overflow-visible">
+              <div>
+                <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Flavor reconciliation</p>
+                <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Flavors</h2>
               </div>
               <div className="mt-6 rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6]">
                 {dailyQuery.isLoading ? (
@@ -1420,15 +1417,15 @@ export default function ManagerDashboard() {
                   <table className="w-full table-fixed text-left text-sm">
                     <thead className="bg-[#f4ede2] text-[#60706b]">
                       <tr>
-                        <th className="w-[16%] px-4 py-3 font-medium">Flavor</th>
+                        <th className="w-[17%] px-4 py-3 font-medium">Flavor</th>
                         <th className="w-[12%] px-4 py-3 font-medium">Starting weight</th>
                         <th className="w-[12%] px-4 py-3 font-medium">Ending weight</th>
                         <th className="w-[10%] px-4 py-3 font-medium">Starting oz</th>
                         <th className="w-[10%] px-4 py-3 font-medium">Ending oz</th>
                         <th className="w-[10%] px-4 py-3 font-medium">Distributed oz</th>
-                        <th className="w-[10%] px-4 py-3 font-medium">Sold oz</th>
-                        <th className="w-[10%] px-4 py-3 font-medium">Difference</th>
-                        <th className="w-[10%] px-4 py-3 font-medium">Status</th>
+                        <th className="w-[8%] px-4 py-3 font-medium">Sold oz</th>
+                        <th className="w-[13%] px-4 py-3 font-medium">Difference</th>
+                        <th className="w-[8%] px-4 py-3 font-medium">Status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
