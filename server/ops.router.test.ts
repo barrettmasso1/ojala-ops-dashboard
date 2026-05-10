@@ -23,9 +23,11 @@ const dbMocks = vi.hoisted(() => ({
   saveChecklistQuestion: vi.fn(),
   saveInventoryItem: vi.fn(),
   saveReadyMadeGelatoWeights: vi.fn(),
+  saveAttendanceEntry: vi.fn(),
   createSubmissionHistoryEntry: vi.fn(),
   listSubmissionHistoryEntries: vi.fn(),
   updateInventoryCount: vi.fn(),
+  updateSubmissionHistoryForm: vi.fn(),
   updateSubmissionHistoryGelato: vi.fn(),
   upsertUser: vi.fn(),
 }));
@@ -200,6 +202,56 @@ describe("operations router", () => {
       ]),
     });
     expect(dbMocks.getTodayAttendance).toHaveBeenCalledWith("2026-05-05");
+  });
+
+  it("lets admin users save a manual or corrected attendance entry while blocking non-admin staff", async () => {
+    dbMocks.saveAttendanceEntry.mockResolvedValue({
+      id: 91,
+      businessDate: "2026-05-09",
+      staffName: "Karol",
+      clockInAt: 1778338800000,
+      clockOutAt: 1778367600000,
+      submittedByUserId: 99,
+      createdAt: new Date("2026-05-09T16:00:00.000Z"),
+      updatedAt: new Date("2026-05-09T23:00:00.000Z"),
+    });
+
+    const adminCaller = appRouter.createCaller(createContext("admin"));
+    await expect(
+      adminCaller.timeclock.saveEntry({
+        entryId: 91,
+        staffName: "Karol",
+        businessDate: "2026-05-09",
+        clockInTime: "09:00",
+        clockOutTime: "17:00",
+      })
+    ).resolves.toEqual({
+      success: true,
+      entry: expect.objectContaining({
+        id: 91,
+        staffName: "Karol",
+        clockOutAt: 1778367600000,
+      }),
+    });
+
+    expect(dbMocks.saveAttendanceEntry).toHaveBeenCalledWith({
+      entryId: 91,
+      staffName: "Karol",
+      businessDate: "2026-05-09",
+      clockInAt: 1778342400000,
+      clockOutAt: 1778371200000,
+      submittedByUserId: 99,
+    });
+
+    const employeeCaller = appRouter.createCaller(createContext("user"));
+    await expect(
+      employeeCaller.timeclock.saveEntry({
+        staffName: "Karol",
+        businessDate: "2026-05-09",
+        clockInTime: "09:00",
+        clockOutTime: "17:00",
+      })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("lets admin users load payroll hours while blocking non-admin staff from the summary", async () => {
@@ -714,6 +766,58 @@ describe("operations router", () => {
 
     const employeeCaller = appRouter.createCaller(createContext("user"));
     await expect(employeeCaller.dashboard.submissionHistory({ businessDate: "2026-04-29" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("allows admin users to overwrite saved form values for a historical submission", async () => {
+    dbMocks.updateSubmissionHistoryForm.mockResolvedValue({
+      id: 811,
+      businessDate: "2026-05-09",
+      submissionType: "closing",
+      staffName: "Karol",
+      payloadJson: JSON.stringify({
+        form: {
+          cups4ozHere: 10,
+          cups4ozToGo: 2,
+        },
+      }),
+      submittedByUserId: 99,
+      createdAt: new Date("2026-05-10T05:00:00.000Z"),
+      updatedAt: new Date("2026-05-10T05:30:00.000Z"),
+    });
+
+    const adminCaller = appRouter.createCaller(createContext("admin"));
+    await expect(
+      adminCaller.dashboard.updateSubmissionForm({
+        entryId: 811,
+        form: {
+          cups4ozHere: 10,
+          cups4ozToGo: 2,
+        },
+      })
+    ).resolves.toEqual({
+      success: true,
+      entry: expect.objectContaining({ id: 811, staffName: "Karol" }),
+    });
+
+    expect(dbMocks.updateSubmissionHistoryForm).toHaveBeenCalledWith({
+      entryId: 811,
+      form: {
+        cups4ozHere: 10,
+        cups4ozToGo: 2,
+      },
+      submittedByUserId: 99,
+    });
+
+    const employeeCaller = appRouter.createCaller(createContext("user"));
+    await expect(
+      employeeCaller.dashboard.updateSubmissionForm({
+        entryId: 811,
+        form: {
+          cups4ozHere: 10,
+          cups4ozToGo: 2,
+        },
+      })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("allows admin users to overwrite saved gelato rows for a historical submission", async () => {

@@ -5,8 +5,10 @@ import {
   buildFlavorPhotoPreviewMap,
   buildSelectedDayStaffActivityRows,
   buildSubmissionFormValueRows,
+  createSubmissionFormEditorFields,
   getCompactSnapshotName,
   getSnapshotValueClassName,
+  rebuildSubmissionFormFromEditor,
 } from "./ManagerDashboard";
 
 describe("manager dashboard layout helpers", () => {
@@ -106,6 +108,51 @@ describe("manager dashboard layout helpers", () => {
       { key: "cupsPint", label: "Cups Pint", value: "3" },
       { key: "cupsLiter", label: "Cups Liter", value: "1" },
     ]);
+  });
+
+  it("builds editable form fields from opening stock counts so managers can correct saved count entries", () => {
+    const fields = createSubmissionFormEditorFields({
+      businessDate: "2026-05-09",
+      staffName: "Karol Mendez",
+      startingCash: 420,
+      cashCountedAndCorrect: "Yes",
+      stockCounts: {
+        cups4oz: 12,
+        cups8oz: 22,
+        spoons: 150,
+      },
+    });
+
+    expect(fields.find(field => field.key === "businessDate")).toBeUndefined();
+    expect(fields.find(field => field.key === "cups4oz")).toMatchObject({ value: "12", kind: "number" });
+    expect(fields.find(field => field.key === "cashCountedAndCorrect")).toMatchObject({ value: "Yes", kind: "yesno" });
+  });
+
+  it("rebuilds corrected form values back into the stored opening payload shape", () => {
+    const originalForm = {
+      businessDate: "2026-05-09",
+      staffName: "Karol Mendez",
+      stockCounts: {
+        cups4oz: 12,
+        cups8oz: 22,
+        spoons: 150,
+      },
+    };
+
+    const updatedForm = rebuildSubmissionFormFromEditor(originalForm, [
+      { key: "staffName", label: "Staff Name", value: "Karol", kind: "text" },
+      { key: "cups4oz", label: "Cups4oz", value: "18", kind: "number" },
+      { key: "spoons", label: "Spoons", value: "175", kind: "number" },
+    ]);
+
+    expect(updatedForm).toMatchObject({
+      staffName: "Karol",
+      stockCounts: {
+        cups4oz: 18,
+        cups8oz: 22,
+        spoons: 175,
+      },
+    });
   });
 
   it("builds selected-day staffing rows only for team members who actually worked the chosen day", () => {

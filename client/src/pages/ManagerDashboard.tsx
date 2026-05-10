@@ -16,7 +16,7 @@ import {
   PackagePlus,
   Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -269,12 +269,115 @@ type SubmissionFormValueField = {
   value: string;
 };
 
-export function buildSubmissionFormValueRows(form: Record<string, unknown>) {
+type SubmissionFormEditorField = SubmissionFormValueField & {
+  kind: "number" | "text" | "yesno";
+};
+
+type AttendanceEditorState = {
+  entryId?: number;
+  staffName: string;
+  businessDate: string;
+  clockInTime: string;
+  clockOutTime: string;
+};
+
+const nestedOpeningStockCountKeys = new Set(["cups4oz", "cups8oz", "cupsPint", "cupsLiter", "lids4oz", "lids8oz", "lidsPint", "lidsLiter", "spoons"]);
+const numericSubmissionFormKeys = new Set([
+  "startingCash",
+  "cashCounted",
+  "cashTotal",
+  "cardTotal",
+  "zelleTotal",
+  "venmoTotal",
+  "cups4ozHere",
+  "cups4ozToGo",
+  "cups8ozHere",
+  "cups8ozToGo",
+  "cupsPint",
+  "cupsPintHere",
+  "cupsPintToGo",
+  "cupsLiter",
+  "cupsLiterHere",
+  "cupsLiterToGo",
+  "cups4oz",
+  "cups8oz",
+  "lids4oz",
+  "lids8oz",
+  "lidsPint",
+  "lidsLiter",
+  "spoons",
+]);
+
+function getSubmissionFormPrimitiveEntries(form: Record<string, unknown>) {
   const primitiveEntries = Object.entries(form).filter(([, value]) => typeof value !== "object");
+  const stockCounts = form.stockCounts;
+
+  if (stockCounts && typeof stockCounts === "object" && !Array.isArray(stockCounts)) {
+    Object.entries(stockCounts).forEach(([key, value]) => {
+      if (typeof value === "object") return;
+      primitiveEntries.push([key, value]);
+    });
+  }
+
+  return primitiveEntries;
+}
+
+export function createSubmissionFormEditorFields(form: Record<string, unknown>) {
+  return getSubmissionFormPrimitiveEntries(form)
+    .filter(([key]) => key !== "businessDate")
+    .map(([key, value]) => ({
+      key,
+      label: formatFieldLabel(key),
+      value: value == null ? "" : String(value),
+      kind: value === "Yes" || value === "No" ? "yesno" : numericSubmissionFormKeys.has(key) ? "number" : "text",
+    })) satisfies SubmissionFormEditorField[];
+}
+
+export function rebuildSubmissionFormFromEditor(form: Record<string, unknown>, editorFields: SubmissionFormEditorField[]) {
+  const nextForm: Record<string, unknown> = { ...form };
+  const nextStockCounts = form.stockCounts && typeof form.stockCounts === "object" && !Array.isArray(form.stockCounts)
+    ? { ...(form.stockCounts as Record<string, unknown>) }
+    : {};
+
+  editorFields.forEach(field => {
+    const normalizedValue = field.kind === "number"
+      ? Number(field.value || 0)
+      : field.kind === "yesno"
+        ? (field.value === "Yes" ? "Yes" : "No")
+        : field.value;
+
+    if (nestedOpeningStockCountKeys.has(field.key)) {
+      nextStockCounts[field.key] = Number.isFinite(Number(normalizedValue)) ? Number(normalizedValue) : 0;
+      return;
+    }
+
+    nextForm[field.key] = normalizedValue;
+  });
+
+  if (Object.keys(nextStockCounts).length > 0) {
+    nextForm.stockCounts = nextStockCounts;
+  }
+
+  return nextForm;
+}
+
+function buildTimeInputValue(value: number | null | undefined) {
+  if (value == null) return "";
+  return new Intl.DateTimeFormat("en-CA", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone: "America/Los_Angeles",
+  }).format(new Date(value));
+}
+
+export function buildSubmissionFormValueRows(form: Record<string, unknown>) {
+  const primitiveEntries = getSubmissionFormPrimitiveEntries(form);
   const valueByKey = new Map(primitiveEntries);
   const consumedKeys = new Set<string>();
   const rows: SubmissionFormValueField[][] = [];
   const hasClosingCupBreakdown = valueByKey.has("cups4ozHere") || valueByKey.has("cups4ozToGo") || valueByKey.has("cups8ozHere") || valueByKey.has("cups8ozToGo");
+  const hasOpeningStockCounts = ["cups4oz", "cups8oz", "cupsPint", "cupsLiter", "lids8oz", "lidsPint", "lidsLiter", "spoons"].some(key => valueByKey.has(key));
 
   const addRow = (keys: string[]) => {
     const row = keys
@@ -291,17 +394,6 @@ export function buildSubmissionFormValueRows(form: Record<string, unknown>) {
     if (row.length > 0) {
       rows.push(row);
     }
-  };
-
-  const addCombinedRow = (key: string, label: string, value: unknown) => {
-    consumedKeys.add(key);
-    rows.push([
-      {
-        key,
-        label,
-        value: toDisplayString(value),
-      },
-    ]);
   };
 
   if (hasClosingCupBreakdown) {
@@ -337,6 +429,15 @@ export function buildSubmissionFormValueRows(form: Record<string, unknown>) {
     addRow(["cardTotal", "zelleTotal"]);
     addRow(["venmoTotal", "wasteNotes"]);
     addRow(["lowItemNotes", "generalNotes"]);
+  } else if (hasOpeningStockCounts) {
+    addRow(["businessDate", "staffName"]);
+    addRow(["startingCash", "cashCountedAndCorrect"]);
+    addRow(["storeReadyToOpen", "notes"]);
+    addRow(["cups4oz", "cups8oz"]);
+    addRow(["cupsPint", "cupsLiter"]);
+    addRow(["lids8oz", "lidsPint"]);
+    addRow(["lidsLiter", "spoons"]);
+    consumedKeys.add("lids4oz");
   }
 
   primitiveEntries.forEach(([key, value]) => {
@@ -513,6 +614,9 @@ export default function ManagerDashboard() {
   const [editingSubmissionMode, setEditingSubmissionMode] = useState<SubmissionEditMode | null>(null);
   const [submissionGelatoEditorRows, setSubmissionGelatoEditorRows] = useState<SubmissionGelatoEditorRow[]>([]);
   const [submissionPhotoEditorRows, setSubmissionPhotoEditorRows] = useState<SubmissionPhotoEditorRow[]>([]);
+  const [editingSubmissionFormId, setEditingSubmissionFormId] = useState<number | null>(null);
+  const [submissionFormEditorFields, setSubmissionFormEditorFields] = useState<SubmissionFormEditorField[]>([]);
+  const [attendanceEditor, setAttendanceEditor] = useState<AttendanceEditorState | null>(null);
 
   const isAdmin = user?.role === "admin";
   const maxBusinessDate = todayValue();
@@ -647,6 +751,32 @@ export default function ManagerDashboard() {
     onError: error => toast.error(error.message),
   });
 
+  const updateSubmissionFormMutation = trpc.dashboard.updateSubmissionForm.useMutation({
+    onSuccess: async () => {
+      toast.success("Saved form values updated.");
+      setEditingSubmissionFormId(null);
+      setSubmissionFormEditorFields([]);
+      await Promise.all([
+        utils.dashboard.submissionHistory.invalidate({ businessDate: selectedDate }),
+        utils.dashboard.daily.invalidate({ businessDate: selectedDate }),
+      ]);
+    },
+    onError: error => toast.error(error.message),
+  });
+
+  const saveAttendanceEntryMutation = trpc.timeclock.saveEntry.useMutation({
+    onSuccess: async () => {
+      toast.success("Attendance entry saved.");
+      setAttendanceEditor(null);
+      await Promise.all([
+        utils.timeclock.timeBook.invalidate({ startDate: hoursRangeStart, endDate: hoursRangeEnd }),
+        utils.timeclock.weeklyHours.invalidate({ startDate: hoursRangeStart, endDate: hoursRangeEnd }),
+        utils.timeclock.todayStatus.invalidate({ businessDate: selectedDate }),
+      ]);
+    },
+    onError: error => toast.error(error.message),
+  });
+
   const recentNotes = useMemo(
     () =>
       (notesQuery.data ?? []).filter(
@@ -683,6 +813,28 @@ export default function ManagerDashboard() {
     setEditingSubmissionMode(null);
     setSubmissionGelatoEditorRows([]);
     setSubmissionPhotoEditorRows([]);
+  }
+
+  function startSubmissionFormEdit(entry: SubmissionHistoryEntryRecord) {
+    setEditingSubmissionFormId(entry.id);
+    setSubmissionFormEditorFields(createSubmissionFormEditorFields(entry.payload.form ?? {}));
+  }
+
+  function cancelSubmissionFormEdit() {
+    setEditingSubmissionFormId(null);
+    setSubmissionFormEditorFields([]);
+  }
+
+  function updateSubmissionFormEditorField(index: number, value: string) {
+    setSubmissionFormEditorFields(current => current.map((field, fieldIndex) => (fieldIndex === index ? { ...field, value } : field)));
+  }
+
+  function startAttendanceEdit(input: AttendanceEditorState) {
+    setAttendanceEditor(input);
+  }
+
+  function cancelAttendanceEdit() {
+    setAttendanceEditor(null);
   }
 
   function updateSubmissionGelatoEditorRow(index: number, field: keyof SubmissionGelatoEditorRow, value: string) {
@@ -824,6 +976,32 @@ export default function ManagerDashboard() {
       entryId: editingSubmissionId,
       gelatoEntryMode: "manual",
       gelatoEntries: cleanedEntries,
+    });
+  }
+
+  async function saveSubmissionFormEdits() {
+    if (!editingSubmissionFormId) return;
+    const currentEntry = submissionHistory.find(entry => entry.id === editingSubmissionFormId);
+    if (!currentEntry?.payload.form) return;
+
+    await updateSubmissionFormMutation.mutateAsync({
+      entryId: editingSubmissionFormId,
+      form: rebuildSubmissionFormFromEditor(currentEntry.payload.form, submissionFormEditorFields),
+    });
+  }
+
+  async function saveAttendanceEdits() {
+    if (!attendanceEditor || !attendanceEditor.clockInTime) {
+      toast.error("Enter a valid check-in time before saving.");
+      return;
+    }
+
+    await saveAttendanceEntryMutation.mutateAsync({
+      entryId: attendanceEditor.entryId,
+      staffName: attendanceEditor.staffName as "Karol" | "Anhec" | "Jesse" | "Esme",
+      businessDate: attendanceEditor.businessDate,
+      clockInTime: attendanceEditor.clockInTime,
+      clockOutTime: attendanceEditor.clockOutTime || null,
     });
   }
 
@@ -1346,103 +1524,61 @@ export default function ManagerDashboard() {
         ) : null}
 
         {isTimeBookRoute ? (
-          <>
-            <SurfaceCard>
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Daily totals</p>
-                  <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Hours worked by day across the selected payroll period</h2>
-                  <p className="mt-3 max-w-3xl text-sm leading-7 text-[#6b6258]">Use the calendar range above to review any period, while the default payroll view begins on Sunday and rolls forward through Saturday.</p>
-                </div>
-                <div className="rounded-[1.5rem] border border-[#e3d8ca] bg-[#fbf7f0] px-4 py-3 text-sm text-[#68716c]">
-                  {timeBookQuery.isLoading ? "Loading attendance totals…" : `${timeBook?.dailyTotals.length ?? 0} day records in range.`}
-                </div>
+          <SurfaceCard>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Punch logs</p>
+                <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Manager-corrected sign-in, sign-out, and hours worked</h2>
+                <p className="mt-3 max-w-3xl text-sm leading-7 text-[#66706a]">Review the selected payroll range, then edit a missed punch or add a manual shift directly inside each staff member’s daily log.</p>
               </div>
-              <div className="mt-6 overflow-hidden rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6]">
-                {timeBookQuery.isLoading ? (
-                  <div className="p-5">
-                    <StatePanel title="Loading daily attendance totals" description="Gathering clock-ins, clock-outs, and payroll totals for the selected period." />
-                  </div>
-                ) : timeBookQuery.error ? (
-                  <div className="p-5">
-                    <StatePanel title="Unable to load the Time Book" description="Attendance totals could not be loaded right now." tone="error" />
-                  </div>
-                ) : !timeBook || timeBook.dailyTotals.length === 0 ? (
-                  <div className="p-5">
-                    <StatePanel title="No attendance records in this range" description="When staff sign in and out, each day's totals will appear here automatically." tone="warning" />
-                  </div>
-                ) : (
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-[#f4ede2] text-[#60706b]">
-                      <tr>
-                        <th className="px-4 py-3 font-medium">Date</th>
-                        <th className="px-4 py-3 font-medium">Total hours</th>
-                        <th className="px-4 py-3 font-medium">Shifts</th>
-                        <th className="px-4 py-3 font-medium">Open shifts</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
-                      {timeBook.dailyTotals.map(day => (
-                        <tr key={day.businessDate}>
-                          <td className="px-4 py-3 font-medium">{day.businessDate}</td>
-                          <td className="px-4 py-3">{day.totalHours.toFixed(2)}</td>
-                          <td className="px-4 py-3">{day.shiftCount}</td>
-                          <td className="px-4 py-3">{day.openShiftCount}</td>
-                        </tr>
-                      ))}
-                      <tr className="bg-[#f8f2e8] font-medium">
-                        <td className="px-4 py-3">Total</td>
-                        <td className="px-4 py-3">{timeBook.totalHours.toFixed(2)}</td>
-                        <td className="px-4 py-3">{timeBook.totalShiftCount}</td>
-                        <td className="px-4 py-3">{timeBook.openShiftCount}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                )}
+              <div className="rounded-[1.5rem] border border-[#e3d8ca] bg-[#fbf7f0] px-4 py-3 text-sm text-[#68716c]">
+                {timeBookQuery.isLoading ? "Loading punch logs…" : `${timeBook?.dailyTotals.length ?? 0} day records in range.`}
               </div>
-            </SurfaceCard>
-
-            <SurfaceCard>
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Punch logs</p>
-                  <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Sign-in time, sign-out time, and hours worked for each day</h2>
+            </div>
+            <div className="mt-6 grid gap-5 xl:grid-cols-2">
+              {timeBookQuery.isLoading ? (
+                Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-40 animate-pulse rounded-[1.6rem] bg-[#f4ede2]" />)
+              ) : timeBookQuery.error ? (
+                <div className="xl:col-span-2">
+                  <StatePanel title="Unable to load punch logs" description="The detailed attendance log is temporarily unavailable." tone="error" />
                 </div>
-                <div className="rounded-full bg-[#f1e8da] px-4 py-2 text-sm text-[#566863]">Work week: Sunday → Saturday</div>
-              </div>
-              <div className="mt-6 grid gap-5 xl:grid-cols-2">
-                {timeBookQuery.isLoading ? (
-                  Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-40 animate-pulse rounded-[1.6rem] bg-[#f4ede2]" />)
-                ) : timeBookQuery.error ? (
-                  <div className="xl:col-span-2">
-                    <StatePanel title="Unable to load punch logs" description="The detailed attendance log is temporarily unavailable." tone="error" />
-                  </div>
-                ) : !timeBook ? (
-                  <div className="xl:col-span-2">
-                    <StatePanel title="No attendance summary available" description="Select a date range or wait for staff punches to begin appearing here." tone="warning" />
-                  </div>
-                ) : (
-                  timeBook.staff.map(staffMember => (
-                    <article key={staffMember.staffName} className="rounded-[1.6rem] border border-[#e4dccf] bg-[#fcfaf6] p-5 shadow-sm">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="text-xs uppercase tracking-[0.18em] text-[#8a9089]">{staffMember.staffName}</p>
-                          <h3 className="mt-2 font-serif text-3xl text-[#1f2b27]">{staffMember.totalHours.toFixed(2)} hrs</h3>
-                          <p className="mt-2 text-sm text-[#66706a]">{staffMember.totalShiftCount} shift{staffMember.totalShiftCount === 1 ? "" : "s"} recorded · {staffMember.openShiftCount} open</p>
-                        </div>
+              ) : !timeBook ? (
+                <div className="xl:col-span-2">
+                  <StatePanel title="No attendance summary available" description="Select a date range or wait for staff punches to begin appearing here." tone="warning" />
+                </div>
+              ) : (
+                timeBook.staff.map(staffMember => (
+                  <article key={staffMember.staffName} className="rounded-[1.6rem] border border-[#e4dccf] bg-[#fcfaf6] p-5 shadow-sm">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.18em] text-[#8a9089]">{staffMember.staffName}</p>
+                        <h3 className="mt-2 font-serif text-3xl text-[#1f2b27]">{staffMember.totalHours.toFixed(2)} hrs</h3>
+                        <p className="mt-2 text-sm text-[#66706a]">{staffMember.totalShiftCount} shift{staffMember.totalShiftCount === 1 ? "" : "s"} recorded · {staffMember.openShiftCount} open</p>
                       </div>
-                      <div className="mt-5 space-y-4">
-                        {staffMember.dailyLogs.length === 0 ? (
-                          <StatePanel title="No punches in this range" description="This staff member has no clock-in records for the selected period." tone="warning" />
-                        ) : (
-                          staffMember.dailyLogs.map(day => (
+                    </div>
+                    <div className="mt-5 space-y-4">
+                      {staffMember.dailyLogs.length === 0 ? (
+                        <StatePanel title="No punches in this range" description="This staff member has no clock-in records for the selected period." tone="warning" />
+                      ) : (
+                        staffMember.dailyLogs.map(day => {
+                          const isAddingManualShift = attendanceEditor?.entryId == null && attendanceEditor?.staffName === staffMember.staffName && attendanceEditor?.businessDate === day.businessDate;
+                          return (
                             <div key={`${staffMember.staffName}-${day.businessDate}`} className="rounded-[1.35rem] border border-[#e4dccf] bg-white/90 p-4">
-                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                 <div>
                                   <p className="text-xs uppercase tracking-[0.2em] text-[#8a9089]">{day.businessDate}</p>
                                   <p className="mt-1 text-sm text-[#66706a]">{day.shiftCount} shift{day.shiftCount === 1 ? "" : "s"} · {day.openShiftCount} open</p>
                                 </div>
-                                <div className="rounded-full bg-[#f1e8da] px-3 py-2 text-sm font-medium text-[#43554f]">{day.totalHours.toFixed(2)} hrs</div>
+                                <div className="flex flex-wrap items-center gap-3">
+                                  <div className="rounded-full bg-[#f1e8da] px-3 py-2 text-sm font-medium text-[#43554f]">{day.totalHours.toFixed(2)} hrs</div>
+                                  <button
+                                    type="button"
+                                    onClick={() => startAttendanceEdit({ entryId: undefined, staffName: staffMember.staffName, businessDate: day.businessDate, clockInTime: "09:00", clockOutTime: "17:00" })}
+                                    className="rounded-full border border-[#d7cec0] bg-white/90 px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-[#31423d] shadow-sm transition hover:bg-white"
+                                  >
+                                    Add manual shift
+                                  </button>
+                                </div>
                               </div>
                               <div className="mt-4 overflow-hidden rounded-[1.1rem] border border-[#ebe2d6] bg-[#fbf7f0]">
                                 <table className="w-full text-left text-sm">
@@ -1451,29 +1587,74 @@ export default function ManagerDashboard() {
                                       <th className="px-4 py-3 font-medium">Sign in</th>
                                       <th className="px-4 py-3 font-medium">Sign out</th>
                                       <th className="px-4 py-3 font-medium">Hours</th>
+                                      <th className="px-4 py-3 font-medium">Actions</th>
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
-                                    {day.entries.map(entry => (
-                                      <tr key={entry.id}>
-                                        <td className="px-4 py-3">{formatTimeOnly(entry.clockInAt)}</td>
-                                        <td className="px-4 py-3">{formatTimeOnly(entry.clockOutAt)}</td>
-                                        <td className="px-4 py-3">{entry.hoursWorked.toFixed(2)}</td>
+                                    {day.entries.map(entry => {
+                                      const isEditingEntry = attendanceEditor?.entryId === entry.id;
+                                      return (
+                                        <Fragment key={entry.id}>
+                                          <tr>
+                                            <td className="px-4 py-3">{formatTimeOnly(entry.clockInAt)}</td>
+                                            <td className="px-4 py-3">{formatTimeOnly(entry.clockOutAt)}</td>
+                                            <td className="px-4 py-3">{entry.hoursWorked.toFixed(2)}</td>
+                                            <td className="px-4 py-3">
+                                              <button
+                                                type="button"
+                                                onClick={() => startAttendanceEdit({ entryId: entry.id, staffName: staffMember.staffName, businessDate: day.businessDate, clockInTime: buildTimeInputValue(entry.clockInAt), clockOutTime: buildTimeInputValue(entry.clockOutAt) })}
+                                                className="rounded-full border border-[#d7cec0] bg-white/90 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-[#31423d] shadow-sm transition hover:bg-white"
+                                              >
+                                                Edit punch
+                                              </button>
+                                            </td>
+                                          </tr>
+                                          {isEditingEntry ? (
+                                            <tr className="bg-white/80">
+                                              <td className="px-4 py-3">
+                                                <input className={`${inventoryFieldClassName()} h-11 w-full`} type="time" value={attendanceEditor.clockInTime} onChange={event => setAttendanceEditor(current => current ? { ...current, clockInTime: event.target.value } : current)} />
+                                              </td>
+                                              <td className="px-4 py-3">
+                                                <input className={`${inventoryFieldClassName()} h-11 w-full`} type="time" value={attendanceEditor.clockOutTime} onChange={event => setAttendanceEditor(current => current ? { ...current, clockOutTime: event.target.value } : current)} />
+                                              </td>
+                                              <td className="px-4 py-3 text-xs leading-6 text-[#66706a]">Leave sign-out blank only when the shift should stay open.</td>
+                                              <td className="px-4 py-3">
+                                                <div className="flex flex-col gap-2 sm:flex-row">
+                                                  <button type="button" onClick={saveAttendanceEdits} disabled={saveAttendanceEntryMutation.isPending} className="rounded-full bg-[#24332f] px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-white transition hover:bg-[#1d2925] disabled:cursor-not-allowed disabled:opacity-60">Save</button>
+                                                  <button type="button" onClick={cancelAttendanceEdit} className="rounded-full border border-[#d7cec0] bg-white/90 px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-[#31423d] shadow-sm transition hover:bg-white">Cancel</button>
+                                                </div>
+                                              </td>
+                                            </tr>
+                                          ) : null}
+                                        </Fragment>
+                                      );
+                                    })}
+                                    {isAddingManualShift ? (
+                                      <tr className="bg-white/80">
+                                        <td className="px-4 py-3"><input className={`${inventoryFieldClassName()} h-11 w-full`} type="time" value={attendanceEditor.clockInTime} onChange={event => setAttendanceEditor(current => current ? { ...current, clockInTime: event.target.value } : current)} /></td>
+                                        <td className="px-4 py-3"><input className={`${inventoryFieldClassName()} h-11 w-full`} type="time" value={attendanceEditor.clockOutTime} onChange={event => setAttendanceEditor(current => current ? { ...current, clockOutTime: event.target.value } : current)} /></td>
+                                        <td className="px-4 py-3 text-xs leading-6 text-[#66706a]">Create a manual shift for this business date when both punches were missed.</td>
+                                        <td className="px-4 py-3">
+                                          <div className="flex flex-col gap-2 sm:flex-row">
+                                            <button type="button" onClick={saveAttendanceEdits} disabled={saveAttendanceEntryMutation.isPending} className="rounded-full bg-[#24332f] px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-white transition hover:bg-[#1d2925] disabled:cursor-not-allowed disabled:opacity-60">Save</button>
+                                            <button type="button" onClick={cancelAttendanceEdit} className="rounded-full border border-[#d7cec0] bg-white/90 px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-[#31423d] shadow-sm transition hover:bg-white">Cancel</button>
+                                          </div>
+                                        </td>
                                       </tr>
-                                    ))}
+                                    ) : null}
                                   </tbody>
                                 </table>
                               </div>
                             </div>
-                          ))
-                        )}
-                      </div>
-                    </article>
-                  ))
-                )}
-              </div>
-            </SurfaceCard>
-          </>
+                          );
+                        })
+                      )}
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+          </SurfaceCard>
         ) : null}
 
         {isInventoryWorkspaceRoute ? (
@@ -2110,6 +2291,15 @@ export default function ManagerDashboard() {
                           <div className="rounded-[1.2rem] border border-[#e4dccf] bg-white/90 px-4 py-3 text-sm text-[#52665f]">
                             {entry.payload.gelatoEntryMode ? `Gelato entry: ${entry.payload.gelatoEntryMode}` : "Manual form record"}
                           </div>
+                          {entry.payload.form ? (
+                            <button
+                              type="button"
+                              onClick={() => editingSubmissionFormId === entry.id ? cancelSubmissionFormEdit() : startSubmissionFormEdit(entry)}
+                              className="rounded-full border border-[#d7cec0] bg-white/90 px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-[#31423d] shadow-sm transition hover:bg-white"
+                            >
+                              {editingSubmissionFormId === entry.id ? "Cancel form correction" : "Edit form values"}
+                            </button>
+                          ) : null}
                           {entry.payload.gelatoEntries && entry.payload.gelatoEntries.length > 0 ? (
                             <button
                               type="button"
@@ -2329,6 +2519,45 @@ export default function ManagerDashboard() {
                                 </div>
                               </div>
                             ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {editingSubmissionFormId === entry.id ? (
+                        <div className="mt-5 rounded-[1.5rem] border border-[#d8d0c2] bg-white/90 p-5 shadow-sm">
+                          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                            <div>
+                              <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">Manager correction</p>
+                              <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#24332f]">Edit saved form values</h3>
+                              <p className="mt-2 max-w-3xl text-sm leading-6 text-[#66706a]">Correct the saved counts, payment amounts, or checklist-level form values for this submission. The related dashboard totals refresh from these corrected values after saving.</p>
+                            </div>
+                            <div className="rounded-2xl bg-[#f7f2ea] px-4 py-3 text-xs leading-6 text-[#625b53]">Opening stock counts and closing cup totals can both be corrected here without asking staff to resubmit the full form.</div>
+                          </div>
+                          <div className="mt-5 grid gap-4 md:grid-cols-2">
+                            {submissionFormEditorFields.map((field, index) => (
+                              <div key={`${entry.id}-form-edit-${field.key}`} className="rounded-[1.25rem] border border-[#e5ddd0] bg-[#fcfaf6] p-4">
+                                <p className="text-[11px] uppercase tracking-[0.18em] text-[#8a9089]">{field.label}</p>
+                                {field.kind === "yesno" ? (
+                                  <select className={`${inventoryFieldClassName()} mt-2 w-full`} value={field.value} onChange={event => updateSubmissionFormEditorField(index, event.target.value)}>
+                                    <option value="Yes">Yes</option>
+                                    <option value="No">No</option>
+                                  </select>
+                                ) : (
+                                  <input
+                                    className={`${inventoryFieldClassName()} mt-2 w-full`}
+                                    type={field.kind === "number" ? "number" : "text"}
+                                    min={field.kind === "number" ? "0" : undefined}
+                                    step={field.kind === "number" ? "0.01" : undefined}
+                                    value={field.value}
+                                    onChange={event => updateSubmissionFormEditorField(index, event.target.value)}
+                                  />
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                            <button type="button" onClick={cancelSubmissionFormEdit} className="rounded-full border border-[#d7cec0] bg-white/90 px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-[#31423d] shadow-sm transition hover:bg-white">Cancel</button>
+                            <button type="button" onClick={() => void saveSubmissionFormEdits()} disabled={updateSubmissionFormMutation.isPending} className="rounded-full bg-[#24332f] px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-white transition hover:bg-[#1d2925] disabled:cursor-not-allowed disabled:opacity-60">Save corrections</button>
                           </div>
                         </div>
                       ) : null}

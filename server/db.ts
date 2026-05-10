@@ -152,6 +152,19 @@ function safeParseJson<T>(value: string, fallback: T): T {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeCount(value: unknown) {
+  return Math.max(0, Math.trunc(toNumber(value)));
+}
+
+function normalizeOptionalTime(value?: number | null) {
+  if (value == null || !Number.isFinite(value)) return null;
+  return Number(value);
+}
+
 type ReadyMadeMeasurementRow = {
   id?: number;
   businessDate?: string;
@@ -1144,6 +1157,153 @@ export async function createEndOfDayReport(input: InsertEndOfDayReport) {
   return values;
 }
 
+export async function updateSubmissionHistoryForm(input: {
+  entryId: number;
+  form: Record<string, unknown>;
+  submittedByUserId: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const existingRows = await db.select().from(submissionHistoryEntries).where(eq(submissionHistoryEntries.id, input.entryId)).limit(1);
+  const existingEntry = existingRows[0];
+  if (!existingEntry) {
+    throw new Error("Saved submission could not be found.");
+  }
+
+  const payload = safeParseJson<Record<string, unknown>>(existingEntry.payloadJson, {});
+  const nextPayload = {
+    ...payload,
+    form: input.form,
+  };
+  const normalizedStaffName = typeof input.form.staffName === "string" && input.form.staffName.trim().length > 0
+    ? input.form.staffName.trim()
+    : existingEntry.staffName;
+
+  if (existingEntry.submissionType === "opening") {
+    const openingRows = await db
+      .select()
+      .from(openingChecklists)
+      .where(eq(openingChecklists.businessDate, existingEntry.businessDate))
+      .orderBy(desc(openingChecklists.createdAt), desc(openingChecklists.id))
+      .limit(1);
+    const openingRow = openingRows[0];
+
+    if (openingRow) {
+      const responseJson = safeParseJson<Record<string, unknown>>(openingRow.responseJson ?? "{}", {});
+      const currentStockCounts = isRecord(responseJson.stockCounts) ? responseJson.stockCounts : {};
+      const nextStockCountsSource = isRecord(input.form.stockCounts) ? input.form.stockCounts : currentStockCounts;
+      const nextStockCounts = {
+        cups4oz: normalizeCount(nextStockCountsSource.cups4oz),
+        cups8oz: normalizeCount(nextStockCountsSource.cups8oz),
+        cupsPint: normalizeCount(nextStockCountsSource.cupsPint),
+        cupsLiter: normalizeCount(nextStockCountsSource.cupsLiter),
+        lids4oz: normalizeCount(nextStockCountsSource.lids4oz),
+        lids8oz: normalizeCount(nextStockCountsSource.lids8oz),
+        lidsPint: normalizeCount(nextStockCountsSource.lidsPint),
+        lidsLiter: normalizeCount(nextStockCountsSource.lidsLiter),
+        spoons: normalizeCount(nextStockCountsSource.spoons),
+      };
+
+      await db
+        .update(openingChecklists)
+        .set({
+          staffName: normalizedStaffName,
+          startingCash: toNumber(input.form.startingCash).toFixed(2),
+          cashMatchesSystem: typeof input.form.cashCountedAndCorrect === "string" ? input.form.cashCountedAndCorrect : openingRow.cashMatchesSystem,
+          storeReadyStatus: typeof input.form.storeReadyToOpen === "string" ? input.form.storeReadyToOpen : openingRow.storeReadyStatus,
+          responseJson: JSON.stringify({
+            ...responseJson,
+            stockCounts: nextStockCounts,
+          }),
+          notes: typeof input.form.notes === "string" ? input.form.notes : openingRow.notes,
+          submittedByUserId: input.submittedByUserId,
+        })
+        .where(eq(openingChecklists.id, openingRow.id));
+    }
+  }
+
+  if (existingEntry.submissionType === "closing") {
+    const [closingRows, reportRows] = await Promise.all([
+      db
+        .select()
+        .from(closingChecklists)
+        .where(eq(closingChecklists.businessDate, existingEntry.businessDate))
+        .orderBy(desc(closingChecklists.createdAt), desc(closingChecklists.id))
+        .limit(1),
+      db
+        .select()
+        .from(endOfDayReports)
+        .where(eq(endOfDayReports.businessDate, existingEntry.businessDate))
+        .orderBy(desc(endOfDayReports.createdAt), desc(endOfDayReports.id))
+        .limit(1),
+    ]);
+
+    const closingRow = closingRows[0];
+    if (closingRow) {
+      await db
+        .update(closingChecklists)
+        .set({
+          staffName: normalizedStaffName,
+          cashCounted: toNumber(input.form.cashCounted).toFixed(2),
+          cashMatchesSystem: typeof input.form.cashMatchesSystem === "string" ? input.form.cashMatchesSystem : closingRow.cashMatchesSystem,
+          notes: typeof input.form.notes === "string" ? input.form.notes : closingRow.notes,
+          submittedByUserId: input.submittedByUserId,
+        })
+        .where(eq(closingChecklists.id, closingRow.id));
+    }
+
+    const reportRow = reportRows[0];
+    if (reportRow) {
+      const cups4ozHere = normalizeCount(input.form.cups4ozHere);
+      const cups4ozToGo = normalizeCount(input.form.cups4ozToGo);
+      const cups8ozHere = normalizeCount(input.form.cups8ozHere);
+      const cups8ozToGo = normalizeCount(input.form.cups8ozToGo);
+      const cupsPintToGo = normalizeCount(input.form.cupsPintToGo ?? input.form.cupsPint);
+      const cupsLiterToGo = normalizeCount(input.form.cupsLiterToGo ?? input.form.cupsLiter);
+
+      await db
+        .update(endOfDayReports)
+        .set({
+          staffName: normalizedStaffName,
+          cups4oz: cups4ozHere + cups4ozToGo,
+          cups4ozHere,
+          cups4ozToGo,
+          cups8oz: cups8ozHere + cups8ozToGo,
+          cups8ozHere,
+          cups8ozToGo,
+          cupsPint: cupsPintToGo,
+          cupsPintHere: 0,
+          cupsPintToGo,
+          cupsLiter: cupsLiterToGo,
+          cupsLiterHere: 0,
+          cupsLiterToGo,
+          cashTotal: toNumber(input.form.cashTotal).toFixed(2),
+          cardTotal: toNumber(input.form.cardTotal).toFixed(2),
+          zelleTotal: toNumber(input.form.zelleTotal).toFixed(2),
+          venmoTotal: toNumber(input.form.venmoTotal).toFixed(2),
+          wasteNotes: typeof input.form.wasteNotes === "string" ? input.form.wasteNotes : reportRow.wasteNotes,
+          lowItemNotes: typeof input.form.lowItemNotes === "string" ? input.form.lowItemNotes : reportRow.lowItemNotes,
+          generalNotes: typeof input.form.generalNotes === "string" ? input.form.generalNotes : reportRow.generalNotes,
+          submittedByUserId: input.submittedByUserId,
+        })
+        .where(eq(endOfDayReports.id, reportRow.id));
+    }
+  }
+
+  await db
+    .update(submissionHistoryEntries)
+    .set({
+      staffName: normalizedStaffName,
+      payloadJson: JSON.stringify(nextPayload),
+      submittedByUserId: input.submittedByUserId,
+    })
+    .where(eq(submissionHistoryEntries.id, existingEntry.id));
+
+  const updatedRows = await db.select().from(submissionHistoryEntries).where(eq(submissionHistoryEntries.id, existingEntry.id)).limit(1);
+  return updatedRows[0] ?? existingEntry;
+}
+
 export async function listChecklistQuestions(checklistType: "opening" | "closing") {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -1757,6 +1917,74 @@ export async function clockOutStaff(input: {
     ...openRecord,
     clockOutAt: resolvedClockOutAt,
   } satisfies StaffAttendanceRecord;
+}
+
+export async function saveAttendanceEntry(input: {
+  entryId?: number;
+  staffName: StaffAttendanceName;
+  businessDate?: string;
+  clockInAt: number;
+  clockOutAt?: number | null;
+  submittedByUserId: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await forceClockOutExpiredOpenShifts(db, Number(input.clockOutAt ?? input.clockInAt ?? Date.now()));
+  const clockInAt = Number(input.clockInAt);
+  if (!Number.isFinite(clockInAt)) {
+    throw new Error("A valid clock-in time is required.");
+  }
+
+  const normalizedClockOutAt = normalizeOptionalTime(input.clockOutAt);
+  const resolvedClockOutAt = normalizedClockOutAt == null ? null : Math.max(normalizedClockOutAt, clockInAt);
+  const businessDate = normalizeDate(input.businessDate ?? getPacificBusinessDate(new Date(clockInAt)));
+
+  if (input.entryId) {
+    const existingRows = await db.select().from(staffAttendance).where(eq(staffAttendance.id, input.entryId)).limit(1);
+    const existingRow = existingRows[0];
+    if (!existingRow) {
+      throw new Error("Attendance entry could not be found.");
+    }
+
+    await db
+      .update(staffAttendance)
+      .set({
+        businessDate,
+        staffName: input.staffName,
+        clockInAt,
+        clockOutAt: resolvedClockOutAt,
+        submittedByUserId: input.submittedByUserId,
+      })
+      .where(eq(staffAttendance.id, existingRow.id));
+
+    const updatedRows = await db.select().from(staffAttendance).where(eq(staffAttendance.id, existingRow.id)).limit(1);
+    if (!updatedRows[0]) {
+      throw new Error("Attendance entry could not be updated.");
+    }
+
+    return normalizeStaffAttendanceRecord(updatedRows[0]);
+  }
+
+  const insertValues: InsertStaffAttendance = {
+    businessDate,
+    staffName: input.staffName,
+    clockInAt,
+    clockOutAt: resolvedClockOutAt,
+    submittedByUserId: input.submittedByUserId,
+  };
+  const insertResult = await db.insert(staffAttendance).values(insertValues);
+  const insertedRows = await db
+    .select()
+    .from(staffAttendance)
+    .where(eq(staffAttendance.id, Number(insertResult[0]?.insertId ?? 0)))
+    .limit(1);
+
+  if (!insertedRows[0]) {
+    throw new Error("Attendance entry could not be created.");
+  }
+
+  return normalizeStaffAttendanceRecord(insertedRows[0]);
 }
 
 export async function getTodayAttendance(businessDate?: string) {

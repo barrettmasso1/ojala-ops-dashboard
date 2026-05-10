@@ -29,10 +29,12 @@ import {
   listRecipesWithCosts,
   removeChecklistQuestion,
   saveChecklistQuestion,
+  saveAttendanceEntry,
   saveInventoryItem,
   saveReadyMadeGelatoWeights,
   STAFF_ATTENDANCE_NAMES,
   updateInventoryCount,
+  updateSubmissionHistoryForm,
   updateSubmissionHistoryGelato,
   upsertUser,
 } from "./db";
@@ -245,6 +247,25 @@ const checklistQuestionSchema = z.object({
   detailTrigger: z.enum(["Yes", "No", "Never"]),
   displayOrder: z.number().int().min(0),
 });
+
+const staffAttendanceTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
+
+function convertPacificBusinessDateTimeToTimestamp(businessDate: string, timeValue: string) {
+  const [year, month, day] = businessDate.split("-").map(Number);
+  const [hours, minutes] = timeValue.split(":").map(Number);
+  const pacificReference = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  const offsetParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    timeZoneName: "shortOffset",
+  }).formatToParts(pacificReference);
+  const offsetValue = offsetParts.find(part => part.type === "timeZoneName")?.value ?? "GMT-8";
+  const match = offsetValue.match(/^GMT([+-])(\d{1,2})(?::(\d{2}))?$/i);
+  const sign = match?.[1] === "-" ? -1 : 1;
+  const offsetHours = Number(match?.[2] ?? 8);
+  const offsetMinutes = Number(match?.[3] ?? 0);
+  const totalOffsetMinutes = sign * (offsetHours * 60 + offsetMinutes);
+  return Date.UTC(year, month - 1, day, hours, minutes, 0) - totalOffsetMinutes * 60 * 1000;
+}
 
 function normalizeFrontendOrigin(origin?: string) {
   if (!origin) return "";
@@ -572,6 +593,34 @@ export const appRouter = router({
         const startDate = input?.startDate ?? getPacificSundayWeekStart(endDate);
         return getAttendanceTimeBook({ startDate, endDate });
       }),
+    saveEntry: adminProcedure
+      .input(
+        z.object({
+          entryId: z.number().int().positive().optional(),
+          staffName: staffAttendanceNameSchema,
+          businessDate: requiredBusinessDateSchema,
+          clockInTime: staffAttendanceTimeSchema,
+          clockOutTime: staffAttendanceTimeSchema.nullish(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const entry = await saveAttendanceEntry({
+          entryId: input.entryId,
+          staffName: input.staffName,
+          businessDate: input.businessDate,
+          clockInAt: convertPacificBusinessDateTimeToTimestamp(input.businessDate, input.clockInTime),
+          clockOutAt:
+            input.clockOutTime && input.clockOutTime.trim().length > 0
+              ? convertPacificBusinessDateTimeToTimestamp(input.businessDate, input.clockOutTime)
+              : null,
+          submittedByUserId: ctx.user.id,
+        });
+
+        return {
+          success: true,
+          entry,
+        } as const;
+      }),
   }),
   dashboard: router({
     daily: adminProcedure
@@ -650,6 +699,22 @@ export const appRouter = router({
             largeGrossWeightKg: row.largeGrossWeightKg?.toFixed(3),
             combinedGrossWeightKg: row.combinedGrossWeightKg?.toFixed(3),
           })),
+        });
+
+        return { success: true, entry } as const;
+      }),
+    updateSubmissionForm: adminProcedure
+      .input(
+        z.object({
+          entryId: z.number().int().positive(),
+          form: z.record(z.string(), z.unknown()),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const entry = await updateSubmissionHistoryForm({
+          entryId: input.entryId,
+          form: input.form,
+          submittedByUserId: ctx.user.id,
         });
 
         return { success: true, entry } as const;
