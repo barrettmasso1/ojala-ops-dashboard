@@ -1403,7 +1403,7 @@ export default function ManagerDashboard() {
                 </div>
                 <div className="rounded-full bg-[#f1e8da] px-4 py-2 text-sm text-[#566863]">Goal: 0.00 oz difference</div>
               </div>
-              <div className="mt-6 overflow-x-auto rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6]">
+              <div className="mt-6 rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6]">
                 {dailyQuery.isLoading ? (
                   <div className="p-5">
                     <StatePanel title="Loading flavor reconciliation" description="Building the opening, closing, distributed, sold, and difference view for each flavor." />
@@ -1417,32 +1417,32 @@ export default function ManagerDashboard() {
                     <StatePanel title="No gelato measurements found" description="Once opening and closing gelato counts are submitted, each flavor will appear here automatically." tone="warning" />
                   </div>
                 ) : (
-                  <table className="w-full min-w-[980px] text-left text-sm">
+                  <table className="w-full table-fixed text-left text-sm">
                     <thead className="bg-[#f4ede2] text-[#60706b]">
                       <tr>
-                        <th className="px-4 py-3 font-medium">Flavor</th>
-                        <th className="px-4 py-3 font-medium">Starting weight</th>
-                        <th className="px-4 py-3 font-medium">Ending weight</th>
-                        <th className="px-4 py-3 font-medium">Starting oz</th>
-                        <th className="px-4 py-3 font-medium">Ending oz</th>
-                        <th className="px-4 py-3 font-medium">Distributed oz</th>
-                        <th className="px-4 py-3 font-medium">Sold oz</th>
-                        <th className="px-4 py-3 font-medium">Difference</th>
-                        <th className="px-4 py-3 font-medium">Status</th>
+                        <th className="w-[16%] px-4 py-3 font-medium">Flavor</th>
+                        <th className="w-[12%] px-4 py-3 font-medium">Starting weight</th>
+                        <th className="w-[12%] px-4 py-3 font-medium">Ending weight</th>
+                        <th className="w-[10%] px-4 py-3 font-medium">Starting oz</th>
+                        <th className="w-[10%] px-4 py-3 font-medium">Ending oz</th>
+                        <th className="w-[10%] px-4 py-3 font-medium">Distributed oz</th>
+                        <th className="w-[10%] px-4 py-3 font-medium">Sold oz</th>
+                        <th className="w-[10%] px-4 py-3 font-medium">Difference</th>
+                        <th className="w-[10%] px-4 py-3 font-medium">Status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
                       {flavorRows.map(item => (
                         <tr key={item.flavor}>
-                          <td className="px-4 py-3 font-medium">{item.flavor}</td>
-                          <td className="px-4 py-3">{renderFlavorWeightCell(`${item.openingWeightKg.toFixed(3)} kg`, item.openingPhotoPreview)}</td>
-                          <td className="px-4 py-3">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : renderFlavorWeightCell(`${item.closingWeightKg.toFixed(3)} kg`, item.closingPhotoPreview)}</td>
-                          <td className="px-4 py-3">{item.openingOunces.toFixed(2)}</td>
-                          <td className="px-4 py-3">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : item.closingOunces.toFixed(2)}</td>
-                          <td className="px-4 py-3">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : item.distributedOunces.toFixed(2)}</td>
-                          <td className="px-4 py-3">{item.soldOunces.toFixed(2)}</td>
-                          <td className="px-4 py-3">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : formatSignedValue(item.differenceOunces)}</td>
-                          <td className="px-4 py-3">
+                          <td className="px-4 py-3 align-top break-words font-medium">{item.flavor}</td>
+                          <td className="px-4 py-3 align-top break-words">{renderFlavorWeightCell(`${item.openingWeightKg.toFixed(3)} kg`, item.openingPhotoPreview)}</td>
+                          <td className="px-4 py-3 align-top break-words">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : renderFlavorWeightCell(`${item.closingWeightKg.toFixed(3)} kg`, item.closingPhotoPreview)}</td>
+                          <td className="px-4 py-3 align-top break-words">{item.openingOunces.toFixed(2)}</td>
+                          <td className="px-4 py-3 align-top break-words">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : item.closingOunces.toFixed(2)}</td>
+                          <td className="px-4 py-3 align-top break-words">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : item.distributedOunces.toFixed(2)}</td>
+                          <td className="px-4 py-3 align-top break-words">{item.soldOunces.toFixed(2)}</td>
+                          <td className="px-4 py-3 align-top break-words">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : formatSignedValue(item.differenceOunces)}</td>
+                          <td className="px-4 py-3 align-top">
                             <span className={`rounded-full px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] ${
                               item.status === "Aligned"
                                 ? "bg-[#e8f0ec] text-[#4d655d]"

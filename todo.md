@@ -270,3 +270,4 @@
 - [x] Remove the redundant Time Book summary card section from the manager attendance workspace
 - [x] Add a manager workflow to edit employee check-in and check-out times manually when punches are missed
 - [x] Add a manager workflow to correct incorrectly entered opening and closing form counts for cups, spoons, and related quantity fields
+- [x] Remove the nested scroll frame around the manager gelato flavor reconciliation list so rows and image previews flow in the main page without an inner scrolling region
