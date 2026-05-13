@@ -1,4 +1,3 @@
-import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
@@ -31,12 +30,12 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
-  // Configure body parser with larger size limit for file uploads
+
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
-  // tRPC API
+
   app.use(
     "/api/trpc",
     createExpressMiddleware({
@@ -44,7 +43,21 @@ async function startServer() {
       createContext,
     })
   );
-  // development mode uses Vite, production mode uses static files
+
+  app.use(((error, _req, res, next) => {
+    if (error && typeof error === "object" && "type" in error && error.type === "entity.too.large") {
+      res.status(413).json({ error: "Photo upload payload too large. Remove a few photos and try again." });
+      return;
+    }
+
+    if (error instanceof SyntaxError && "body" in error) {
+      res.status(400).json({ error: "Invalid JSON request body." });
+      return;
+    }
+
+    next(error);
+  }) as express.ErrorRequestHandler);
+
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
   } else {

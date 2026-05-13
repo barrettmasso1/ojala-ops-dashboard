@@ -210,6 +210,7 @@ const textTranslations: Record<string, string> = {
   "Remove photo": "Quitar foto",
   "Only the first 20 photos were kept for this batch.": "Solo se conservaron las primeras 20 fotos para este lote.",
   "You can analyze up to 20 photos at a time. Remove any extras or run another batch after this one finishes.": "Puedes analizar hasta 20 fotos a la vez. Quita las sobrantes o ejecuta otro lote cuando este termine.",
+  "These photos are too large to analyze together. Remove a few photos or run a smaller batch and try again.": "Estas fotos son demasiado grandes para analizarlas juntas. Quita algunas fotos o ejecuta un lote más pequeño y vuelve a intentarlo.",
   "Photo review": "Revisión de foto",
   "Pan setup": "Configuración de charola",
   "Needs review": "Necesita revisión",

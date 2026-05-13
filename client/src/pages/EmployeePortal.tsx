@@ -1,6 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { type PortalLanguage, translateErrorMessage, translatePortalText } from "@/lib/employeePortalI18n";
-import { compressImageFileToDataUrl } from "@/lib/imageCompression";
+import { compressImageFileToDataUrl, estimateDataUrlByteSize } from "@/lib/imageCompression";
 import { getOpeningNapkinsQuestion, groupOpeningQuestionsForPortal } from "@/lib/openingSetup";
 import { savePortalDraft, loadPortalDraft, clearPortalDraft } from "@/lib/portalDrafts";
 import { normalizeGelatoFlavorName } from "@/lib/gelatoFlavorAliases";
@@ -159,6 +159,7 @@ type PairedInputConfig = {
 export const GELATO_WEIGHT_INPUT_STEP = "0.001";
 export const GELATO_WEIGHT_INPUT_MODE = "decimal" as const;
 export const GELATO_PHOTO_UPLOAD_LIMIT = 20;
+export const GELATO_PHOTO_ANALYSIS_MAX_BYTES = 20 * 1024 * 1024;
 
 const KG_TO_WEIGHT_OUNCES = 35.27396195;
 const SMALL_PAN_EMPTY_KG = 0.286;
@@ -1265,6 +1266,12 @@ export default function EmployeePortal(props: any) {
           dataUrl: await compressImageFileToDataUrl(file),
         }))
       );
+
+      const estimatedBatchBytes = photos.reduce((sum, photo) => sum + estimateDataUrlByteSize(photo.dataUrl), 0);
+      if (estimatedBatchBytes > GELATO_PHOTO_ANALYSIS_MAX_BYTES) {
+        toast.error(t("These photos are too large to analyze together. Remove a few photos or run a smaller batch and try again."));
+        return;
+      }
 
       const result = await extractGelatoPhotosMutation.mutateAsync({ shiftType, photos });
       const nextAnalyzedPhotos = [...(gelatoAnalyzedPhotos[shiftType] ?? []), ...result.extractedPhotos];

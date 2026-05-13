@@ -274,3 +274,4 @@
 - [x] Fix the flavor reconciliation hover preview so it overlays above surrounding sections instead of rendering underneath lower page content
 - [x] Rebalance the flavor reconciliation table columns so spacing is more even across the row
 - [x] Simplify the flavor reconciliation section header by reducing it to a basic title and removing the goal badge
+- [x] Fix the mobile photo-assisted inventory analysis flow so uploading scale photos returns valid JSON instead of an HTML error page

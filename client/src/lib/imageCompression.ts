@@ -4,8 +4,8 @@ export type ImageCompressionOptions = {
   outputType?: "image/jpeg" | "image/webp";
 };
 
-const DEFAULT_MAX_DIMENSION = 1600;
-const DEFAULT_QUALITY = 0.82;
+const DEFAULT_MAX_DIMENSION = 1280;
+const DEFAULT_QUALITY = 0.72;
 const DEFAULT_OUTPUT_TYPE = "image/jpeg" satisfies ImageCompressionOptions["outputType"];
 
 function loadImage(sourceUrl: string) {
@@ -38,6 +38,15 @@ function calculateTargetSize(width: number, height: number, maxDimension: number
   };
 }
 
+export function estimateDataUrlByteSize(dataUrl: string) {
+  const base64Index = dataUrl.indexOf(",");
+  if (base64Index < 0) return 0;
+
+  const base64 = dataUrl.slice(base64Index + 1);
+  const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+}
+
 export async function compressImageFileToDataUrl(file: File, options: ImageCompressionOptions = {}) {
   const sourceDataUrl = await readFileAsDataUrl(file);
   const image = await loadImage(sourceDataUrl);
@@ -45,10 +54,6 @@ export async function compressImageFileToDataUrl(file: File, options: ImageCompr
   const quality = options.quality ?? DEFAULT_QUALITY;
   const outputType = options.outputType ?? DEFAULT_OUTPUT_TYPE;
   const { width, height } = calculateTargetSize(image.naturalWidth || image.width, image.naturalHeight || image.height, maxDimension);
-
-  if (width === image.naturalWidth && height === image.naturalHeight && sourceDataUrl.startsWith(`data:${outputType}`)) {
-    return sourceDataUrl;
-  }
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
