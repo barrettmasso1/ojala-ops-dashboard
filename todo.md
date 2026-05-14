@@ -276,3 +276,4 @@
 - [x] Simplify the flavor reconciliation section header by reducing it to a basic title and removing the goal badge
 - [x] Fix the mobile photo-assisted inventory analysis flow so uploading scale photos returns valid JSON instead of an HTML error page
 - [x] Fix the false impossible pan-weight validation so legitimate photographed gelato weights like Orange Cacao do not get blocked during submission
+- [x] Fix the gelato flavor hover preview so the photo card renders above all surrounding table rows and links

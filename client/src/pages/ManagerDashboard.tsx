@@ -17,6 +17,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Area,
   AreaChart,
@@ -534,22 +535,91 @@ function classifyDifference(value: number) {
 
 const AWAITING_CLOSING_FORM_LABEL = "Awaiting closing form";
 const AWAITING_CLOSING_TEXT = "Awaiting closing";
+const FLAVOR_PREVIEW_VIEWPORT_MARGIN_PX = 16;
+const FLAVOR_PREVIEW_OFFSET_PX = 12;
+const FLAVOR_PREVIEW_MAX_WIDTH_PX = 352;
+const FLAVOR_PREVIEW_MIN_WIDTH_PX = 260;
+const FLAVOR_PREVIEW_APPROX_HEIGHT_PX = 420;
 
-function renderFlavorWeightCell(value: string, photo?: SubmissionHistoryPhoto) {
+export function getFlavorPreviewPosition(clientX: number, clientY: number, viewportWidth: number, viewportHeight: number) {
+  const safeViewportWidth = Math.max(FLAVOR_PREVIEW_MIN_WIDTH_PX + FLAVOR_PREVIEW_VIEWPORT_MARGIN_PX * 2, viewportWidth || 0);
+  const safeViewportHeight = Math.max(FLAVOR_PREVIEW_APPROX_HEIGHT_PX + FLAVOR_PREVIEW_VIEWPORT_MARGIN_PX * 2, viewportHeight || 0);
+  const width = Math.max(
+    FLAVOR_PREVIEW_MIN_WIDTH_PX,
+    Math.min(FLAVOR_PREVIEW_MAX_WIDTH_PX, safeViewportWidth - FLAVOR_PREVIEW_VIEWPORT_MARGIN_PX * 2),
+  );
+  const maxLeft = Math.max(FLAVOR_PREVIEW_VIEWPORT_MARGIN_PX, safeViewportWidth - width - FLAVOR_PREVIEW_VIEWPORT_MARGIN_PX);
+  const left = Math.min(
+    Math.max(clientX - width / 2, FLAVOR_PREVIEW_VIEWPORT_MARGIN_PX),
+    maxLeft,
+  );
+  const preferredTop = clientY + FLAVOR_PREVIEW_OFFSET_PX;
+  const maxTop = Math.max(
+    FLAVOR_PREVIEW_VIEWPORT_MARGIN_PX,
+    safeViewportHeight - FLAVOR_PREVIEW_APPROX_HEIGHT_PX - FLAVOR_PREVIEW_VIEWPORT_MARGIN_PX,
+  );
+  const top = preferredTop <= maxTop
+    ? preferredTop
+    : Math.max(FLAVOR_PREVIEW_VIEWPORT_MARGIN_PX, clientY - FLAVOR_PREVIEW_APPROX_HEIGHT_PX - FLAVOR_PREVIEW_OFFSET_PX);
+
+  return { left, top, width };
+}
+
+type FlavorWeightCellProps = {
+  value: string;
+  photo?: SubmissionHistoryPhoto;
+};
+
+function FlavorWeightCell({ value, photo }: FlavorWeightCellProps) {
+  const [previewPosition, setPreviewPosition] = useState<{ left: number; top: number; width: number } | null>(null);
+
   if (!photo) {
     return <span>{value}</span>;
   }
 
+  function showPreview(clientX: number, clientY: number) {
+    const viewportWidth = typeof window === "undefined" ? FLAVOR_PREVIEW_MAX_WIDTH_PX + FLAVOR_PREVIEW_VIEWPORT_MARGIN_PX * 2 : window.innerWidth;
+    const viewportHeight = typeof window === "undefined" ? FLAVOR_PREVIEW_APPROX_HEIGHT_PX + FLAVOR_PREVIEW_VIEWPORT_MARGIN_PX * 2 : window.innerHeight;
+    setPreviewPosition(getFlavorPreviewPosition(clientX, clientY, viewportWidth, viewportHeight));
+  }
+
+  const previewCard = previewPosition && typeof document !== "undefined"
+    ? createPortal(
+        <div
+          className="pointer-events-none fixed z-[9999] rounded-[1.35rem] border border-[#e5ddd0] bg-white p-4 shadow-2xl"
+          style={{ left: `${previewPosition.left}px`, top: `${previewPosition.top}px`, width: `${previewPosition.width}px` }}
+        >
+          <img src={photo.imageUrl} alt={`${photo.flavor} scale preview`} loading="lazy" decoding="async" className="h-56 w-full rounded-[1rem] bg-[#f6f1e8] object-contain" />
+          <p className="mt-3 text-sm font-medium text-[#24332f]">{photo.fileName}</p>
+          <p className="mt-1 text-xs leading-5 text-[#66706a]">{photo.flavor} · {photo.combinedGrossWeightKg.toFixed(3)} kg gross</p>
+        </div>,
+        document.body,
+      )
+    : null;
+
   return (
-    <div className="group relative z-10 inline-flex">
-      <span className="cursor-default border-b border-dashed border-[#cbbba6] text-[#24332f]">{value}</span>
-      <div className="pointer-events-none absolute left-1/2 top-[calc(100%+0.65rem)] z-[120] hidden w-[22rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-[1.35rem] border border-[#e5ddd0] bg-white p-4 shadow-2xl group-hover:block">
-        <img src={photo.imageUrl} alt={`${photo.flavor} scale preview`} loading="lazy" decoding="async" className="h-56 w-full rounded-[1rem] bg-[#f6f1e8] object-contain" />
-        <p className="mt-3 text-sm font-medium text-[#24332f]">{photo.fileName}</p>
-        <p className="mt-1 text-xs leading-5 text-[#66706a]">{photo.flavor} · {photo.combinedGrossWeightKg.toFixed(3)} kg gross</p>
-      </div>
-    </div>
+    <>
+      <span
+        className="inline-flex cursor-default border-b border-dashed border-[#cbbba6] text-[#24332f] outline-none focus-visible:ring-2 focus-visible:ring-[#cbbba6] focus-visible:ring-offset-2"
+        tabIndex={0}
+        onMouseEnter={event => showPreview(event.clientX, event.currentTarget.getBoundingClientRect().bottom)}
+        onMouseMove={event => showPreview(event.clientX, event.currentTarget.getBoundingClientRect().bottom)}
+        onMouseLeave={() => setPreviewPosition(null)}
+        onFocus={event => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          showPreview(rect.left + rect.width / 2, rect.bottom);
+        }}
+        onBlur={() => setPreviewPosition(null)}
+      >
+        {value}
+      </span>
+      {previewCard}
+    </>
   );
+}
+
+function renderFlavorWeightCell(value: string, photo?: SubmissionHistoryPhoto) {
+  return <FlavorWeightCell value={value} photo={photo} />;
 }
 
 export default function ManagerDashboard() {

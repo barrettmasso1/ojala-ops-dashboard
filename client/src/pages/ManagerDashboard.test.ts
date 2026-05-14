@@ -7,6 +7,7 @@ import {
   buildSubmissionFormValueRows,
   createSubmissionFormEditorFields,
   getCompactSnapshotName,
+  getFlavorPreviewPosition,
   getSnapshotValueClassName,
   rebuildSubmissionFormFromEditor,
 } from "./ManagerDashboard";
@@ -78,6 +79,12 @@ describe("manager dashboard layout helpers", () => {
     expect(allocation).toEqual([2, 8, 10]);
     expect(allocation.every(value => value % 2 === 0)).toBe(true);
     expect(allocation.reduce((sum, value) => sum + value, 0)).toBe(20);
+  });
+
+  it("keeps the hover preview card inside the viewport while positioning it as a detached top-layer overlay", () => {
+    expect(getFlavorPreviewPosition(32, 220, 390, 900)).toEqual({ left: 16, top: 232, width: 352 });
+    expect(getFlavorPreviewPosition(360, 520, 390, 900)).toEqual({ left: 22, top: 88, width: 352 });
+    expect(getFlavorPreviewPosition(700, 180, 1440, 1200)).toEqual({ left: 524, top: 192, width: 352 });
   });
 
   it("groups closing form values so 4 oz and 8 oz stay paired while pint and liter render without invalid here fields", () => {
