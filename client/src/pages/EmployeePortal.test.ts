@@ -13,6 +13,7 @@ import {
   estimateAnalyzedPhotoVolumeOunces,
   getAnalyzedPhotoCombinedGrossWeightKg,
   getAnalyzedPhotoPanTareKg,
+  mergeAnalyzedPhotoBatches,
   removePhotoAtIndex,
   replaceAnalyzedPhotosInGelatoState,
   resolveAnalyzedPhotoGrossWeights,
@@ -80,6 +81,39 @@ describe("employee portal gelato helpers", () => {
   it("removes a selected or analyzed photo by index without disturbing the remaining order", () => {
     expect(removePhotoAtIndex(["one.jpg", "two.jpg", "three.jpg"], 1)).toEqual(["one.jpg", "three.jpg"]);
     expect(removePhotoAtIndex(["one.jpg"], 0)).toEqual([]);
+  });
+
+  it("replaces stale analyzed results for the same uploaded file instead of stacking duplicate photo entries", () => {
+    const merged = mergeAnalyzedPhotoBatches(
+      [
+        {
+          fileName: "orange-cacao.jpg",
+          imageUrl: "/old-orange",
+          flavor: "Orange Cacao",
+          smallPanCount: 1,
+          largePanCount: 0,
+          combinedGrossWeightKg: 18.19,
+          confidence: "low",
+          warning: "Needs review",
+        },
+      ],
+      [
+        {
+          fileName: "orange-cacao.jpg",
+          imageUrl: "/new-orange",
+          flavor: "Orange Cacao",
+          smallPanCount: 1,
+          largePanCount: 0,
+          combinedGrossWeightKg: 1.819,
+          confidence: "high",
+          warning: "",
+        },
+      ]
+    );
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.imageUrl).toBe("/new-orange");
+    expect(merged[0]?.combinedGrossWeightKg).toBe(1.819);
   });
 
   it("maps photo-review pan setup selections back to single-pan, same-size two-pan, and mixed-pan counts", () => {

@@ -342,6 +342,18 @@ export function removePhotoAtIndex<T>(items: T[], indexToRemove: number) {
   return items.filter((_, index) => index !== indexToRemove);
 }
 
+export function mergeAnalyzedPhotoBatches(
+  existingPhotos: ExtractedGelatoPhoto[],
+  incomingPhotos: ExtractedGelatoPhoto[]
+) {
+  const incomingByFileName = new Map(
+    incomingPhotos.map(photo => [photo.fileName.trim().toLowerCase(), photo] as const)
+  );
+
+  const preservedExisting = existingPhotos.filter(photo => !incomingByFileName.has(photo.fileName.trim().toLowerCase()));
+  return [...preservedExisting, ...incomingPhotos];
+}
+
 export function replaceAnalyzedPhotosInGelatoState(
   current: ReadyMadeGelatoState,
   shiftType: ReadyMadeGelatoShiftKey,
@@ -1274,7 +1286,10 @@ export default function EmployeePortal(props: any) {
       }
 
       const result = await extractGelatoPhotosMutation.mutateAsync({ shiftType, photos });
-      const nextAnalyzedPhotos = [...(gelatoAnalyzedPhotos[shiftType] ?? []), ...result.extractedPhotos];
+      const nextAnalyzedPhotos = mergeAnalyzedPhotoBatches(
+        gelatoAnalyzedPhotos[shiftType] ?? [],
+        result.extractedPhotos
+      );
       replaceShiftAnalyzedPhotos(shiftType, nextAnalyzedPhotos);
       clearGelatoPhotoSelection(shiftType);
 
