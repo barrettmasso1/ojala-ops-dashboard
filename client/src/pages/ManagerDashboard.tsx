@@ -5,6 +5,7 @@ import { getLoginUrl } from "@/const";
 import { normalizeGelatoFlavorName } from "@/lib/gelatoFlavorAliases";
 import { getHistoryGelatoRowVolumeBreakdown } from "@/lib/historyGelato";
 import { buildManagerReconciliationSnapshot, MANAGER_INVENTORY_TABS, type ManagerInventoryView } from "@/lib/managerReconciliation";
+import { buildShopifyVarianceSnapshot, summarizeShopifySalesCsv, type ShopifySalesImportSummary } from "@/lib/shopifySalesCsv";
 import { trpc } from "@/lib/trpc";
 import { applyAnalyzedPhotoPanSetup, getAnalyzedPhotoCombinedGrossWeightKg, getAnalyzedPhotoPanSetup } from "./EmployeePortal";
 import { formatPacificCalendarDate, formatPacificTime, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart } from "../../../shared/businessDate";
@@ -16,7 +17,7 @@ import {
   PackagePlus,
   Trash2,
 } from "lucide-react";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { createPortal } from "react-dom";
 import {
   Area,
@@ -687,6 +688,9 @@ export default function ManagerDashboard() {
   const [editingSubmissionFormId, setEditingSubmissionFormId] = useState<number | null>(null);
   const [submissionFormEditorFields, setSubmissionFormEditorFields] = useState<SubmissionFormEditorField[]>([]);
   const [attendanceEditor, setAttendanceEditor] = useState<AttendanceEditorState | null>(null);
+  const [shopifyImportSummary, setShopifyImportSummary] = useState<ShopifySalesImportSummary | null>(null);
+  const [shopifyImportFileName, setShopifyImportFileName] = useState("");
+  const [shopifyImportError, setShopifyImportError] = useState<string | null>(null);
 
   const isAdmin = user?.role === "admin";
   const maxBusinessDate = todayValue();
@@ -719,6 +723,12 @@ export default function ManagerDashboard() {
     const interval = window.setInterval(() => setLiveNow(new Date()), 30000);
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    setShopifyImportSummary(null);
+    setShopifyImportFileName("");
+    setShopifyImportError(null);
+  }, [selectedDate]);
 
   const dailyQuery = trpc.dashboard.daily.useQuery(
     { businessDate: selectedDate },
@@ -1075,8 +1085,37 @@ export default function ManagerDashboard() {
     });
   }
 
+  async function handleShopifyFileUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const csvText = await file.text();
+      const summary = summarizeShopifySalesCsv(csvText);
+      setShopifyImportSummary(summary);
+      setShopifyImportFileName(file.name);
+      setShopifyImportError(null);
+      toast.success(`Imported ${summary.totalSoldVolumeOunces.toFixed(1)} Shopify sold oz from ${file.name}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to read the Shopify CSV.";
+      setShopifyImportSummary(null);
+      setShopifyImportFileName(file.name);
+      setShopifyImportError(message);
+      toast.error(message);
+    } finally {
+      event.target.value = "";
+    }
+  }
+
   const daily = dailyQuery.data;
   const reconciliationSnapshot = buildManagerReconciliationSnapshot(daily);
+  const shopifyVarianceSnapshot = useMemo(() => {
+    if (!reconciliationSnapshot.gelato || !shopifyImportSummary) return null;
+    return buildShopifyVarianceSnapshot(
+      reconciliationSnapshot.gelato.distributedVolumeOunces,
+      shopifyImportSummary.totalSoldVolumeOunces
+    );
+  }, [reconciliationSnapshot.gelato, shopifyImportSummary]);
   const flavorRows = useMemo(() => {
     if (!reconciliationSnapshot.gelato) return [];
 
@@ -1908,6 +1947,108 @@ export default function ManagerDashboard() {
                           </div>
                           <p className="mt-4 text-sm leading-6 text-[#66706a]">Goal: 0.00 units difference. Current review: {reconciliationSnapshot.packaging.discrepancyLabel}.</p>
                         </div>
+                      </div>
+
+                      <div className="mt-6 rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6] p-5 shadow-sm">
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="max-w-3xl">
+                            <p className="text-xs uppercase tracking-[0.22em] text-[#8b9088]">Shopify sales import</p>
+                            <p className="mt-3 font-serif text-2xl text-[#1f2b27]">Upload a Shopify product sales CSV to compare sold ounces against the selected day’s distributed gelato ounces.</p>
+                            <p className="mt-3 text-sm leading-6 text-[#66706a]">The importer maps Small, Medium, Pint, and Liter Shopify products into 4 oz, 8 oz, 16 oz, and 32 oz sold volume. Non-gelato rows stay excluded for review instead of affecting the variance.</p>
+                          </div>
+                          <div className="flex w-full max-w-sm flex-col gap-3 lg:items-end">
+                            <label className="inline-flex cursor-pointer items-center justify-center rounded-full border border-[#2f2a26] bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]">
+                              Upload Shopify CSV
+                              <input type="file" accept=".csv,text/csv" className="sr-only" onChange={handleShopifyFileUpload} />
+                            </label>
+                            <p className="text-xs leading-5 text-[#7a827d]">Selected date: {selectedDate}. Upload one Shopify daily product report at a time.</p>
+                            {shopifyImportFileName ? <p className="text-xs leading-5 text-[#7a827d]">Latest file: {shopifyImportFileName}</p> : null}
+                          </div>
+                        </div>
+
+                        {shopifyImportError ? (
+                          <div className="mt-4 rounded-[1.25rem] border border-[#e7c7c2] bg-[#fff4f2] px-4 py-3 text-sm text-[#8a4343]">{shopifyImportError}</div>
+                        ) : null}
+
+                        {shopifyImportSummary && shopifyVarianceSnapshot ? (
+                          <>
+                            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+                              {[
+                                { label: "Distributed", value: `${shopifyVarianceSnapshot.distributedVolumeOunces.toFixed(1)} oz` },
+                                { label: "Shopify sold", value: `${shopifyVarianceSnapshot.soldVolumeOunces.toFixed(1)} oz` },
+                                { label: "Difference", value: `${formatSignedValue(shopifyVarianceSnapshot.differenceVolumeOunces)} oz` },
+                                { label: "% of sold", value: shopifyVarianceSnapshot.differencePercentOfSold == null ? "—" : `${shopifyVarianceSnapshot.differencePercentOfSold > 0 ? "+" : ""}${shopifyVarianceSnapshot.differencePercentOfSold.toFixed(1)}%` },
+                                { label: "% of distributed", value: shopifyVarianceSnapshot.differencePercentOfDistributed == null ? "—" : `${shopifyVarianceSnapshot.differencePercentOfDistributed > 0 ? "+" : ""}${shopifyVarianceSnapshot.differencePercentOfDistributed.toFixed(1)}%` },
+                                { label: "Status", value: shopifyVarianceSnapshot.status === "within-tolerance" ? "Within tolerance" : shopifyVarianceSnapshot.status === "review" ? "Review" : shopifyVarianceSnapshot.status === "major" ? "Major discrepancy" : "Awaiting data" },
+                              ].map(item => (
+                                <div key={item.label} className="rounded-2xl border border-[#e5ddd0] bg-white/80 p-4">
+                                  <p className="text-xs uppercase tracking-[0.18em] text-[#8b9088]">{item.label}</p>
+                                  <p className="mt-2 font-medium text-[#1f2b27]">{item.value}</p>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="mt-4 rounded-[1.25rem] border border-[#e5ddd0] bg-white/85 p-4 text-sm leading-6 text-[#5f6a64]">
+                              The uploaded Shopify report mapped <strong>{shopifyImportSummary.totalNetItemsSold.toFixed(0)}</strong> gelato servings across <strong>{shopifyImportSummary.includedProductCount}</strong> Shopify product rows. Excluded rows remain visible below so managers can verify non-gelato or unmapped products before trusting the variance.
+                            </div>
+
+                            <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)]">
+                              <div className="overflow-hidden rounded-[1.25rem] border border-[#e4dccf] bg-white/90">
+                                <div className="border-b border-[#ece4d8] bg-[#f4ede2] px-4 py-3 text-sm font-medium text-[#31423d]">Mapped Shopify gelato rows</div>
+                                <table className="w-full text-left text-sm">
+                                  <thead className="bg-[#fbf7f0] text-[#60706b]">
+                                    <tr>
+                                      <th className="px-4 py-3 font-medium">Product</th>
+                                      <th className="px-4 py-3 font-medium">Units</th>
+                                      <th className="px-4 py-3 font-medium">Size</th>
+                                      <th className="px-4 py-3 font-medium">Sold oz</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
+                                    {shopifyImportSummary.soldRows.map(row => (
+                                      <tr key={`${row.productTitle}-${row.serviceMode}-${row.variantTitle}`}>
+                                        <td className="px-4 py-3 font-medium">{row.productTitle}</td>
+                                        <td className="px-4 py-3">{row.netItemsSold}</td>
+                                        <td className="px-4 py-3">{row.ouncesEach} oz</td>
+                                        <td className="px-4 py-3">{row.soldVolumeOunces.toFixed(1)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+
+                              <div className="overflow-hidden rounded-[1.25rem] border border-[#e4dccf] bg-white/90">
+                                <div className="border-b border-[#ece4d8] bg-[#f4ede2] px-4 py-3 text-sm font-medium text-[#31423d]">Excluded Shopify rows</div>
+                                {shopifyImportSummary.excludedRows.length === 0 ? (
+                                  <div className="px-4 py-4 text-sm text-[#68716b]">All rows were mapped into gelato serving sizes.</div>
+                                ) : (
+                                  <table className="w-full text-left text-sm">
+                                    <thead className="bg-[#fbf7f0] text-[#60706b]">
+                                      <tr>
+                                        <th className="px-4 py-3 font-medium">Product</th>
+                                        <th className="px-4 py-3 font-medium">Units</th>
+                                        <th className="px-4 py-3 font-medium">Reason</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-[#ece4d8] text-[#24332f]">
+                                      {shopifyImportSummary.excludedRows.map(row => (
+                                        <tr key={`${row.productTitle}-${row.variantTitle}-excluded`}>
+                                          <td className="px-4 py-3 font-medium">{row.productTitle}</td>
+                                          <td className="px-4 py-3">{row.netItemsSold}</td>
+                                          <td className="px-4 py-3">{row.reason}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                )}
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="mt-4 rounded-[1.25rem] border border-dashed border-[#d8cfc2] bg-white/60 px-4 py-6 text-sm leading-6 text-[#68716b]">
+                            Upload the same kind of Shopify CSV you shared here, and the dashboard will calculate sold ounces, compare them with distributed ounces, and show the variance for the selected business date.
+                          </div>
+                        )}
                       </div>
 
                       <Tabs defaultValue="gelato" className="mt-6 w-full gap-4">

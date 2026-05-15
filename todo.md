@@ -277,3 +277,8 @@
 - [x] Fix the mobile photo-assisted inventory analysis flow so uploading scale photos returns valid JSON instead of an HTML error page
 - [x] Fix the false impossible pan-weight validation so legitimate photographed gelato weights like Orange Cacao do not get blocked during submission
 - [x] Fix the gelato flavor hover preview so the photo card renders above all surrounding table rows and links
+- [x] Add a Shopify sales-report import workflow so daily POS sales can be reconciled against opening and closing gelato inventory
+- [x] Define variance thresholds so normal tasting loss is tolerated while large Shopify-versus-inventory mismatches are flagged for manager review
+- [x] Analyze the uploaded Shopify sales CSV and define the exact field mapping needed for Ojala daily gelato reconciliation
+- [x] Build a manager-side Shopify CSV upload tool that converts uploaded sales rows into sold ounces and compares them against daily gelato distributed ounces
+- [x] Calculate and report yesterday’s gelato distributed-versus-sold variance using the uploaded Shopify CSV and recorded morning/evening weights

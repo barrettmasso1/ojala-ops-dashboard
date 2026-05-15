@@ -1,0 +1,298 @@
+{
+  "query": "SELECT businessDate, flavor, `readyMadeGelatoShiftType` AS shiftType, smallPanCount, smallGrossWeightKg, largePanCount, largeGrossWeightKg FROM readyMadeGelatoWeights WHERE businessDate = '2026-05-14' ORDER BY flavor, `readyMadeGelatoShiftType`;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2AT7PKThMZE7xfR.348748892d99 --database m6piugSRrMfjwvid4xHM78 --execute SELECT businessDate, flavor, `readyMadeGelatoShiftType` AS shiftType, smallPanCount, smallGrossWeightKg, largePanCount, largeGrossWeightKg FROM readyMadeGelatoWeights WHERE businessDate = '2026-05-14' ORDER BY flavor, `readyMadeGelatoShiftType`;",
+  "rows": [
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Banana",
+      "shiftType": "opening",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "1.28",
+      "largePanCount": "0",
+      "largeGrossWeightKg": "0.00"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Chocolate",
+      "shiftType": "opening",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "3.09",
+      "largePanCount": "1",
+      "largeGrossWeightKg": "3.97"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Chocolate",
+      "shiftType": "closing",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "2.72",
+      "largePanCount": "1",
+      "largeGrossWeightKg": "3.50"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Cinnamon",
+      "shiftType": "opening",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "1.95",
+      "largePanCount": "1",
+      "largeGrossWeightKg": "2.52"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Cinnamon",
+      "shiftType": "closing",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "1.83",
+      "largePanCount": "1",
+      "largeGrossWeightKg": "2.37"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Cookies and Cream",
+      "shiftType": "opening",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "3.05",
+      "largePanCount": "0",
+      "largeGrossWeightKg": "0.00"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Cookies and Cream",
+      "shiftType": "closing",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "2.78",
+      "largePanCount": "0",
+      "largeGrossWeightKg": "0.00"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "FLAVOR OF THE DAY",
+      "shiftType": "closing",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "0.98",
+      "largePanCount": "0",
+      "largeGrossWeightKg": "0.00"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Guanabana Soursop",
+      "shiftType": "closing",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "1.12",
+      "largePanCount": "0",
+      "largeGrossWeightKg": "0.00"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Lemon",
+      "shiftType": "opening",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "3.06",
+      "largePanCount": "1",
+      "largeGrossWeightKg": "3.94"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Lemon",
+      "shiftType": "closing",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "2.90",
+      "largePanCount": "1",
+      "largeGrossWeightKg": "3.74"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Mango",
+      "shiftType": "opening",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "2.56",
+      "largePanCount": "1",
+      "largeGrossWeightKg": "3.30"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Mango",
+      "shiftType": "closing",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "2.27",
+      "largePanCount": "1",
+      "largeGrossWeightKg": "2.93"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Mint",
+      "shiftType": "opening",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "2.59",
+      "largePanCount": "1",
+      "largeGrossWeightKg": "3.34"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Mint",
+      "shiftType": "closing",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "2.37",
+      "largePanCount": "1",
+      "largeGrossWeightKg": "3.05"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Orange Cacao",
+      "shiftType": "opening",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "1.68",
+      "largePanCount": "0",
+      "largeGrossWeightKg": "0.00"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Orange Cacao",
+      "shiftType": "closing",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "1.60",
+      "largePanCount": "0",
+      "largeGrossWeightKg": "0.00"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Passion Fruit",
+      "shiftType": "opening",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "2.09",
+      "largePanCount": "1",
+      "largeGrossWeightKg": "2.70"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Peanut Butter",
+      "shiftType": "opening",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "2.42",
+      "largePanCount": "1",
+      "largeGrossWeightKg": "3.12"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Peanut Butter",
+      "shiftType": "closing",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "2.11",
+      "largePanCount": "1",
+      "largeGrossWeightKg": "2.73"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Pistachio",
+      "shiftType": "opening",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "1.89",
+      "largePanCount": "1",
+      "largeGrossWeightKg": "2.44"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Pistachio",
+      "shiftType": "closing",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "2.92",
+      "largePanCount": "0",
+      "largeGrossWeightKg": "0.00"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Ruby Port",
+      "shiftType": "closing",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "1.24",
+      "largePanCount": "0",
+      "largeGrossWeightKg": "0.00"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Soursop",
+      "shiftType": "opening",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "1.14",
+      "largePanCount": "0",
+      "largeGrossWeightKg": "0.00"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Strawberry",
+      "shiftType": "opening",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "2.12",
+      "largePanCount": "1",
+      "largeGrossWeightKg": "2.74"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Strawberry",
+      "shiftType": "closing",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "3.07",
+      "largePanCount": "0",
+      "largeGrossWeightKg": "0.00"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Sweet Potato",
+      "shiftType": "opening",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "1.20",
+      "largePanCount": "0",
+      "largeGrossWeightKg": "0.00"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Unknown",
+      "shiftType": "closing",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "0.98",
+      "largePanCount": "0",
+      "largeGrossWeightKg": "0.00"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Vanilla",
+      "shiftType": "opening",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "2.30",
+      "largePanCount": "1",
+      "largeGrossWeightKg": "2.97"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Vanilla",
+      "shiftType": "closing",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "0.94",
+      "largePanCount": "0",
+      "largeGrossWeightKg": "0.00"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Watermelon",
+      "shiftType": "opening",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "2.28",
+      "largePanCount": "1",
+      "largeGrossWeightKg": "2.94"
+    },
+    {
+      "businessDate": "2026-05-14",
+      "flavor": "Watermelon",
+      "shiftType": "closing",
+      "smallPanCount": "1",
+      "smallGrossWeightKg": "2.08",
+      "largePanCount": "1",
+      "largeGrossWeightKg": "2.69"
+    }
+  ],
+  "messages": [],
+  "stdout": "businessDate\tflavor\tshiftType\tsmallPanCount\tsmallGrossWeightKg\tlargePanCount\tlargeGrossWeightKg\n2026-05-14\tBanana\topening\t1\t1.28\t0\t0.00\n2026-05-14\tChocolate\topening\t1\t3.09\t1\t3.97\n2026-05-14\tChocolate\tclosing\t1\t2.72\t1\t3.50\n2026-05-14\tCinnamon\topening\t1\t1.95\t1\t2.52\n2026-05-14\tCinnamon\tclosing\t1\t1.83\t1\t2.37\n2026-05-14\tCookies and Cream\topening\t1\t3.05\t0\t0.00\n2026-05-14\tCookies and Cream\tclosing\t1\t2.78\t0\t0.00\n2026-05-14\tFLAVOR OF THE DAY\tclosing\t1\t0.98\t0\t0.00\n2026-05-14\tGuanabana Soursop\tclosing\t1\t1.12\t0\t0.00\n2026-05-14\tLemon\topening\t1\t3.06\t1\t3.94\n2026-05-14\tLemon\tclosing\t1\t2.90\t1\t3.74\n2026-05-14\tMango\topening\t1\t2.56\t1\t3.30\n2026-05-14\tMango\tclosing\t1\t2.27\t1\t2.93\n2026-05-14\tMint\topening\t1\t2.59\t1\t3.34\n2026-05-14\tMint\tclosing\t1\t2.37\t1\t3.05\n2026-05-14\tOrange Cacao\topening\t1\t1.68\t0\t0.00\n2026-05-14\tOrange Cacao\tclosing\t1\t1.60\t0\t0.00\n2026-05-14\tPassion Fruit\topening\t1\t2.09\t1\t2.70\n2026-05-14\tPeanut Butter\topening\t1\t2.42\t1\t3.12\n2026-05-14\tPeanut Butter\tclosing\t1\t2.11\t1\t2.73\n2026-05-14\tPistachio\topening\t1\t1.89\t1\t2.44\n2026-05-14\tPistachio\tclosing\t1\t2.92\t0\t0.00\n2026-05-14\tRuby Port\tclosing\t1\t1.24\t0\t0.00\n2026-05-14\tSoursop\topening\t1\t1.14\t0\t0.00\n2026-05-14\tStrawberry\topening\t1\t2.12\t1\t2.74\n2026-05-14\tStrawberry\tclosing\t1\t3.07\t0\t0.00\n2026-05-14\tSweet Potato\topening\t1\t1.20\t0\t0.00\n2026-05-14\tUnknown\tclosing\t1\t0.98\t0\t0.00\n2026-05-14\tVanilla\topening\t1\t2.30\t1\t2.97\n2026-05-14\tVanilla\tclosing\t1\t0.94\t0\t0.00\n2026-05-14\tWatermelon\topening\t1\t2.28\t1\t2.94\n2026-05-14\tWatermelon\tclosing\t1\t2.08\t1\t2.69\n",
+  "stderr": "",
+  "execution_time_ms": 277
+}
