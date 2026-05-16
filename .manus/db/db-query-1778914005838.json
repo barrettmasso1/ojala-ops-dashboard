@@ -1,0 +1,14 @@
+{
+  "query": "SELECT readyMadeGelatoShiftType, COUNT(*) AS rowCount FROM readyMadeGelatoWeights WHERE businessDate = '2026-05-15' GROUP BY readyMadeGelatoShiftType;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2AT7PKThMZE7xfR.348748892d99 --database m6piugSRrMfjwvid4xHM78 --execute SELECT readyMadeGelatoShiftType, COUNT(*) AS rowCount FROM readyMadeGelatoWeights WHERE businessDate = '2026-05-15' GROUP BY readyMadeGelatoShiftType;",
+  "rows": [
+    {
+      "readyMadeGelatoShiftType": "closing",
+      "rowCount": "16"
+    }
+  ],
+  "messages": [],
+  "stdout": "readyMadeGelatoShiftType\trowCount\nclosing\t16\n",
+  "stderr": "",
+  "execution_time_ms": 263
+}

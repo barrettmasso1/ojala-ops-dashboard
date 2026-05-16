@@ -1884,7 +1884,26 @@ export default function ManagerDashboard() {
             </div>
 
             <div className="mt-6 rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6] p-4 sm:p-5">
-              <div className="flex flex-wrap gap-3">
+              <div className="rounded-[1.25rem] border border-[#e5ddd0] bg-white/85 p-4 shadow-sm">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="max-w-3xl">
+                    <p className="text-xs uppercase tracking-[0.18em] text-[#8b9088]">Shopify sales report</p>
+                    <p className="mt-2 text-sm leading-6 text-[#5f6a64]">Upload the daily Shopify CSV from the <strong>Reconciliation</strong> tab to compare POS ounces sold against measured gelato distribution and employee closing counts.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setInventoryDashboardView("reconciliation")}
+                    className="inline-flex items-center justify-center rounded-full border border-[#2f2a26] bg-[#2f2a26] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#1f1b18]"
+                  >
+                    Open reconciliation upload
+                  </button>
+                </div>
+                {shopifyImportFileName ? (
+                  <p className="mt-3 text-xs leading-5 text-[#7a827d]">Current imported file: {shopifyImportFileName}</p>
+                ) : null}
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-3">
                 {MANAGER_INVENTORY_TABS.map(tab => {
                   const active = inventoryDashboardView === tab.key;
                   return (

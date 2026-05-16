@@ -282,3 +282,5 @@
 - [x] Analyze the uploaded Shopify sales CSV and define the exact field mapping needed for Ojala daily gelato reconciliation
 - [x] Build a manager-side Shopify CSV upload tool that converts uploaded sales rows into sold ounces and compares them against daily gelato distributed ounces
 - [x] Calculate and report yesterday’s gelato distributed-versus-sold variance using the uploaded Shopify CSV and recorded morning/evening weights
+- [x] Compare the newly uploaded Shopify sales CSV against the employee-entered closing report and measured gelato distribution for the same business date
+- [x] Fix the manager dashboard so the Shopify CSV upload area is clearly visible and usable in the reconciliation view
