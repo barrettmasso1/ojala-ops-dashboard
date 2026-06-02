@@ -13,7 +13,7 @@ export type GelatoPhotoConfidence = "high" | "medium" | "low";
 export type ExtractedGelatoPhoto = {
   fileName: string;
   imageUrl: string;
-  imageKey: string;
+  imageKey?: string;
   flavor: string;
   smallPanCount: number;
   largePanCount: number;
@@ -152,12 +152,21 @@ async function extractSinglePhoto(
   index: number
 ): Promise<ExtractedGelatoPhoto> {
   const decoded = decodeDataUrl(photo.dataUrl);
-  const uploaded = await storagePut(
-    `gelato-photo-pilot/${Date.now()}-${index}-${sanitizePhotoFileName(photo.fileName)}`,
-    decoded.buffer,
-    photo.mimeType || decoded.mimeType
-  );
-  const previewUrl = await storageGetSignedUrl(uploaded.key);
+  let uploadedKey: string | undefined;
+  let previewUrl = photo.dataUrl;
+
+  try {
+    const uploaded = await storagePut(
+      `gelato-photo-pilot/${Date.now()}-${index}-${sanitizePhotoFileName(photo.fileName)}`,
+      decoded.buffer,
+      photo.mimeType || decoded.mimeType
+    );
+    uploadedKey = uploaded.key;
+    previewUrl = await storageGetSignedUrl(uploaded.key);
+  } catch {
+    uploadedKey = undefined;
+    previewUrl = photo.dataUrl;
+  }
 
   const response = await invokeLLM({
     messages: [
@@ -240,7 +249,7 @@ async function extractSinglePhoto(
   return {
     fileName: photo.fileName,
     imageUrl: previewUrl,
-    imageKey: uploaded.key,
+    imageKey: uploadedKey,
     flavor: normalizeFlavorName(parsed.flavor),
     smallPanCount: normalizedCounts.smallPanCount,
     largePanCount: normalizedCounts.largePanCount,

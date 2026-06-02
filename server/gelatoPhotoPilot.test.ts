@@ -209,6 +209,47 @@ describe("extractGelatoPhotos", () => {
     });
   });
 
+  it("falls back to the original data URL when storage presign is temporarily unavailable", async () => {
+    storageMocks.storagePut.mockRejectedValue(new Error("Storage presign failed (502)"));
+    llmMocks.invokeLLM.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              flavor: "Mango",
+              small_pan_count: 1,
+              large_pan_count: 0,
+              gross_weight_kg: 2.1,
+              confidence: "high",
+              warning: "",
+            }),
+          },
+        },
+      ],
+    });
+
+    const dataUrl = "data:image/jpeg;base64,ZmFrZS1pbWFnZQ==";
+    const result = await extractGelatoPhotos([
+      {
+        fileName: "fallback.jpg",
+        mimeType: "image/jpeg",
+        dataUrl,
+      },
+    ]);
+
+    expect(storageMocks.storagePut).toHaveBeenCalledTimes(1);
+    expect(storageMocks.storageGetSignedUrl).not.toHaveBeenCalled();
+    expect(llmMocks.invokeLLM).toHaveBeenCalledTimes(1);
+    expect(result.extractedPhotos[0]).toMatchObject({
+      imageUrl: dataUrl,
+      flavor: "Mango",
+      smallPanCount: 1,
+      largePanCount: 0,
+      combinedGrossWeightKg: 2.1,
+    });
+    expect(result.extractedPhotos[0].imageKey).toBeUndefined();
+  });
+
   it("sanitizes uploaded .jpeg filenames with spaces before saving them to storage", async () => {
     storageMocks.storagePut.mockResolvedValue({
       key: "gelato-photo-pilot/2026-0-WhatsApp-Image-2026-05-02-at-15.23.17.jpeg",

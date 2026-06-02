@@ -284,3 +284,4 @@
 - [x] Calculate and report yesterday’s gelato distributed-versus-sold variance using the uploaded Shopify CSV and recorded morning/evening weights
 - [x] Compare the newly uploaded Shopify sales CSV against the employee-entered closing report and measured gelato distribution for the same business date
 - [x] Fix the manager dashboard so the Shopify CSV upload area is clearly visible and usable in the reconciliation view
+- [x] Diagnose the employee photo-upload 'Storage presign failed (502)' error and determine whether it was caused by an upstream storage outage or an app-side issue
