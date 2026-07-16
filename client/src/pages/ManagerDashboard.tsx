@@ -1246,8 +1246,18 @@ export default function ManagerDashboard() {
               { label: "Card sales", value: formatCurrency(daily?.sales.card ?? 0), helper: "Card collected for the selected day." },
               ...(hasVenmoSales ? [{ label: "Venmo sales", value: formatCurrency(daily?.sales.venmo ?? 0), helper: "Only shown when Venmo sales were reported." }] : []),
               ...(hasZelleSales ? [{ label: "Zelle sales", value: formatCurrency(daily?.sales.zelle ?? 0), helper: "Only shown when Zelle sales were reported." }] : []),
-              { label: "Total ounces sold", value: formatWholeOunces(reconciliationSnapshot.gelato?.soldVolumeOunces ?? daily?.soldVolumeOunces), helper: "Cup sales converted into sold gelato ounces." },
+           { label: "Total ounces sold", value: formatWholeOunces(reconciliationSnapshot.gelato?.soldVolumeOunces ?? daily?.soldVolumeOunces), helper: "Cup sales converted into sold gelato ounces." },
               { label: "Total ounces distributed", value: formatWholeOunces(reconciliationSnapshot.gelato?.distributedVolumeOunces), helper: "Morning gelato ounces minus closing gelato ounces." },
+              { label: "Samples given (oz)", value: formatWholeOunces((daily as any)?.sampleOuncesTotal ?? 0), helper: "Reported samples given to customers, factored into variance." },
+              { label: "Waste (oz)", value: formatWholeOunces((daily as any)?.wasteOuncesTotal ?? 0), helper: "Reported waste (spills, quality pulls), factored into variance." },
+              { label: "Camera cup count", value: ((daily as any)?.frigateCounts?.cupsDetected ?? "—").toString(), helper: (() => {
+                const camCups = (daily as any)?.frigateCounts?.cupsDetected;
+                const posCups = totalForHereCups + totalToGoCups;
+                if (camCups == null) return "Awaiting Frigate push for this date.";
+                const diff = Math.abs(camCups - posCups);
+                if (diff <= 5) return `Aligned with POS (${posCups} sold).`;
+                return `Variance vs POS: ${camCups > posCups ? "+" : "−"}${diff} vs ${posCups} sold.`;
+              })() },
               { label: "For-here cups sold", value: formatCount(totalForHereCups), helper: "All dine-in cups sold across sizes." },
               { label: "To-go cups sold", value: formatCount(totalToGoCups), helper: "All to-go cups sold across sizes." },
               { label: "Total to-go cups used", value: formatCount(totalToGoCupsUsed), helper: "Morning to-go cup count minus closing to-go cup count." },
