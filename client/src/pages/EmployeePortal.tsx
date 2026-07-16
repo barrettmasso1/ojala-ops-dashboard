@@ -75,6 +75,8 @@ type ClosingForm = {
   cardTotal: string;
   zelleTotal: string;
   venmoTotal: string;
+  sampleOunces: string;
+  wasteOunces: string;
   wasteNotes: string;
   lowItemNotes: string;
   generalNotes: string;
@@ -548,6 +550,8 @@ const initialClosingForm = (): ClosingForm => ({
   cardTotal: "",
   zelleTotal: "",
   venmoTotal: "",
+  sampleOunces: "",
+  wasteOunces: "",
   wasteNotes: "",
   lowItemNotes: "",
   generalNotes: "",
@@ -1467,6 +1471,8 @@ export default function EmployeePortal(props: any) {
         cardTotal: Number(closingForm.cardTotal || 0),
         zelleTotal: Number(closingForm.zelleTotal || 0),
         venmoTotal: Number(closingForm.venmoTotal || 0),
+        sampleOunces: Number(closingForm.sampleOunces || 0),
+        wasteOunces: Number(closingForm.wasteOunces || 0),
         wasteNotes: closingForm.wasteNotes,
         lowItemNotes: closingForm.lowItemNotes,
         generalNotes: closingForm.generalNotes,
@@ -2345,6 +2351,10 @@ export default function EmployeePortal(props: any) {
                     </div>
                   </div>
 
+                 <div className="mt-6 grid gap-5 md:grid-cols-2">
+                    <Field label={t("Samples given (oz)")}><input className={smallInputClassName()} type="number" min="0" step="0.5" placeholder="0" value={closingForm.sampleOunces} onChange={event => setClosingForm(current => ({ ...current, sampleOunces: event.target.value }))} /></Field>
+                    <Field label={t("Waste (oz)")}><input className={smallInputClassName()} type="number" min="0" step="0.5" placeholder="0" value={closingForm.wasteOunces} onChange={event => setClosingForm(current => ({ ...current, wasteOunces: event.target.value }))} /></Field>
+                  </div>
                   <div className="mt-6 grid gap-5 xl:grid-cols-2">
                     <Field label={t("Waste Notes")}><textarea className={textareaClassName()} value={closingForm.wasteNotes} onChange={event => setClosingForm(current => ({ ...current, wasteNotes: event.target.value }))} /></Field>
                     <Field label={t("Low-Item Notes")}><textarea className={textareaClassName()} value={closingForm.lowItemNotes} onChange={event => setClosingForm(current => ({ ...current, lowItemNotes: event.target.value }))} /></Field>
