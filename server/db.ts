@@ -10,6 +10,7 @@ import {
   InsertOpeningChecklist,
   InsertRecipe,
   InsertRecipeIngredient,
+  InsertFrigateCupCount,
   InsertReadyMadeGelatoWeight,
   InsertStaffAttendance,
   InsertSubmissionHistoryEntry,
@@ -18,6 +19,7 @@ import {
   openingChecklists,
   readyMadeGelatoWeights,
   recipeIngredients,
+  frigateCupCounts,
   recipes,
   staffAttendance,
   submissionHistoryEntries,
@@ -428,8 +430,8 @@ function classifyServiceItemDiscrepancy(varianceCount: number) {
   return { status: "major" as const, label: "Major discrepancy" };
 }
 
-function buildReadyMadeGelatoReconciliation(rows: ReadyMadeMeasurementRow[], soldVolumeOunces: number, hasClosingSubmission = false) {
-  const rowByFlavorShift = new Map(rows.map(row => [`${normalizeKey(row.flavor ?? "")}:${row.shiftType}`, row]));
+function buildReadyMadeGelatoReconciliation(rows: ReadyMadeMeasurementRow[], soldVolumeOunces: number, hasClosingSubmission = false, sampleOunces = 0, wasteOunces = 0) {
+const rowByFlavorShift = new Map(rows.map(row => [`${normalizeKey(row.flavor ?? "")}:${row.shiftType}`, row]));
   const hasClosingMeasurements =
     hasClosingSubmission &&
     rows.some(
@@ -459,7 +461,8 @@ function buildReadyMadeGelatoReconciliation(rows: ReadyMadeMeasurementRow[], sol
   const openingVolumeOunces = roundTo(flavors.reduce((sum, flavor) => sum + flavor.opening.totalVolumeOunces, 0));
   const closingVolumeOunces = roundTo(flavors.reduce((sum, flavor) => sum + flavor.closing.totalVolumeOunces, 0));
   const actualDistributedVolumeOunces = hasClosingMeasurements ? roundTo(openingVolumeOunces - closingVolumeOunces) : 0;
-  const varianceVolumeOunces = hasClosingMeasurements ? roundTo(actualDistributedVolumeOunces - soldVolumeOunces) : 0;
+  const accountedForOunces = soldVolumeOunces + sampleOunces + wasteOunces;
+  const varianceVolumeOunces = hasClosingMeasurements ? roundTo(actualDistributedVolumeOunces - accountedForOunces) : 0;
   const discrepancy = hasClosingMeasurements ? classifyGelatoDiscrepancy(varianceVolumeOunces) : null;
 
   return {
@@ -909,7 +912,9 @@ export function buildDailySnapshot(
           toNumber(row.combinedGrossWeightKg) > 0 ||
           toNumber(row.weightKg) > 0)
     );
-  const gelato = buildReadyMadeGelatoReconciliation(gelatoRows, soldVolumeOunces, hasClosingGelatoSubmission);
+  const sampleOuncesTotal = reports.reduce((sum, r) => sum + toNumber(r.sampleOunces ?? 0), 0);
+  const wasteOuncesTotal = reports.reduce((sum, r) => sum + toNumber(r.wasteOunces ?? 0), 0);
+  const gelato = buildReadyMadeGelatoReconciliation(gelatoRows, soldVolumeOunces, hasClosingGelatoSubmission, sampleOuncesTotal, wasteOuncesTotal);  
   const packaging = buildServicePackagingReconciliation(openingEntries, reports, inventoryRows, businessDate, hasClosingSubmission);
   const openingCompletionRate = openingEntries.length
     ? openingEntries.reduce((sum, entry) => sum + calculateOpeningCompletion(entry), 0) / openingEntries.length
@@ -947,11 +952,14 @@ export function buildDailySnapshot(
     },
     gelato,
     packaging,
-    checklistCompletion: {
+checklistCompletion: {
       opening: openingCompletionRate,
       closing: closingCompletionRate,
     },
     latestReportStaff: latestReport?.staffName ?? null,
+    frigateCounts: await getFrigateCupCountForDate(businessDate, "handoff"),
+    sampleOuncesTotal: roundTo(sampleOuncesTotal),
+    wasteOuncesTotal: roundTo(wasteOuncesTotal),
   };
 }
 
@@ -2307,4 +2315,51 @@ export async function getRecentNotes(limit = 12) {
   ]);
 
   return buildRecentNotesFeed(reports, closings, limit);
+}
+export async function upsertFrigateCupCount(input: {
+  businessDate: string;
+  cameraName: string;
+  cupsDetected: number;
+  peopleEntries: number;
+  sourceDetail?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const businessDate = input.businessDate;
+
+  // Upsert: delete existing entry for this date+camera, then insert new
+  await db.delete(frigateCupCounts).where(
+    and(
+      eq(frigateCupCounts.businessDate, businessDate),
+      eq(frigateCupCounts.cameraName, input.cameraName)
+    )
+  );
+
+  await db.insert(frigateCupCounts).values({
+    businessDate,
+    cameraName: input.cameraName,
+    cupsDetected: input.cupsDetected,
+    peopleEntries: input.peopleEntries,
+    sourceDetail: input.sourceDetail ?? "",
+  });
+
+  return { success: true };
+}
+
+export async function getFrigateCupCountForDate(businessDate: string, cameraName = "handoff") {
+  const db = await getDb();
+  if (!db) return null;
+
+  const rows = await db.select()
+    .from(frigateCupCounts)
+    .where(
+      and(
+        eq(frigateCupCounts.businessDate, businessDate),
+        eq(frigateCupCounts.cameraName, cameraName)
+      )
+    )
+    .limit(1);
+
+  return rows[0] ?? null;
 }
