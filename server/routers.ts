@@ -35,7 +35,8 @@ import {
   STAFF_ATTENDANCE_NAMES,
   updateInventoryCount,
   updateSubmissionHistoryForm,
-  updateSubmissionHistoryGelato,
+ updateSubmissionHistoryGelato,
+  upsertFrigateCupCount,
   upsertUser,
 } from "./db";
 import { extractGelatoPhotos } from "./gelatoPhotoPilot";
@@ -111,6 +112,8 @@ const endOfDayReportSchema = z.object({
   cardTotal: z.number().min(0),
   zelleTotal: z.number().min(0),
   venmoTotal: z.number().min(0),
+  sampleOunces: z.number().min(0).optional().default(0),
+  wasteOunces: z.number().min(0).optional().default(0),
   wasteNotes: z.string().optional().default(""),
   lowItemNotes: z.string().optional().default(""),
   generalNotes: z.string().optional().default(""),
@@ -522,6 +525,8 @@ export const appRouter = router({
         cardTotal: input.cardTotal.toFixed(2),
         zelleTotal: input.zelleTotal.toFixed(2),
         venmoTotal: input.venmoTotal.toFixed(2),
+        sampleOunces: (input.sampleOunces ?? 0).toFixed(2),
+        wasteOunces: (input.wasteOunces ?? 0).toFixed(2),
         wasteNotes: input.wasteNotes ?? "",
         lowItemNotes: input.lowItemNotes ?? "",
         generalNotes: input.generalNotes ?? "",
@@ -536,8 +541,33 @@ export const appRouter = router({
         });
       }
 
-      return { success: true } as const;
+    return { success: true } as const;
     }),
+  }),
+  frigate: router({
+    submitCounts: publicProcedure
+      .input(z.object({
+        apiKey: z.string().min(1),
+        businessDate: requiredBusinessDateSchema,
+        cameraName: z.string().min(1).default("handoff"),
+        cupsDetected: z.number().int().min(0),
+        peopleEntries: z.number().int().min(0).default(0),
+        sourceDetail: z.string().optional().default(""),
+      }))
+      .mutation(async ({ input }) => {
+        const expected = ENV.FRIGATE_API_KEY;
+        if (!expected || input.apiKey !== expected) {
+          throw new Error("Unauthorized");
+        }
+        await upsertFrigateCupCount({
+          businessDate: input.businessDate,
+          cameraName: input.cameraName,
+          cupsDetected: input.cupsDetected,
+          peopleEntries: input.peopleEntries,
+          sourceDetail: input.sourceDetail,
+        });
+        return { success: true } as const;
+      }),
   }),
   timeclock: router({
     clockIn: protectedProcedure
