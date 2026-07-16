@@ -78,6 +78,8 @@ export const endOfDayReports = mysqlTable("endOfDayReports", {
   cardTotal: decimal("cardTotal", { precision: 10, scale: 2 }).notNull().default("0.00"),
   zelleTotal: decimal("zelleTotal", { precision: 10, scale: 2 }).notNull().default("0.00"),
   venmoTotal: decimal("venmoTotal", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  sampleOunces: decimal("sampleOunces", { precision: 10, scale: 2 }).notNull().default("0.00"),
+  wasteOunces: decimal("wasteOunces", { precision: 10, scale: 2 }).notNull().default("0.00"),
   wasteNotes: text("wasteNotes"),
   lowItemNotes: text("lowItemNotes"),
   generalNotes: text("generalNotes"),
@@ -140,6 +142,17 @@ export const staffAttendance = mysqlTable("staffAttendance", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+export const frigateCupCounts = mysqlTable("frigateCupCounts", {
+  id: int("id").autoincrement().primaryKey(),
+  businessDate: varchar("businessDate", { length: 10 }).notNull(),
+  cameraName: varchar("cameraName", { length: 64 }).notNull().default("handoff"),
+  cupsDetected: int("cupsDetected").notNull().default(0),
+  peopleEntries: int("peopleEntries").notNull().default(0),
+  sourceDetail: text("sourceDetail"),
+  receivedAt: timestamp("receivedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 export const recipes = mysqlTable("recipes", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 160 }).notNull().unique(),
@@ -187,3 +200,5 @@ export type Recipe = typeof recipes.$inferSelect;
 export type InsertRecipe = typeof recipes.$inferInsert;
 export type RecipeIngredient = typeof recipeIngredients.$inferSelect;
 export type InsertRecipeIngredient = typeof recipeIngredients.$inferInsert;
+export type FrigateCupCount = typeof frigateCupCounts.$inferSelect;
+export type InsertFrigateCupCount = typeof frigateCupCounts.$inferInsert;
