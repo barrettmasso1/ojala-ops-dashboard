@@ -847,6 +847,8 @@ export function buildDailySnapshot(
     cardTotal: unknown;
     zelleTotal: unknown;
     venmoTotal: unknown;
+    sampleOunces?: unknown;
+    wasteOunces?: unknown;
     createdAt?: Date;
   }>,
   gelatoRows: ReadyMadeMeasurementRow[],
@@ -957,7 +959,6 @@ checklistCompletion: {
       closing: closingCompletionRate,
     },
     latestReportStaff: latestReport?.staffName ?? null,
-    frigateCounts: await getFrigateCupCountForDate(businessDate, "handoff"),
     sampleOuncesTotal: roundTo(sampleOuncesTotal),
     wasteOuncesTotal: roundTo(wasteOuncesTotal),
   };
