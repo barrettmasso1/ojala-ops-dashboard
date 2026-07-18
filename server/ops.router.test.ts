@@ -29,6 +29,7 @@ const dbMocks = vi.hoisted(() => ({
   updateInventoryCount: vi.fn(),
   updateSubmissionHistoryForm: vi.fn(),
   updateSubmissionHistoryGelato: vi.fn(),
+  upsertFrigateCupCount: vi.fn(),
   upsertUser: vi.fn(),
 }));
 
@@ -119,6 +120,28 @@ describe("operations router", () => {
       code: "FORBIDDEN",
     });
     expect(dbMocks.getDailyOperationsSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("accepts the configured Frigate API key and records camera counts", async () => {
+    const caller = appRouter.createCaller(createContext(null));
+
+    const result = await caller.frigate.submitCounts({
+      apiKey: process.env.FRIGATE_API_KEY ?? "",
+      businessDate: "2026-07-18",
+      cameraName: "handoff",
+      cupsDetected: 14,
+      peopleEntries: 6,
+      sourceDetail: "vitest-secret-check",
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(dbMocks.upsertFrigateCupCount).toHaveBeenCalledWith({
+      businessDate: "2026-07-18",
+      cameraName: "handoff",
+      cupsDetected: 14,
+      peopleEntries: 6,
+      sourceDetail: "vitest-secret-check",
+    });
   });
 
   it("records a staff clock-in through the shared portal timeclock procedure", async () => {

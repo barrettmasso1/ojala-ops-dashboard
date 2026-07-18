@@ -288,4 +288,5 @@
 - [x] Fix the TypeScript build errors in server/db.ts so the dev server preview can start successfully again
 - [x] Verify whether migration 0011_ohala_frigate_integration.sql has been applied, and run the schema update if sampleOunces, wasteOunces, or frigateCupCounts are missing
 - [x] Repair the broken Drizzle migration metadata so pnpm db:push can run cleanly again for future GitHub-synced schema changes
-- [ ] Push the repaired Drizzle migration metadata baseline to the connected GitHub repository and verify the remote main branch now contains the corrected Drizzle files
+- [x] Push the repaired Drizzle migration metadata baseline to the connected GitHub repository and verify the remote main branch now contains the corrected Drizzle files
+- [x] Add the FRIGATE_API_KEY project secret through a secure input card and validate that the app can read it safely
