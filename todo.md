@@ -286,3 +286,5 @@
 - [x] Fix the manager dashboard so the Shopify CSV upload area is clearly visible and usable in the reconciliation view
 - [x] Diagnose the employee photo-upload 'Storage presign failed (502)' error and determine whether it was caused by an upstream storage outage or an app-side issue
 - [x] Fix the TypeScript build errors in server/db.ts so the dev server preview can start successfully again
+- [x] Verify whether migration 0011_ohala_frigate_integration.sql has been applied, and run the schema update if sampleOunces, wasteOunces, or frigateCupCounts are missing
+- [x] Repair the broken Drizzle migration metadata so pnpm db:push can run cleanly again for future GitHub-synced schema changes

@@ -1,7 +1,5 @@
-ALTER TABLE `endOfDayReports` 
-  ADD COLUMN `sampleOunces` decimal(10,2) NOT NULL DEFAULT '0.00',
-  ADD COLUMN `wasteOunces` decimal(10,2) NOT NULL DEFAULT '0.00';
-
+ALTER TABLE `endOfDayReports` ADD COLUMN `sampleOunces` decimal(10,2) NOT NULL DEFAULT '0.00';--> statement-breakpoint
+ALTER TABLE `endOfDayReports` ADD COLUMN `wasteOunces` decimal(10,2) NOT NULL DEFAULT '0.00';--> statement-breakpoint
 CREATE TABLE `frigateCupCounts` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`businessDate` varchar(10) NOT NULL,

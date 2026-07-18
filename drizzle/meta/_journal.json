@@ -75,7 +75,7 @@
     {
       "idx": 10,
       "version": "5",
-      "when": ...,
+      "when": 1778000000000,
       "tag": "0010_warm_bruce_banner",
       "breakpoints": true
     },
