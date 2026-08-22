@@ -290,3 +290,6 @@
 - [x] Repair the broken Drizzle migration metadata so pnpm db:push can run cleanly again for future GitHub-synced schema changes
 - [x] Push the repaired Drizzle migration metadata baseline to the connected GitHub repository and verify the remote main branch now contains the corrected Drizzle files
 - [x] Add the FRIGATE_API_KEY project secret through a secure input card and validate that the app can read it safely
+- [x] Diagnose the Frigate Unauthorized response by testing the configured secret against local and deployed endpoints and comparing masked runtime configuration details
+- [x] Query all stored Frigate count rows, send the requested 999-cup handoff sentinel payload for the current Baja California Sur date, and verify the saved row
+- [x] Trace and fix why the manager dashboard Camera cup count tile does not show the stored Frigate handoff count for 2026-08-21

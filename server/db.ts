@@ -2257,7 +2257,11 @@ export async function getDailyOperationsSnapshot(businessDate?: string) {
     db.select().from(inventoryItems),
   ]);
 
-  return buildDailySnapshot(openingEntries, closingEntries, reports, gelatoRows, inventoryRows, normalizedDate);
+  const frigateCounts = await getFrigateCupCountForDate(normalizedDate, "handoff");
+  return {
+    ...buildDailySnapshot(openingEntries, closingEntries, reports, gelatoRows, inventoryRows, normalizedDate),
+    frigateCounts,
+  };
 }
 
 export async function getSalesTrend(days = 28) {
