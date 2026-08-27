@@ -293,3 +293,4 @@
 - [x] Diagnose the Frigate Unauthorized response by testing the configured secret against local and deployed endpoints and comparing masked runtime configuration details
 - [x] Query all stored Frigate count rows, send the requested 999-cup handoff sentinel payload for the current Baja California Sur date, and verify the saved row
 - [x] Trace and fix why the manager dashboard Camera cup count tile does not show the stored Frigate handoff count for 2026-08-21
+- [x] Ensure getDailyOperationsSnapshot returns the requested handoff camera count as frigateCounts for the manager dashboard tile
