@@ -52,15 +52,19 @@ vi.mock("./_core/notification", () => notificationMocks);
 vi.mock("./_core/sdk", () => sdkMocks);
 vi.mock("./gelatoPhotoPilot", () => gelatoPhotoMocks);
 
+process.env.STAFF_PORTAL_PASSWORD = "test-staff-password";
+process.env.FRIGATE_API_KEY = "test-frigate-key";
+
 const { appRouter } = await import("./routers");
 
 type Role = "admin" | "user";
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
-function createContext(role: Role | null): TrpcContext {
+function createContext(role: Role | null, storeId = 1): TrpcContext {
   const user: AuthenticatedUser | null = role
     ? {
         id: role === "admin" ? 99 : 1,
+        storeId,
         openId: `${role}-user`,
         email: `${role}@example.com`,
         name: role === "admin" ? "Manager" : "Employee",
@@ -96,21 +100,28 @@ describe("operations router", () => {
     const context = createContext(null);
     const caller = appRouter.createCaller(context);
 
-    const result = await caller.auth.staffPortalLogin({ password: "Ojalagelato727272" });
+    const result = await caller.auth.staffPortalLogin({ password: "test-staff-password" });
 
     expect(result).toEqual({ success: true, role: "user" });
     expect(dbMocks.upsertUser).toHaveBeenCalledWith(
       expect.objectContaining({
-        openId: "ojala-shared-staff-portal",
+        openId: "store-1-shared-staff-portal",
         role: "user",
         loginMethod: "shared-password",
       }),
     );
     expect(sdkMocks.sdk.createSessionToken).toHaveBeenCalledWith(
-      "ojala-shared-staff-portal",
+      "store-1-shared-staff-portal",
       expect.objectContaining({ name: "Ojala Staff" }),
     );
     expect((context.res as unknown as { cookie: ReturnType<typeof vi.fn> }).cookie).toHaveBeenCalled();
+  });
+
+  it("propagates the authenticated tenant to store-scoped queries", async () => {
+    dbMocks.listInventoryItems.mockResolvedValue([]);
+    const caller = appRouter.createCaller(createContext("user", 2));
+    await caller.forms.inventoryItems();
+    expect(dbMocks.listInventoryItems).toHaveBeenCalledWith(2);
   });
 
   it("blocks non-admin sessions from manager dashboard queries", async () => {
@@ -126,7 +137,7 @@ describe("operations router", () => {
     const caller = appRouter.createCaller(createContext(null));
 
     const result = await caller.frigate.submitCounts({
-      apiKey: process.env.FRIGATE_API_KEY ?? "",
+      apiKey: "test-frigate-key",
       businessDate: "2026-07-18",
       cameraName: "handoff",
       cupsDetected: 14,
@@ -136,6 +147,7 @@ describe("operations router", () => {
 
     expect(result).toEqual({ success: true });
     expect(dbMocks.upsertFrigateCupCount).toHaveBeenCalledWith({
+      storeId: 1,
       businessDate: "2026-07-18",
       cameraName: "handoff",
       cupsDetected: 14,
@@ -168,7 +180,7 @@ describe("operations router", () => {
         clockOutAt: null,
       }),
     });
-    expect(dbMocks.clockInStaff).toHaveBeenCalledWith({ staffName: "Karol", submittedByUserId: 1 });
+    expect(dbMocks.clockInStaff).toHaveBeenCalledWith({ storeId: 1, staffName: "Karol", submittedByUserId: 1 });
   });
 
   it("records a staff clock-out and exposes today's staff status", async () => {
@@ -214,7 +226,7 @@ describe("operations router", () => {
         clockOutAt: 1778029200000,
       }),
     });
-    expect(dbMocks.clockOutStaff).toHaveBeenCalledWith({ staffName: "Karol", submittedByUserId: 1 });
+    expect(dbMocks.clockOutStaff).toHaveBeenCalledWith({ storeId: 1, staffName: "Karol", submittedByUserId: 1 });
     expect(statusResult).toEqual({
       businessDate: "2026-05-05",
       staff: expect.arrayContaining([
@@ -224,7 +236,7 @@ describe("operations router", () => {
         }),
       ]),
     });
-    expect(dbMocks.getTodayAttendance).toHaveBeenCalledWith("2026-05-05");
+    expect(dbMocks.getTodayAttendance).toHaveBeenCalledWith("2026-05-05", 1);
   });
 
   it("lets admin users save a manual or corrected attendance entry while blocking non-admin staff", async () => {
@@ -258,6 +270,7 @@ describe("operations router", () => {
     });
 
     expect(dbMocks.saveAttendanceEntry).toHaveBeenCalledWith({
+      storeId: 1,
       entryId: 91,
       staffName: "Karol",
       businessDate: "2026-05-09",
@@ -302,7 +315,7 @@ describe("operations router", () => {
         ]),
       }),
     );
-    expect(dbMocks.getWeeklyAttendanceSummary).toHaveBeenCalledWith({ startDate: "2026-04-27", endDate: "2026-05-03" });
+    expect(dbMocks.getWeeklyAttendanceSummary).toHaveBeenCalledWith({ startDate: "2026-04-27", endDate: "2026-05-03", storeId: 1 });
 
     const employeeCaller = appRouter.createCaller(createContext("user"));
     await expect(employeeCaller.timeclock.weeklyHours({ startDate: "2026-04-27", endDate: "2026-05-03" })).rejects.toMatchObject({
@@ -366,7 +379,7 @@ describe("operations router", () => {
         ]),
       }),
     );
-    expect(dbMocks.getAttendanceTimeBook).toHaveBeenCalledWith({ startDate: "2026-04-27", endDate: "2026-05-03" });
+    expect(dbMocks.getAttendanceTimeBook).toHaveBeenCalledWith({ startDate: "2026-04-27", endDate: "2026-05-03", storeId: 1 });
   });
 
   it("loads editable opening checklist questions for employees", async () => {
@@ -387,7 +400,7 @@ describe("operations router", () => {
     const result = await caller.forms.checklistQuestions({ checklistType: "opening" });
 
     expect(result).toHaveLength(1);
-    expect(dbMocks.listChecklistQuestions).toHaveBeenCalledWith("opening");
+    expect(dbMocks.listChecklistQuestions).toHaveBeenCalledWith("opening", 1);
   });
 
   it("submits an opening checklist with stock counts and structured yes-no answers", async () => {
@@ -544,6 +557,7 @@ describe("operations router", () => {
       },
     });
     expect(dbMocks.updateInventoryCount).toHaveBeenCalledWith({
+      storeId: 1,
       id: 41,
       currentQuantity: "18.00",
       notes: "Packaging restocked and counted by front counter",
@@ -636,6 +650,7 @@ describe("operations router", () => {
       ],
     });
     expect(dbMocks.saveReadyMadeGelatoWeights).toHaveBeenCalledWith({
+      storeId: 1,
       businessDate: "2026-04-22",
       shiftType: "opening",
       submittedByUserId: 1,
@@ -687,6 +702,7 @@ describe("operations router", () => {
       entry: expect.objectContaining({ id: 501, submissionType: "opening", staffName: "Ava" }),
     });
     expect(dbMocks.createSubmissionHistoryEntry).toHaveBeenCalledWith({
+      storeId: 1,
       businessDate: "2026-04-29",
       submissionType: "opening",
       staffName: "Ava",
@@ -785,7 +801,7 @@ describe("operations router", () => {
     await expect(adminCaller.dashboard.submissionHistory({ businessDate: "2026-04-29" })).resolves.toEqual([
       expect.objectContaining({ id: 701, submissionType: "closing", staffName: "Marco" }),
     ]);
-    expect(dbMocks.listSubmissionHistoryEntries).toHaveBeenCalledWith("2026-04-29");
+    expect(dbMocks.listSubmissionHistoryEntries).toHaveBeenCalledWith("2026-04-29", 1);
 
     const employeeCaller = appRouter.createCaller(createContext("user"));
     await expect(employeeCaller.dashboard.submissionHistory({ businessDate: "2026-04-29" })).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -823,6 +839,7 @@ describe("operations router", () => {
     });
 
     expect(dbMocks.updateSubmissionHistoryForm).toHaveBeenCalledWith({
+      storeId: 1,
       entryId: 811,
       form: {
         cups4ozHere: 10,
@@ -882,8 +899,11 @@ describe("operations router", () => {
     });
 
     expect(dbMocks.updateSubmissionHistoryGelato).toHaveBeenCalledWith({
+      storeId: 1,
       entryId: 812,
       submittedByUserId: 99,
+      gelatoEntryMode: undefined,
+      analyzedPhotos: undefined,
       gelatoEntries: [
         {
           flavor: "Vanilla",
@@ -979,6 +999,7 @@ describe("operations router", () => {
     });
 
     expect(dbMocks.updateSubmissionHistoryGelato).toHaveBeenCalledWith({
+      storeId: 1,
       entryId: 815,
       submittedByUserId: 99,
       gelatoEntryMode: "photo",
