@@ -41,6 +41,11 @@ UPDATE `frigateCupCounts` SET `storeId`=1 WHERE `storeId` IS NULL;
 UPDATE `recipes` SET `storeId`=1 WHERE `storeId` IS NULL;
 UPDATE `recipeIngredients` SET `storeId`=1 WHERE `storeId` IS NULL;
 --> statement-breakpoint
+ALTER TABLE `frigateCupCounts` DROP INDEX `frigateCupCounts_businessDate_cameraName`;
+ALTER TABLE `frigateCupCounts` ADD CONSTRAINT `frigateCupCounts_store_date_camera_unique` UNIQUE (`storeId`,`businessDate`,`cameraName`);
+ALTER TABLE `recipes` DROP INDEX `recipes_name_unique`;
+ALTER TABLE `recipes` ADD CONSTRAINT `recipes_store_name_unique` UNIQUE (`storeId`,`name`);
+--> statement-breakpoint
 ALTER TABLE `users` ADD CONSTRAINT `users_storeId_stores_id_fk` FOREIGN KEY (`storeId`) REFERENCES `stores`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE `checklistQuestions` ADD CONSTRAINT `checklistQuestions_storeId_stores_id_fk` FOREIGN KEY (`storeId`) REFERENCES `stores`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE `openingChecklists` ADD CONSTRAINT `openingChecklists_storeId_stores_id_fk` FOREIGN KEY (`storeId`) REFERENCES `stores`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;

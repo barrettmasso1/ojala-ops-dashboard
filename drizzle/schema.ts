@@ -1,4 +1,4 @@
-import { bigint, decimal, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { bigint, decimal, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
 
 export const staffAttendanceNameEnum = mysqlEnum("staffAttendanceName", ["Karol", "Anhec", "Jesse", "Esme"]);
 
@@ -172,18 +172,22 @@ export const frigateCupCounts = mysqlTable("frigateCupCounts", {
   sourceDetail: text("sourceDetail"),
   receivedAt: timestamp("receivedAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, table => ({
+  storeDateCameraUnique: uniqueIndex("frigateCupCounts_store_date_camera_unique").on(table.storeId, table.businessDate, table.cameraName),
+}));
 
 export const recipes = mysqlTable("recipes", {
   id: int("id").autoincrement().primaryKey(),
   storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
-  name: varchar("name", { length: 160 }).notNull().unique(),
+  name: varchar("name", { length: 160 }).notNull(),
   batchYieldOunces: decimal("batchYieldOunces", { precision: 10, scale: 2 }).notNull().default("0.00"),
   notes: text("notes"),
   processSteps: text("processSteps"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, table => ({
+  storeNameUnique: uniqueIndex("recipes_store_name_unique").on(table.storeId, table.name),
+}));
 
 export const recipeIngredients = mysqlTable("recipeIngredients", {
   id: int("id").autoincrement().primaryKey(),
