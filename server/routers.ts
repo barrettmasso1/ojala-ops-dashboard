@@ -42,6 +42,8 @@ import {
 import { extractGelatoPhotos } from "./gelatoPhotoPilot";
 import { formatPacificDateTime, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "../shared/businessDate";
 
+const PHASE1_OJALA_STORE_ID = 1;
+
 const optionalBusinessDateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -308,15 +310,15 @@ export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
-    staffPortalLogin: publicProcedure.input(z.object({ password: z.string().min(1), storeId: z.number().int().positive().default(1) })).mutation(async ({ ctx, input }) => {
+    staffPortalLogin: publicProcedure.input(z.object({ password: z.string().min(1) })).mutation(async ({ ctx, input }) => {
       if (!ENV.staffPortalPassword || input.password !== ENV.staffPortalPassword) {
         throw new Error("Invalid staff portal password");
       }
 
-      const sharedStaffOpenId = `store-${input.storeId}-shared-staff-portal`;
+      const sharedStaffOpenId = `store-${PHASE1_OJALA_STORE_ID}-shared-staff-portal`;
       await upsertUser({
         openId: sharedStaffOpenId,
-        storeId: input.storeId,
+        storeId: PHASE1_OJALA_STORE_ID,
         name: "Ojala Staff",
         loginMethod: "shared-password",
         role: "user",
@@ -555,7 +557,6 @@ export const appRouter = router({
     submitCounts: publicProcedure
       .input(z.object({
         apiKey: z.string().min(1),
-        storeId: z.number().int().positive().default(1),
         businessDate: requiredBusinessDateSchema,
         cameraName: z.string().min(1).default("handoff"),
         cupsDetected: z.number().int().min(0),
@@ -568,7 +569,7 @@ export const appRouter = router({
           throw new Error("Unauthorized");
         }
         await upsertFrigateCupCount({
-          storeId: input.storeId,
+          storeId: PHASE1_OJALA_STORE_ID,
           businessDate: input.businessDate,
           cameraName: input.cameraName,
           cupsDetected: input.cupsDetected,

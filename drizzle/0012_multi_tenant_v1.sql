@@ -60,6 +60,7 @@ ALTER TABLE `recipes` ADD CONSTRAINT `recipes_storeId_stores_id_fk` FOREIGN KEY 
 ALTER TABLE `recipeIngredients` ADD CONSTRAINT `recipeIngredients_storeId_stores_id_fk` FOREIGN KEY (`storeId`) REFERENCES `stores`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
 --> statement-breakpoint
 CREATE INDEX `idx_users_storeId` ON `users` (`storeId`);
+CREATE INDEX `idx_checklistQuestions_storeId` ON `checklistQuestions` (`storeId`);
 CREATE INDEX `idx_openingChecklists_storeId` ON `openingChecklists` (`storeId`);
 CREATE INDEX `idx_closingChecklists_storeId` ON `closingChecklists` (`storeId`);
 CREATE INDEX `idx_endOfDayReports_storeId` ON `endOfDayReports` (`storeId`);
@@ -68,3 +69,5 @@ CREATE INDEX `idx_readyMadeGelatoWeights_storeId` ON `readyMadeGelatoWeights` (`
 CREATE INDEX `idx_submissionHistoryEntries_storeId` ON `submissionHistoryEntries` (`storeId`);
 CREATE INDEX `idx_staffAttendance_storeId` ON `staffAttendance` (`storeId`);
 CREATE INDEX `idx_frigateCupCounts_storeId` ON `frigateCupCounts` (`storeId`);
+CREATE INDEX `idx_recipes_storeId` ON `recipes` (`storeId`);
+CREATE INDEX `idx_recipeIngredients_storeId` ON `recipeIngredients` (`storeId`);

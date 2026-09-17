@@ -2281,7 +2281,7 @@ export async function getDailyOperationsSnapshot(businessDate?: string, storeId 
     db.select().from(closingChecklists).where(and(eq(closingChecklists.storeId, storeId), eq(closingChecklists.businessDate, normalizedDate))).orderBy(desc(closingChecklists.createdAt)),
     db.select().from(endOfDayReports).where(and(eq(endOfDayReports.storeId, storeId), eq(endOfDayReports.businessDate, normalizedDate))).orderBy(desc(endOfDayReports.createdAt)),
     db.select().from(readyMadeGelatoWeights).where(and(eq(readyMadeGelatoWeights.storeId, storeId), eq(readyMadeGelatoWeights.businessDate, normalizedDate))).orderBy(readyMadeGelatoWeights.flavor, readyMadeGelatoWeights.shiftType),
-    db.select().from(inventoryItems),
+    db.select().from(inventoryItems).where(eq(inventoryItems.storeId, storeId)),
   ]);
 
   const frigateCounts = await getFrigateCupCountForDate(normalizedDate, "handoff", storeId);

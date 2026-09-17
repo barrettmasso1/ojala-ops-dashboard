@@ -117,6 +117,20 @@ describe("operations router", () => {
     expect((context.res as unknown as { cookie: ReturnType<typeof vi.fn> }).cookie).toHaveBeenCalled();
   });
 
+  it("does not allow the shared Phase 1 staff password to select another tenant", async () => {
+    const context = createContext(null);
+    const caller = appRouter.createCaller(context);
+
+    await caller.auth.staffPortalLogin({ password: "test-staff-password", storeId: 2 } as never);
+
+    expect(dbMocks.upsertUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        openId: "store-1-shared-staff-portal",
+        storeId: 1,
+      }),
+    );
+  });
+
   it("propagates the authenticated tenant to store-scoped queries", async () => {
     dbMocks.listInventoryItems.mockResolvedValue([]);
     const caller = appRouter.createCaller(createContext("user", 2));
@@ -1161,6 +1175,13 @@ describe("operations router", () => {
         frigateCounts: expect.objectContaining({ cupsDetected: 42 }),
       })
     );
+
+    expect(dbMocks.getDailyOperationsSnapshot).toHaveBeenCalledWith("2026-04-21", 1);
+
+    dbMocks.getDailyOperationsSnapshot.mockClear();
+    const secondStoreAdmin = appRouter.createCaller(createContext("admin", 2));
+    await secondStoreAdmin.dashboard.daily({ businessDate: "2026-04-21" });
+    expect(dbMocks.getDailyOperationsSnapshot).toHaveBeenCalledWith("2026-04-21", 2);
 
     const employeeCaller = appRouter.createCaller(createContext("user"));
     await expect(employeeCaller.dashboard.daily({ businessDate: "2026-04-21" })).rejects.toMatchObject({
