@@ -19,8 +19,20 @@ function ActionLink({ href, children, tone = "primary" }: { href: string; childr
 }
 
 export default function Home() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const isAdmin = user?.role === "admin";
+
+  const handleManagerLogin = async () => {
+    if (user && !isAdmin) {
+      try {
+        await logout();
+      } catch (error) {
+        console.error("Failed to clear staff session before manager login", error);
+      }
+    }
+
+    window.location.href = getLoginUrl("/dashboard");
+  };
 
   const staffLinks = [
     { label: "Portal Home", href: "/portal" },
@@ -48,26 +60,23 @@ export default function Home() {
               Customer Site
             </a>
             {user ? (
-              <>
-                <ActionLink href="/portal" tone="secondary">
-                  Staff Forms
-                </ActionLink>
-                {isAdmin ? <ActionLink href="/dashboard">Manager Dashboard</ActionLink> : null}
-              </>
+              <ActionLink href="/portal" tone="secondary">
+                Staff Forms
+              </ActionLink>
             ) : (
-              <>
-                <ActionLink href="/staff-login" tone="secondary">
-                  Staff Login
-                </ActionLink>
-                <button
-                  onClick={() => {
-                    window.location.href = getLoginUrl("/dashboard");
-                  }}
-                  className="rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]"
-                >
-                  Manager Login
-                </button>
-              </>
+              <ActionLink href="/staff-login" tone="secondary">
+                Staff Login
+              </ActionLink>
+            )}
+            {isAdmin ? (
+              <ActionLink href="/dashboard">Manager Dashboard</ActionLink>
+            ) : (
+              <button
+                onClick={handleManagerLogin}
+                className="rounded-full bg-[#2f2a26] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#1f1b18]"
+              >
+                Manager Login
+              </button>
             )}
           </div>
         </header>
