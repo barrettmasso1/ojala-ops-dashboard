@@ -85,13 +85,6 @@
       "when": 1789000000000,
       "tag": "0011_ohala_frigate_integration",
       "breakpoints": true
-    },
-    {
-      "idx": 12,
-      "version": "5",
-      "when": 1789773550336,
-      "tag": "0012_multi_tenant_v1",
-      "breakpoints": true
     }
   ]
 }
