@@ -1,4 +1,4 @@
-import { bigint, decimal, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
+import { bigint, decimal, index, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
 
 export const staffAttendanceNameEnum = mysqlEnum("staffAttendanceName", ["Karol", "Anhec", "Jesse", "Esme"]);
 
@@ -24,7 +24,9 @@ export const users = mysqlTable("users", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
-});
+}, table => ({
+  storeIndex: index("idx_users_storeId").on(table.storeId),
+}));
 
 export const checklistQuestions = mysqlTable("checklistQuestions", {
   id: int("id").autoincrement().primaryKey(),
@@ -38,7 +40,9 @@ export const checklistQuestions = mysqlTable("checklistQuestions", {
   isActive: int("isActive").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, table => ({
+  storeIndex: index("idx_checklistQuestions_storeId").on(table.storeId),
+}));
 
 export const openingChecklists = mysqlTable("openingChecklists", {
   id: int("id").autoincrement().primaryKey(),
@@ -55,7 +59,9 @@ export const openingChecklists = mysqlTable("openingChecklists", {
   notes: text("notes"),
   submittedByUserId: int("submittedByUserId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, table => ({
+  storeIndex: index("idx_openingChecklists_storeId").on(table.storeId),
+}));
 
 export const closingChecklists = mysqlTable("closingChecklists", {
   id: int("id").autoincrement().primaryKey(),
@@ -71,7 +77,9 @@ export const closingChecklists = mysqlTable("closingChecklists", {
   notes: text("notes"),
   submittedByUserId: int("submittedByUserId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, table => ({
+  storeIndex: index("idx_closingChecklists_storeId").on(table.storeId),
+}));
 
 export const endOfDayReports = mysqlTable("endOfDayReports", {
   id: int("id").autoincrement().primaryKey(),
@@ -101,7 +109,9 @@ export const endOfDayReports = mysqlTable("endOfDayReports", {
   generalNotes: text("generalNotes"),
   submittedByUserId: int("submittedByUserId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, table => ({
+  storeIndex: index("idx_endOfDayReports_storeId").on(table.storeId),
+}));
 
 export const inventoryItems = mysqlTable("inventoryItems", {
   id: int("id").autoincrement().primaryKey(),
@@ -121,7 +131,9 @@ export const inventoryItems = mysqlTable("inventoryItems", {
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, table => ({
+  storeIndex: index("idx_inventoryItems_storeId").on(table.storeId),
+}));
 
 export const readyMadeGelatoWeights = mysqlTable("readyMadeGelatoWeights", {
   id: int("id").autoincrement().primaryKey(),
@@ -137,7 +149,9 @@ export const readyMadeGelatoWeights = mysqlTable("readyMadeGelatoWeights", {
   submittedByUserId: int("submittedByUserId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, table => ({
+  storeIndex: index("idx_readyMadeGelatoWeights_storeId").on(table.storeId),
+}));
 
 export const submissionHistoryEntries = mysqlTable("submissionHistoryEntries", {
   id: int("id").autoincrement().primaryKey(),
@@ -148,7 +162,9 @@ export const submissionHistoryEntries = mysqlTable("submissionHistoryEntries", {
   payloadJson: text("payloadJson").notNull(),
   submittedByUserId: int("submittedByUserId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, table => ({
+  storeIndex: index("idx_submissionHistoryEntries_storeId").on(table.storeId),
+}));
 
 export const staffAttendance = mysqlTable("staffAttendance", {
   id: int("id").autoincrement().primaryKey(),
@@ -160,7 +176,9 @@ export const staffAttendance = mysqlTable("staffAttendance", {
   submittedByUserId: int("submittedByUserId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, table => ({
+  storeIndex: index("idx_staffAttendance_storeId").on(table.storeId),
+}));
 
 export const frigateCupCounts = mysqlTable("frigateCupCounts", {
   id: int("id").autoincrement().primaryKey(),
@@ -173,6 +191,7 @@ export const frigateCupCounts = mysqlTable("frigateCupCounts", {
   receivedAt: timestamp("receivedAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => ({
+  storeIndex: index("idx_frigateCupCounts_storeId").on(table.storeId),
   storeDateCameraUnique: uniqueIndex("frigateCupCounts_store_date_camera_unique").on(table.storeId, table.businessDate, table.cameraName),
 }));
 
@@ -186,6 +205,7 @@ export const recipes = mysqlTable("recipes", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, table => ({
+  storeIndex: index("idx_recipes_storeId").on(table.storeId),
   storeNameUnique: uniqueIndex("recipes_store_name_unique").on(table.storeId, table.name),
 }));
 
@@ -203,7 +223,9 @@ export const recipeIngredients = mysqlTable("recipeIngredients", {
   processSteps: text("processSteps"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, table => ({
+  storeIndex: index("idx_recipeIngredients_storeId").on(table.storeId),
+}));
 
 export type Store = typeof stores.$inferSelect;
 export type InsertStore = typeof stores.$inferInsert;

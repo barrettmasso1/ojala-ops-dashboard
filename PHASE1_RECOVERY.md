@@ -1,6 +1,6 @@
 # Phase 1 recovery before Phase 2
 
-## Verified repository state, 2026-09-19
+## Findings before the repair, 2026-09-19
 
 - Production branch `main` at `f6b78b6` includes the OAuth schema rollback (`33b53dd`) and latest-populated-date UI change (`32e973b`). A repository commit does not establish which build is currently deployed.
 - `multi-tenant-v1` retains the proposed tenant migration and application isolation changes.
@@ -10,6 +10,16 @@
 - The old verification checks NULL assignments only; that cannot certify preserved history, schema completeness, or authorization isolation.
 
 These are code findings, not a verified explanation of the July/August data gap. The production database has not been queried from this workspace.
+
+## Repair prepared on multi-tenant-v1
+
+- Registered 0012 in the Drizzle journal with a generated schema snapshot.
+- Split the SQL into one statement per driver execution.
+- Preserved an existing store 1 name/timezone instead of overwriting it.
+- Declared the tenant indexes in the schema and snapshot.
+- Reconciled the latest manager-login, populated-date, and business-metrics changes from main.
+- Added migration-loader and metadata regression tests.
+- These changes have not been applied to production. A partially migrated database still requires the read-only audit and an exact recovery plan before execution.
 
 ## Read-only evidence
 
