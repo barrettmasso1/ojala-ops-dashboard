@@ -1,21 +1,9 @@
-import { bigint, decimal, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
+import { bigint, decimal, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
 
 export const staffAttendanceNameEnum = mysqlEnum("staffAttendanceName", ["Karol", "Anhec", "Jesse", "Esme"]);
 
-export const stores = mysqlTable("stores", {
-  id: int("id").autoincrement().primaryKey(),
-  nombre: varchar("nombre", { length: 160 }).notNull(),
-  timezone: varchar("timezone", { length: 64 }).notNull(),
-  horarioApertura: varchar("horario_apertura", { length: 8 }),
-  horarioCierre: varchar("horario_cierre", { length: 8 }),
-  duenoEmail: varchar("dueno_email", { length: 320 }),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
-
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
-  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
@@ -28,7 +16,6 @@ export const users = mysqlTable("users", {
 
 export const checklistQuestions = mysqlTable("checklistQuestions", {
   id: int("id").autoincrement().primaryKey(),
-  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   checklistType: mysqlEnum("checklistType", ["opening", "closing"]).notNull(),
   sectionTitle: varchar("sectionTitle", { length: 80 }).notNull(),
   prompt: text("prompt").notNull(),
@@ -42,7 +29,6 @@ export const checklistQuestions = mysqlTable("checklistQuestions", {
 
 export const openingChecklists = mysqlTable("openingChecklists", {
   id: int("id").autoincrement().primaryKey(),
-  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   businessDate: varchar("businessDate", { length: 10 }).notNull(),
   staffName: varchar("staffName", { length: 160 }).notNull(),
   equipmentStatus: text("equipmentStatus").notNull(),
@@ -59,7 +45,6 @@ export const openingChecklists = mysqlTable("openingChecklists", {
 
 export const closingChecklists = mysqlTable("closingChecklists", {
   id: int("id").autoincrement().primaryKey(),
-  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   businessDate: varchar("businessDate", { length: 10 }).notNull(),
   staffName: varchar("staffName", { length: 160 }).notNull(),
   cashCounted: decimal("cashCounted", { precision: 10, scale: 2 }).notNull(),
@@ -75,7 +60,6 @@ export const closingChecklists = mysqlTable("closingChecklists", {
 
 export const endOfDayReports = mysqlTable("endOfDayReports", {
   id: int("id").autoincrement().primaryKey(),
-  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   businessDate: varchar("businessDate", { length: 10 }).notNull(),
   staffName: varchar("staffName", { length: 160 }).notNull(),
   cups4oz: int("cups4oz").notNull().default(0),
@@ -105,7 +89,6 @@ export const endOfDayReports = mysqlTable("endOfDayReports", {
 
 export const inventoryItems = mysqlTable("inventoryItems", {
   id: int("id").autoincrement().primaryKey(),
-  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   department: varchar("department", { length: 48 }).notNull().default("Ingredients"),
   category: varchar("category", { length: 48 }).notNull(),
   itemName: varchar("itemName", { length: 160 }).notNull(),
@@ -125,7 +108,6 @@ export const inventoryItems = mysqlTable("inventoryItems", {
 
 export const readyMadeGelatoWeights = mysqlTable("readyMadeGelatoWeights", {
   id: int("id").autoincrement().primaryKey(),
-  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   businessDate: varchar("businessDate", { length: 10 }).notNull(),
   flavor: varchar("flavor", { length: 160 }).notNull(),
   shiftType: mysqlEnum("readyMadeGelatoShiftType", ["opening", "closing"]).notNull().default("opening"),
@@ -141,7 +123,6 @@ export const readyMadeGelatoWeights = mysqlTable("readyMadeGelatoWeights", {
 
 export const submissionHistoryEntries = mysqlTable("submissionHistoryEntries", {
   id: int("id").autoincrement().primaryKey(),
-  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   businessDate: varchar("businessDate", { length: 10 }).notNull(),
   submissionType: mysqlEnum("submissionHistoryType", ["opening", "closing", "inventory"]).notNull(),
   staffName: varchar("staffName", { length: 160 }).notNull(),
@@ -152,7 +133,6 @@ export const submissionHistoryEntries = mysqlTable("submissionHistoryEntries", {
 
 export const staffAttendance = mysqlTable("staffAttendance", {
   id: int("id").autoincrement().primaryKey(),
-  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   businessDate: varchar("businessDate", { length: 10 }).notNull(),
   staffName: staffAttendanceNameEnum.notNull(),
   clockInAt: bigint("clockInAt", { mode: "number" }).notNull(),
@@ -164,7 +144,6 @@ export const staffAttendance = mysqlTable("staffAttendance", {
 
 export const frigateCupCounts = mysqlTable("frigateCupCounts", {
   id: int("id").autoincrement().primaryKey(),
-  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   businessDate: varchar("businessDate", { length: 10 }).notNull(),
   cameraName: varchar("cameraName", { length: 64 }).notNull().default("handoff"),
   cupsDetected: int("cupsDetected").notNull().default(0),
@@ -172,26 +151,20 @@ export const frigateCupCounts = mysqlTable("frigateCupCounts", {
   sourceDetail: text("sourceDetail"),
   receivedAt: timestamp("receivedAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-}, table => ({
-  storeDateCameraUnique: uniqueIndex("frigateCupCounts_store_date_camera_unique").on(table.storeId, table.businessDate, table.cameraName),
-}));
+});
 
 export const recipes = mysqlTable("recipes", {
   id: int("id").autoincrement().primaryKey(),
-  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
-  name: varchar("name", { length: 160 }).notNull(),
+  name: varchar("name", { length: 160 }).notNull().unique(),
   batchYieldOunces: decimal("batchYieldOunces", { precision: 10, scale: 2 }).notNull().default("0.00"),
   notes: text("notes"),
   processSteps: text("processSteps"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-}, table => ({
-  storeNameUnique: uniqueIndex("recipes_store_name_unique").on(table.storeId, table.name),
-}));
+});
 
 export const recipeIngredients = mysqlTable("recipeIngredients", {
   id: int("id").autoincrement().primaryKey(),
-  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   recipeId: int("recipeId").notNull(),
   inventoryItemId: int("inventoryItemId"),
   ingredientName: varchar("ingredientName", { length: 160 }).notNull(),
@@ -205,8 +178,6 @@ export const recipeIngredients = mysqlTable("recipeIngredients", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
-export type Store = typeof stores.$inferSelect;
-export type InsertStore = typeof stores.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type ChecklistQuestion = typeof checklistQuestions.$inferSelect;
