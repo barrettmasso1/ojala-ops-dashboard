@@ -735,6 +735,26 @@ export default function ManagerDashboard() {
     { enabled: isAdmin, refetchOnWindowFocus: false }
   );
   const trendQuery = trpc.dashboard.salesTrend.useQuery({ days: 28 }, { enabled: isAdmin, refetchOnWindowFocus: false });
+
+  useEffect(() => {
+    if (!isAdmin || dailyQuery.isLoading || trendQuery.isLoading) return;
+    if (selectedDate !== maxBusinessDate) return;
+    if ((dailyQuery.data?.reportCount ?? 0) > 0) return;
+
+    const latestDateWithSales = trendQuery.data?.at(-1)?.businessDate;
+    if (latestDateWithSales && latestDateWithSales < maxBusinessDate) {
+      setSelectedDate(latestDateWithSales);
+    }
+  }, [
+    dailyQuery.data?.reportCount,
+    dailyQuery.isLoading,
+    isAdmin,
+    maxBusinessDate,
+    selectedDate,
+    trendQuery.data,
+    trendQuery.isLoading,
+  ]);
+
   const wowQuery = trpc.dashboard.weekOverWeek.useQuery(undefined, { enabled: isAdmin, refetchOnWindowFocus: false });
   const alertsQuery = trpc.dashboard.inventoryAlerts.useQuery(undefined, { enabled: isAdmin, refetchOnWindowFocus: false });
   const inventoryItemsQuery = trpc.dashboard.inventoryItems.useQuery(undefined, { enabled: isAdmin, refetchOnWindowFocus: false });
