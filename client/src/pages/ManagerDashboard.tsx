@@ -1185,6 +1185,18 @@ export default function ManagerDashboard() {
   const hasVenmoSales = (daily?.sales.venmo ?? 0) > 0;
   const trendData = trendQuery.data ?? [];
   const wowData = wowQuery.data ?? [];
+  const latestTrendDay = trendData.at(-1);
+  const trailingSalesTotal = trendData.reduce((sum, entry) => sum + entry.totalSales, 0);
+  const trailingSalesAverage = trendData.length > 0 ? trailingSalesTotal / trendData.length : 0;
+  const strongestTrendDay = trendData.reduce<{ businessDate: string; totalSales: number } | null>(
+    (best, entry) => (!best || entry.totalSales > best.totalSales ? entry : best),
+    null
+  );
+  const latestWeek = wowData.at(-1);
+  const latestWeekDeltaPercent =
+    latestWeek && latestWeek.previousWeekSales > 0
+      ? ((latestWeek.totalSales - latestWeek.previousWeekSales) / latestWeek.previousWeekSales) * 100
+      : null;
   const inventoryAlerts = alertsQuery.data ?? [];
   const inventoryItems = inventoryItemsQuery.data ?? [];
   const recipes = recipesQuery.data ?? [];
@@ -1391,6 +1403,68 @@ export default function ManagerDashboard() {
 
         {isOverviewRoute ? (
           <>
+            <SurfaceCard>
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Business metrics</p>
+                  <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Recent performance</h2>
+                  <p className="mt-3 max-w-3xl text-sm leading-7 text-[#66706a]">Rolling sales metrics from the most recent reported business days.</p>
+                </div>
+                <div className="rounded-full bg-[#f1e8da] px-4 py-2 text-sm text-[#566863]">
+                  {trendData.length} days with sales data
+                </div>
+              </div>
+              {trendQuery.isLoading || wowQuery.isLoading ? (
+                <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+                  {Array.from({ length: 5 }).map((_, index) => (
+                    <div key={index} className="h-28 animate-pulse rounded-2xl bg-[#f4ede2]" />
+                  ))}
+                </div>
+              ) : trendQuery.error || wowQuery.error ? (
+                <div className="mt-6">
+                  <StatePanel title="Unable to load business metrics" description="Recent sales metrics could not be loaded right now." tone="error" />
+                </div>
+              ) : (
+                <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+                  {[
+                    {
+                      label: "Latest reported day",
+                      value: latestTrendDay?.businessDate ?? "—",
+                      helper: latestTrendDay ? formatCurrency(latestTrendDay.totalSales) : "No sales history found.",
+                    },
+                    {
+                      label: "Latest day sales",
+                      value: formatCurrency(latestTrendDay?.totalSales ?? 0),
+                      helper: "Sales from the most recent reported day.",
+                    },
+                    {
+                      label: "Recent sales total",
+                      value: formatCurrency(trailingSalesTotal),
+                      helper: "Total across recent reported days.",
+                    },
+                    {
+                      label: "Average sales / day",
+                      value: formatCurrency(trailingSalesAverage),
+                      helper: "Average across recent reported days.",
+                    },
+                    {
+                      label: "Week over week",
+                      value: latestWeekDeltaPercent == null ? "—" : ((latestWeekDeltaPercent >= 0 ? "+" : "") + latestWeekDeltaPercent.toFixed(1) + "%"),
+                      helper: strongestTrendDay
+                        ? ("Best recent day: " + strongestTrendDay.businessDate + " · " + formatCurrency(strongestTrendDay.totalSales))
+                        : "Waiting for enough weekly history.",
+                    },
+                  ].map(card => (
+                    <div key={card.label} className="rounded-2xl border border-[#e5ddd0] bg-[#fbf7f0] p-5 shadow-sm">
+                      <p className="text-xs uppercase tracking-[0.18em] text-[#8b9088]">{card.label}</p>
+                      <p className="mt-3 font-serif text-3xl text-[#1f2b27]">{card.value}</p>
+                      <p className="mt-2 text-sm leading-6 text-[#6f776f]">{card.helper}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </SurfaceCard>
+
             <div className="grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">
               <SurfaceCard>
                 <div className="flex items-center justify-between gap-4">
