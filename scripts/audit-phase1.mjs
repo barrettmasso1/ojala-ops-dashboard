@@ -1,6 +1,7 @@
 // Read-only production audit. Never prints DATABASE_URL or user records.
 import { writeFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
+import { beginAudit, databaseFingerprint, guardedAuditConnection } from "./audit-readonly.mjs";
 
 const { values } = parseArgs({ options: {
   from: { type: "string", default: "2026-07-01" },
@@ -36,9 +37,8 @@ let connection;
 let transactionStarted = false;
 try {
   const mysql = await import("mysql2/promise");
-  connection = await mysql.createConnection(process.env.DATABASE_URL);
-  // Abort if this server cannot enforce a read-only transaction.
-  await connection.query("START TRANSACTION READ ONLY");
+  connection = guardedAuditConnection(await mysql.createConnection(process.env.DATABASE_URL));
+  const readOnlyEnforcement = await beginAudit(connection);
   transactionStarted = true;
   const [columns] = await connection.query("SELECT TABLE_NAME AS tableName, COLUMN_NAME AS columnName, IS_NULLABLE AS nullable, COLUMN_DEFAULT AS defaultValue FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()");
   const [indexes] = await connection.query("SELECT TABLE_NAME AS tableName, INDEX_NAME AS indexName, NON_UNIQUE AS nonUnique, SEQ_IN_INDEX AS sequence, COLUMN_NAME AS columnName FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX");
@@ -48,8 +48,11 @@ try {
   const blockers = [];
   const storeTableReady = hasColumn("stores", "id");
   let storeIds = [];
+  const schemaDefinitions = {};
   if (storeTableReady) {
     [storeIds] = await connection.query("SELECT id FROM stores ORDER BY id");
+    const [[definition]] = await connection.query("SHOW CREATE TABLE `stores`");
+    schemaDefinitions.stores = definition["Create Table"];
   }
   if (!storeIds.some(row => Number(row.id) === 1)) blockers.push("Ojala store id=1 is missing");
 
@@ -59,6 +62,8 @@ try {
     const item = { table, exists };
     tables.push(item);
     if (!exists) { blockers.push(`${table}: table missing`); continue; }
+    const [[definition]] = await connection.query(`SHOW CREATE TABLE \`${table}\``);
+    schemaDefinitions[table] = definition["Create Table"];
     const [[total]] = await connection.query(`SELECT COUNT(*) AS rowCount FROM \`${table}\``);
     item.rowCount = Number(total.rowCount);
     item.storeIdColumn = columns.find(row => row.tableName === table && row.columnName === "storeId") ?? null;
@@ -100,6 +105,10 @@ try {
     generatedAt: new Date().toISOString(),
     period: { from: values.from, to: values.to },
     readOnly: true,
+    readOnlyEnforcement,
+    databaseFingerprint: databaseFingerprint(process.env.DATABASE_URL),
+    environmentVerified: false,
+    schemaDefinitions,
     schemaReady: blockers.length === 0,
     phase1Certified: false,
     outstandingEvidence: ["Compare historical row counts against the pre-migration backup", "Verify authenticated manager and staff login", "Verify store 2 cannot read or modify store 1 through every operational API", "Verify Frigate ingestion writes to the correct store"],
