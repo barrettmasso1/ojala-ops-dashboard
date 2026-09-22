@@ -30,11 +30,19 @@ export function registerOAuthRoutes(app: Express) {
         return;
       }
 
+      // OAuth identity does not authorize a store. Accounts are provisioned
+      // server-side with a fixed storeId before their first sign-in.
+      const existingUser = await db.getActiveUserByOpenId(userInfo.openId);
+      if (!existingUser) {
+        res.status(403).json({ error: "Account is not provisioned for an active store" });
+        return;
+      }
+
       await db.upsertUser({
-        openId: userInfo.openId,
-        name: userInfo.name || null,
-        email: userInfo.email ?? null,
-        loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
+        openId: existingUser.openId,
+        name: userInfo.name || existingUser.name || null,
+        email: userInfo.email ?? existingUser.email ?? null,
+        loginMethod: userInfo.loginMethod ?? userInfo.platform ?? existingUser.loginMethod ?? null,
         lastSignedIn: new Date(),
       });
 
