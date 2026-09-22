@@ -96,8 +96,8 @@
     {
       "idx": 13,
       "version": "5",
-      "when": 1790110167249,
-      "tag": "0013_tenant_credential_boundaries",
+      "when": 1790111774186,
+      "tag": "0013_tenant_credential_and_frigate_event_boundaries",
       "breakpoints": true
     }
   ]

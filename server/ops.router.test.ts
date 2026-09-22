@@ -101,6 +101,7 @@ describe("operations router", () => {
     sdkMocks.sdk.createSessionToken.mockResolvedValue("staff-session-token");
     dbMocks.getActiveStoreById.mockResolvedValue(storeOne);
     dbMocks.resolveActiveStoreCredential.mockResolvedValue(null);
+    dbMocks.upsertFrigateCupCount.mockResolvedValue({ success: true, disposition: "apply" });
   });
 
   it("accepts the configured shared staff portal password and sets a staff session cookie", async () => {
@@ -207,9 +208,11 @@ describe("operations router", () => {
       cupsDetected: 14,
       peopleEntries: 6,
       sourceDetail: "vitest-secret-check",
+      sourceEventId: "fixture-event-0001",
+      sourceEventAt: "2026-07-18T22:00:00.000Z",
     });
 
-    expect(result).toEqual({ success: true });
+    expect(result).toEqual({ success: true, disposition: "apply" });
     expect(dbMocks.upsertFrigateCupCount).toHaveBeenCalledWith({
       storeId: 1,
       businessDate: "2026-07-18",
@@ -217,6 +220,8 @@ describe("operations router", () => {
       cupsDetected: 14,
       peopleEntries: 6,
       sourceDetail: "vitest-secret-check",
+      sourceEventId: "fixture-event-0001",
+      sourceEventAt: new Date("2026-07-18T22:00:00.000Z"),
     });
   });
 
@@ -231,6 +236,8 @@ describe("operations router", () => {
       cupsDetected: 14,
       peopleEntries: 6,
       sourceDetail: "fixture",
+      sourceEventId: "fixture-event-0002",
+      sourceEventAt: "2026-07-18T22:01:00.000Z",
       storeId: 1,
     } as never);
 
@@ -245,6 +252,8 @@ describe("operations router", () => {
       cupsDetected: 14,
       peopleEntries: 6,
       sourceDetail: "fixture",
+      sourceEventId: "fixture-event-0002",
+      sourceEventAt: new Date("2026-07-18T22:01:00.000Z"),
     });
   });
 
@@ -258,6 +267,8 @@ describe("operations router", () => {
       cameraName: "handoff",
       cupsDetected: 14,
       peopleEntries: 6,
+      sourceEventId: "fixture-event-0003",
+      sourceEventAt: "2026-07-18T22:02:00.000Z",
     })).rejects.toThrow("Unauthorized");
     expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();
   });

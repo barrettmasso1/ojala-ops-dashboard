@@ -16,20 +16,22 @@ export const stores = mysqlTable("stores", {
 
 /**
  * Server-resolved credentials for non-OAuth staff and machine integrations.
- * Only SHA-256 hashes are persisted; revocation is represented by revokedAt.
+ * Human staff passwords use scrypt verifiers; Frigate machine keys use a
+ * SHA-256 lookup hash. Plain credentials are never persisted.
  */
 export const storeCredentials = mysqlTable("storeCredentials", {
   id: int("id").autoincrement().primaryKey(),
   storeId: int("storeId").notNull().references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   credentialType: mysqlEnum("storeCredentialType", ["staff_portal", "frigate"]).notNull(),
-  credentialHash: varchar("credentialHash", { length: 64 }).notNull(),
+  verifierFormat: mysqlEnum("storeCredentialVerifierFormat", ["scrypt_v1", "sha256_v1"]).notNull(),
+  credentialVerifier: varchar("credentialVerifier", { length: 512 }).notNull(),
   label: varchar("label", { length: 160 }).notNull().default(""),
   revokedAt: timestamp("revokedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, table => ({
   storeIndex: index("idx_storeCredentials_storeId").on(table.storeId),
-  credentialLookup: uniqueIndex("storeCredentials_type_hash_unique").on(table.credentialType, table.credentialHash),
+  credentialLookup: uniqueIndex("storeCredentials_type_verifier_unique").on(table.credentialType, table.credentialVerifier),
 }));
 
 export const users = mysqlTable("users", {
@@ -207,6 +209,8 @@ export const frigateCupCounts = mysqlTable("frigateCupCounts", {
   cupsDetected: int("cupsDetected").notNull().default(0),
   peopleEntries: int("peopleEntries").notNull().default(0),
   sourceDetail: text("sourceDetail"),
+  sourceEventId: varchar("sourceEventId", { length: 128 }).notNull(),
+  sourceEventAt: timestamp("sourceEventAt").notNull(),
   receivedAt: timestamp("receivedAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => ({
