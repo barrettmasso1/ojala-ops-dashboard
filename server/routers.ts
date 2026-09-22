@@ -33,6 +33,8 @@ import {
   saveInventoryItem,
   saveReadyMadeGelatoWeights,
   STAFF_ATTENDANCE_NAMES,
+  getActiveStoreById,
+  resolveActiveStoreCredential,
   updateInventoryCount,
   updateSubmissionHistoryForm,
  updateSubmissionHistoryGelato,
@@ -41,6 +43,9 @@ import {
 } from "./db";
 import { extractGelatoPhotos } from "./gelatoPhotoPilot";
 import { formatPacificDateTime, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "../shared/businessDate";
+import { credentialsMatch } from "./storeCredentials";
+
+const PHASE1_OJALA_STORE_ID = 1;
 
 const optionalBusinessDateSchema = z
   .string()
@@ -304,26 +309,60 @@ function buildDashboardUrl(
   return host ? `${protocol}://${host}/dashboard` : "/dashboard";
 }
 
+async function resolveStaffPortalStore(password: string) {
+  const managedCredential = await resolveActiveStoreCredential({
+    credentialType: "staff_portal",
+    secret: password,
+  });
+  if (managedCredential) return managedCredential.store;
+
+  // Explicit, limited compatibility for Ojala's existing staff password. It
+  // cannot be used to select another store and is rejected if Store 1 is off.
+  if (credentialsMatch(password, ENV.staffPortalPassword)) {
+    return getActiveStoreById(PHASE1_OJALA_STORE_ID);
+  }
+
+  return null;
+}
+
+async function resolveFrigateStore(apiKey: string) {
+  const managedCredential = await resolveActiveStoreCredential({
+    credentialType: "frigate",
+    secret: apiKey,
+  });
+  if (managedCredential) return managedCredential.store;
+
+  // Explicit, limited compatibility for the existing Ojala Frigate sender.
+  // A client never supplies a store ID, so this path is irrevocably Store 1.
+  if (credentialsMatch(apiKey, ENV.FRIGATE_API_KEY)) {
+    return getActiveStoreById(PHASE1_OJALA_STORE_ID);
+  }
+
+  return null;
+}
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     staffPortalLogin: publicProcedure.input(z.object({ password: z.string().min(1) })).mutation(async ({ ctx, input }) => {
-      if (!ENV.staffPortalPassword || input.password !== ENV.staffPortalPassword) {
+      const store = await resolveStaffPortalStore(input.password);
+      if (!store) {
         throw new Error("Invalid staff portal password");
       }
 
-      const sharedStaffOpenId = "ojala-shared-staff-portal";
+      const sharedStaffOpenId = `store-${store.id}-shared-staff-portal`;
       await upsertUser({
         openId: sharedStaffOpenId,
-        name: "Ojala Staff",
+        storeId: store.id,
+        name: `${store.nombre} Staff`,
         loginMethod: "shared-password",
         role: "user",
         lastSignedIn: new Date(),
       });
 
       const sessionToken = await sdk.createSessionToken(sharedStaffOpenId, {
-        name: "Ojala Staff",
+        name: `${store.nombre} Staff`,
         expiresInMs: ONE_YEAR_MS,
       });
       const cookieOptions = getSessionCookieOptions(ctx.req);
@@ -343,18 +382,19 @@ export const appRouter = router({
     }),
   }),
   forms: router({
-    checklistQuestions: protectedProcedure.input(z.object({ checklistType: checklistTypeSchema })).query(async ({ input }) => listChecklistQuestions(input.checklistType)),
-    inventoryItems: protectedProcedure.query(async () => listInventoryItems()),
-    readyMadeGelatoWeights: protectedProcedure.input(z.object({ businessDate: z.string().optional() }).optional()).query(async ({ input }) => listReadyMadeGelatoWeights(input?.businessDate)),
+    checklistQuestions: protectedProcedure.input(z.object({ checklistType: checklistTypeSchema })).query(async ({ ctx, input }) => listChecklistQuestions(input.checklistType, ctx.user.storeId)),
+    inventoryItems: protectedProcedure.query(async ({ ctx }) => listInventoryItems(ctx.user.storeId)),
+    readyMadeGelatoWeights: protectedProcedure.input(z.object({ businessDate: z.string().optional() }).optional()).query(async ({ ctx, input }) => listReadyMadeGelatoWeights(input?.businessDate, ctx.user.storeId)),
     submissionStatus: protectedProcedure
       .input(
         z.object({
           businessDate: requiredBusinessDateSchema,
         })
       )
-      .query(async ({ input }) => getSubmissionStatusForBusinessDate(input.businessDate)),
+      .query(async ({ ctx, input }) => getSubmissionStatusForBusinessDate(input.businessDate, ctx.user.storeId)),
     submitInventoryUpdate: protectedProcedure.input(inventoryUpdateSchema).mutation(async ({ ctx, input }) => {
       const item = await updateInventoryCount({
+        storeId: ctx.user.storeId,
         id: input.id,
         currentQuantity: input.currentQuantity.toFixed(2),
         notes: input.notes ?? "",
@@ -389,6 +429,7 @@ export const appRouter = router({
     }),
     submitSubmissionHistory: protectedProcedure.input(submissionHistorySchema).mutation(async ({ ctx, input }) => {
       const entry = await createSubmissionHistoryEntry({
+        storeId: ctx.user.storeId,
         businessDate: input.businessDate,
         submissionType: input.submissionType,
         staffName: input.staffName,
@@ -417,6 +458,7 @@ export const appRouter = router({
     }),
     submitReadyMadeGelato: protectedProcedure.input(readyMadeGelatoSchema).mutation(async ({ ctx, input }) => {
       const records = await saveReadyMadeGelatoWeights({
+        storeId: ctx.user.storeId,
         businessDate: input.businessDate,
         shiftType: input.shiftType,
         submittedByUserId: ctx.user.id,
@@ -447,6 +489,7 @@ export const appRouter = router({
       }, {});
 
       const record = await createOpeningChecklist({
+        storeId: ctx.user.storeId,
         businessDate: input.businessDate ?? new Date().toISOString().slice(0, 10),
         staffName: input.staffName,
         equipmentStatus: (answersBySection.Equipment ?? []).join("\n") || "No equipment responses provided",
@@ -488,6 +531,7 @@ export const appRouter = router({
       const storeClosedAnswer = input.checklistAnswers.find(answer => answer.prompt === "Store closed properly")?.answer ?? "No";
 
       const record = await createClosingChecklist({
+        storeId: ctx.user.storeId,
         businessDate: input.businessDate ?? new Date().toISOString().slice(0, 10),
         staffName: input.staffName,
         cashCounted: input.cashCounted.toFixed(2),
@@ -514,6 +558,7 @@ export const appRouter = router({
     }),
     submitEndOfDay: protectedProcedure.input(endOfDayReportSchema).mutation(async ({ ctx, input }) => {
       const record = await createEndOfDayReport({
+        storeId: ctx.user.storeId,
         ...input,
         cups4oz: input.cups4ozHere + input.cups4ozToGo,
         cups8oz: input.cups8ozHere + input.cups8ozToGo,
@@ -555,11 +600,12 @@ export const appRouter = router({
         sourceDetail: z.string().optional().default(""),
       }))
       .mutation(async ({ input }) => {
-        const expected = ENV.FRIGATE_API_KEY;
-        if (!expected || input.apiKey !== expected) {
+        const store = await resolveFrigateStore(input.apiKey);
+        if (!store) {
           throw new Error("Unauthorized");
         }
         await upsertFrigateCupCount({
+          storeId: store.id,
           businessDate: input.businessDate,
           cameraName: input.cameraName,
           cupsDetected: input.cupsDetected,
@@ -574,6 +620,7 @@ export const appRouter = router({
       .input(z.object({ staffName: staffAttendanceNameSchema }))
       .mutation(async ({ ctx, input }) => {
         const entry = await clockInStaff({
+          storeId: ctx.user.storeId,
           staffName: input.staffName,
           submittedByUserId: ctx.user.id,
         });
@@ -588,6 +635,7 @@ export const appRouter = router({
       .input(z.object({ staffName: staffAttendanceNameSchema }))
       .mutation(async ({ ctx, input }) => {
         const entry = await clockOutStaff({
+          storeId: ctx.user.storeId,
           staffName: input.staffName,
           submittedByUserId: ctx.user.id,
         });
@@ -600,9 +648,9 @@ export const appRouter = router({
       }),
     todayStatus: protectedProcedure
       .input(z.object({ businessDate: requiredBusinessDateSchema.optional() }).optional())
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         const businessDate = input?.businessDate ?? getPacificBusinessDate();
-        const staff = await getTodayAttendance(businessDate);
+        const staff = await getTodayAttendance(businessDate, ctx.user.storeId);
 
         return {
           businessDate,
@@ -611,17 +659,17 @@ export const appRouter = router({
       }),
     weeklyHours: adminProcedure
       .input(weeklyAttendanceRangeSchema)
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         const endDate = input?.endDate ?? getPacificBusinessDate();
         const startDate = input?.startDate ?? getPacificSundayWeekStart(endDate);
-        return getWeeklyAttendanceSummary({ startDate, endDate });
+        return getWeeklyAttendanceSummary({ startDate, endDate, storeId: ctx.user.storeId });
       }),
     timeBook: adminProcedure
       .input(weeklyAttendanceRangeSchema)
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         const endDate = input?.endDate ?? getPacificBusinessDate();
         const startDate = input?.startDate ?? getPacificSundayWeekStart(endDate);
-        return getAttendanceTimeBook({ startDate, endDate });
+        return getAttendanceTimeBook({ startDate, endDate, storeId: ctx.user.storeId });
       }),
     saveEntry: adminProcedure
       .input(
@@ -635,6 +683,7 @@ export const appRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         const entry = await saveAttendanceEntry({
+          storeId: ctx.user.storeId,
           entryId: input.entryId,
           staffName: input.staffName,
           businessDate: input.businessDate,
@@ -659,26 +708,27 @@ export const appRouter = router({
           businessDate: optionalBusinessDateSchema,
         })
       )
-      .query(async ({ input }) => getDailyOperationsSnapshot(input.businessDate)),
+      .query(async ({ ctx, input }) => getDailyOperationsSnapshot(input.businessDate, ctx.user.storeId)),
     salesTrend: adminProcedure
       .input(
         z.object({
           days: z.number().int().min(7).max(90).default(28),
         })
       )
-      .query(async ({ input }) => getSalesTrend(input.days)),
-    weekOverWeek: adminProcedure.query(async () => getWeekOverWeekSales()),
-    inventoryAlerts: adminProcedure.query(async () => getInventoryAlerts()),
-    inventoryItems: adminProcedure.query(async () => listInventoryItems()),
-    recipes: adminProcedure.query(async () => listRecipesWithCosts()),
-    checklistQuestions: adminProcedure.input(z.object({ checklistType: checklistTypeSchema })).query(async ({ input }) => listChecklistQuestions(input.checklistType)),
-    saveChecklistQuestion: adminProcedure.input(checklistQuestionSchema).mutation(async ({ input }) => {
-      const question = await saveChecklistQuestion(input);
+      .query(async ({ ctx, input }) => getSalesTrend(input.days, ctx.user.storeId)),
+    weekOverWeek: adminProcedure.query(async ({ ctx }) => getWeekOverWeekSales(ctx.user.storeId)),
+    inventoryAlerts: adminProcedure.query(async ({ ctx }) => getInventoryAlerts(ctx.user.storeId)),
+    inventoryItems: adminProcedure.query(async ({ ctx }) => listInventoryItems(ctx.user.storeId)),
+    recipes: adminProcedure.query(async ({ ctx }) => listRecipesWithCosts(ctx.user.storeId)),
+    checklistQuestions: adminProcedure.input(z.object({ checklistType: checklistTypeSchema })).query(async ({ ctx, input }) => listChecklistQuestions(input.checklistType, ctx.user.storeId)),
+    saveChecklistQuestion: adminProcedure.input(checklistQuestionSchema).mutation(async ({ ctx, input }) => {
+      const question = await saveChecklistQuestion({ ...input, storeId: ctx.user.storeId });
       return { success: true, question } as const;
     }),
-    removeChecklistQuestion: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => removeChecklistQuestion(input.id)),
-    saveInventoryItem: adminProcedure.input(inventoryItemSchema).mutation(async ({ input }) => {
+    removeChecklistQuestion: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => removeChecklistQuestion(input.id, ctx.user.storeId)),
+    saveInventoryItem: adminProcedure.input(inventoryItemSchema).mutation(async ({ ctx, input }) => {
       const item = await saveInventoryItem({
+        storeId: ctx.user.storeId,
         ...input,
         costPerUnit: input.costPerUnit.toFixed(2),
         currentQuantity: input.currentQuantity.toFixed(2),
@@ -698,14 +748,14 @@ export const appRouter = router({
           limit: z.number().int().min(4).max(30).default(12),
         })
       )
-      .query(async ({ input }) => getRecentNotes(input.limit)),
+      .query(async ({ ctx, input }) => getRecentNotes(input.limit, ctx.user.storeId)),
     submissionHistory: adminProcedure
       .input(
         z.object({
           businessDate: optionalBusinessDateSchema,
         }).optional()
       )
-      .query(async ({ input }) => listSubmissionHistoryEntries(input?.businessDate)),
+      .query(async ({ ctx, input }) => listSubmissionHistoryEntries(input?.businessDate, ctx.user.storeId)),
     updateSubmissionGelato: adminProcedure
       .input(
         z.object({
@@ -717,6 +767,7 @@ export const appRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         const entry = await updateSubmissionHistoryGelato({
+          storeId: ctx.user.storeId,
           entryId: input.entryId,
           submittedByUserId: ctx.user.id,
           gelatoEntryMode: input.gelatoEntryMode,
@@ -742,6 +793,7 @@ export const appRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         const entry = await updateSubmissionHistoryForm({
+          storeId: ctx.user.storeId,
           entryId: input.entryId,
           form: input.form,
           submittedByUserId: ctx.user.id,
