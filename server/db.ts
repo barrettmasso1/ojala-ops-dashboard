@@ -22,6 +22,8 @@ import {
   frigateCupCounts,
   recipes,
   staffAttendance,
+  storeCredentials,
+  stores,
   submissionHistoryEntries,
   users,
 } from "../drizzle/schema";
@@ -29,6 +31,7 @@ import { PACIFIC_TIME_ZONE, getPacificBusinessDate, getPacificSundayWeekStart, g
 import { DEFAULT_INVENTORY_ITEMS, DEFAULT_RECIPE_ITEMS, READY_MADE_GELATO_FLAVORS } from "../shared/opsCatalog";
 import { ENV } from "./_core/env";
 import { storageGetSignedUrl } from "./storage";
+import { hashStoreCredential, type StoreCredentialType } from "./storeCredentials";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -48,6 +51,13 @@ function normalizeDate(date?: string) {
     throw new Error("Future business dates are not allowed.");
   }
   return normalized;
+}
+
+function requireStoreId(storeId: number | null | undefined): number {
+  if (typeof storeId !== "number" || !Number.isInteger(storeId) || storeId <= 0) {
+    throw new Error("An explicit storeId is required");
+  }
+  return storeId;
 }
 
 const KG_TO_WEIGHT_OUNCES = 35.27396195;
@@ -703,7 +713,7 @@ function findInventoryMatchByName<T extends { id?: number; itemName: string; uni
     ?? (aliasTarget ? items.find(item => normalizeKey(item.itemName) === aliasTarget) : undefined);
 }
 
-async function ensureInventorySeeded(storeId = 1) {
+async function ensureInventorySeeded(storeId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -730,7 +740,7 @@ async function ensureInventorySeeded(storeId = 1) {
   );
 }
 
-async function ensureRecipesSeeded(storeId = 1) {
+async function ensureRecipesSeeded(storeId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -1084,6 +1094,11 @@ export async function upsertUser(user: InsertUser): Promise<void> {
 
   const values: InsertUser = { openId: user.openId };
   const updateSet: Record<string, unknown> = {};
+  // Store assignment is a provisioning decision. It is used only on INSERT;
+  // an upsert must never let a normal sign-in move an existing account.
+  if (user.storeId !== undefined) {
+    values.storeId = user.storeId;
+  }
   const textFields = ["name", "email", "loginMethod"] as const;
 
   for (const field of textFields) {
@@ -1127,16 +1142,104 @@ export async function getUserByOpenId(openId: string) {
   return result[0];
 }
 
+export async function getActiveStoreById(storeId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db
+    .select()
+    .from(stores)
+    .where(and(eq(stores.id, storeId), eq(stores.isActive, 1)))
+    .limit(1);
+
+  return result[0] ?? null;
+}
+
+/** Returns an existing user only when their server-assigned store is active. */
+export async function getActiveUserByOpenId(openId: string) {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot get active user: database not available");
+    return undefined;
+  }
+
+  const result = await db
+    .select({ user: users })
+    .from(users)
+    .innerJoin(stores, eq(users.storeId, stores.id))
+    .where(and(eq(users.openId, openId), eq(stores.isActive, 1)))
+    .limit(1);
+
+  return result[0]?.user;
+}
+
+/** Resolves a credential to one active store using its persisted hash only. */
+export async function resolveActiveStoreCredential(input: {
+  credentialType: StoreCredentialType;
+  secret: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const credentialHash = hashStoreCredential(input.secret);
+  const result = await db
+    .select({ store: stores, credential: storeCredentials })
+    .from(storeCredentials)
+    .innerJoin(stores, eq(storeCredentials.storeId, stores.id))
+    .where(
+      and(
+        eq(storeCredentials.credentialType, input.credentialType),
+        eq(storeCredentials.credentialHash, credentialHash),
+        isNull(storeCredentials.revokedAt),
+        eq(stores.isActive, 1)
+      )
+    )
+    .limit(1);
+
+  return result[0] ?? null;
+}
+
+/** Server-side provisioning helper. Callers must hash secrets before calling. */
+export async function createStoreCredential(input: {
+  storeId: number;
+  credentialType: StoreCredentialType;
+  credentialHash: string;
+  label?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db.insert(storeCredentials).values({
+    storeId: input.storeId,
+    credentialType: input.credentialType,
+    credentialHash: input.credentialHash,
+    label: input.label ?? "",
+  });
+}
+
+/** Revokes a credential without deleting audit history or its hash record. */
+export async function revokeStoreCredential(input: { id: number; storeId: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .update(storeCredentials)
+    .set({ revokedAt: new Date() })
+    .where(and(eq(storeCredentials.id, input.id), eq(storeCredentials.storeId, input.storeId), isNull(storeCredentials.revokedAt)));
+}
+
 export async function createOpeningChecklist(input: InsertOpeningChecklist) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  const storeId = requireStoreId(input.storeId);
   const values: InsertOpeningChecklist = {
     ...input,
+    storeId,
     businessDate: normalizeDate(input.businessDate),
   };
 
-  await db.delete(openingChecklists).where(and(eq(openingChecklists.storeId, values.storeId ?? 1), eq(openingChecklists.businessDate, values.businessDate)));
+  await db.delete(openingChecklists).where(and(eq(openingChecklists.storeId, storeId), eq(openingChecklists.businessDate, values.businessDate)));
   await db.insert(openingChecklists).values(values);
   return values;
 }
@@ -1145,12 +1248,14 @@ export async function createClosingChecklist(input: InsertClosingChecklist) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  const storeId = requireStoreId(input.storeId);
   const values: InsertClosingChecklist = {
     ...input,
+    storeId,
     businessDate: normalizeDate(input.businessDate),
   };
 
-  await db.delete(closingChecklists).where(and(eq(closingChecklists.storeId, values.storeId ?? 1), eq(closingChecklists.businessDate, values.businessDate)));
+  await db.delete(closingChecklists).where(and(eq(closingChecklists.storeId, storeId), eq(closingChecklists.businessDate, values.businessDate)));
   await db.insert(closingChecklists).values(values);
   return values;
 }
@@ -1159,12 +1264,14 @@ export async function createEndOfDayReport(input: InsertEndOfDayReport) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  const storeId = requireStoreId(input.storeId);
   const values: InsertEndOfDayReport = {
     ...input,
+    storeId,
     businessDate: normalizeDate(input.businessDate),
   };
 
-  await db.delete(endOfDayReports).where(and(eq(endOfDayReports.storeId, values.storeId ?? 1), eq(endOfDayReports.businessDate, values.businessDate)));
+  await db.delete(endOfDayReports).where(and(eq(endOfDayReports.storeId, storeId), eq(endOfDayReports.businessDate, values.businessDate)));
   await db.insert(endOfDayReports).values(values);
   return values;
 }
@@ -2361,23 +2468,27 @@ export async function upsertFrigateCupCount(input: {
 
   const businessDate = input.businessDate;
 
-  // Upsert: delete existing entry for this date+camera, then insert new
-  await db.delete(frigateCupCounts).where(
-    and(
-      eq(frigateCupCounts.storeId, input.storeId),
-      eq(frigateCupCounts.businessDate, businessDate),
-      eq(frigateCupCounts.cameraName, input.cameraName)
-    )
-  );
-
-  await db.insert(frigateCupCounts).values({
-    storeId: input.storeId,
-    businessDate,
-    cameraName: input.cameraName,
-    cupsDetected: input.cupsDetected,
-    peopleEntries: input.peopleEntries,
-    sourceDetail: input.sourceDetail ?? "",
-  });
+  // Contract: a payload is the latest absolute count for one
+  // (storeId,businessDate,cameraName), not an increment. The scoped unique
+  // index makes retries idempotent without a delete/insert gap.
+  await db
+    .insert(frigateCupCounts)
+    .values({
+      storeId: input.storeId,
+      businessDate,
+      cameraName: input.cameraName,
+      cupsDetected: input.cupsDetected,
+      peopleEntries: input.peopleEntries,
+      sourceDetail: input.sourceDetail ?? "",
+    })
+    .onDuplicateKeyUpdate({
+      set: {
+        cupsDetected: input.cupsDetected,
+        peopleEntries: input.peopleEntries,
+        sourceDetail: input.sourceDetail ?? "",
+        receivedAt: new Date(),
+      },
+    });
 
   return { success: true };
 }

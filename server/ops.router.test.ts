@@ -25,7 +25,9 @@ const dbMocks = vi.hoisted(() => ({
   saveReadyMadeGelatoWeights: vi.fn(),
   saveAttendanceEntry: vi.fn(),
   createSubmissionHistoryEntry: vi.fn(),
+  getActiveStoreById: vi.fn(),
   listSubmissionHistoryEntries: vi.fn(),
+  resolveActiveStoreCredential: vi.fn(),
   updateInventoryCount: vi.fn(),
   updateSubmissionHistoryForm: vi.fn(),
   updateSubmissionHistoryGelato: vi.fn(),
@@ -59,6 +61,9 @@ const { appRouter } = await import("./routers");
 
 type Role = "admin" | "user";
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
+
+const storeOne = { id: 1, nombre: "Ojala Gelato", timezone: "America/Mazatlan", isActive: 1 };
+const storeTwo = { id: 2, nombre: "Second Store", timezone: "America/Los_Angeles", isActive: 1 };
 
 function createContext(role: Role | null, storeId = 1): TrpcContext {
   const user: AuthenticatedUser | null = role
@@ -94,6 +99,8 @@ describe("operations router", () => {
     vi.clearAllMocks();
     notificationMocks.notifyOwner.mockResolvedValue(true);
     sdkMocks.sdk.createSessionToken.mockResolvedValue("staff-session-token");
+    dbMocks.getActiveStoreById.mockResolvedValue(storeOne);
+    dbMocks.resolveActiveStoreCredential.mockResolvedValue(null);
   });
 
   it("accepts the configured shared staff portal password and sets a staff session cookie", async () => {
@@ -112,7 +119,7 @@ describe("operations router", () => {
     );
     expect(sdkMocks.sdk.createSessionToken).toHaveBeenCalledWith(
       "store-1-shared-staff-portal",
-      expect.objectContaining({ name: "Ojala Staff" }),
+      expect.objectContaining({ name: "Ojala Gelato Staff" }),
     );
     expect((context.res as unknown as { cookie: ReturnType<typeof vi.fn> }).cookie).toHaveBeenCalled();
   });
@@ -131,11 +138,54 @@ describe("operations router", () => {
     );
   });
 
+  it("resolves a managed staff credential to its server-assigned store and ignores a forged storeId", async () => {
+    dbMocks.resolveActiveStoreCredential.mockResolvedValue({ store: storeTwo, credential: { id: 11 } });
+    const caller = appRouter.createCaller(createContext(null));
+
+    await caller.auth.staffPortalLogin({ password: "store-two-staff-secret", storeId: 1 } as never);
+
+    expect(dbMocks.resolveActiveStoreCredential).toHaveBeenCalledWith({
+      credentialType: "staff_portal",
+      secret: "store-two-staff-secret",
+    });
+    expect(dbMocks.upsertUser).toHaveBeenCalledWith(expect.objectContaining({
+      openId: "store-2-shared-staff-portal",
+      storeId: 2,
+      name: "Second Store Staff",
+    }));
+    expect(sdkMocks.sdk.createSessionToken).toHaveBeenCalledWith(
+      "store-2-shared-staff-portal",
+      expect.objectContaining({ name: "Second Store Staff" }),
+    );
+  });
+
+  it("rejects an invalid or disabled-store staff credential without issuing a session", async () => {
+    dbMocks.getActiveStoreById.mockResolvedValue(null);
+    const caller = appRouter.createCaller(createContext(null));
+
+    await expect(caller.auth.staffPortalLogin({ password: "test-staff-password" })).rejects.toThrow("Invalid staff portal password");
+    await expect(caller.auth.staffPortalLogin({ password: "not-a-credential" })).rejects.toThrow("Invalid staff portal password");
+    expect(sdkMocks.sdk.createSessionToken).not.toHaveBeenCalled();
+    expect(dbMocks.upsertUser).not.toHaveBeenCalled();
+  });
+
   it("propagates the authenticated tenant to store-scoped queries", async () => {
     dbMocks.listInventoryItems.mockResolvedValue([]);
     const caller = appRouter.createCaller(createContext("user", 2));
     await caller.forms.inventoryItems();
     expect(dbMocks.listInventoryItems).toHaveBeenCalledWith(2);
+  });
+
+  it("passes the authenticated store to writes even when a caller knows another store's record ID", async () => {
+    dbMocks.updateInventoryCount.mockResolvedValue({ id: 401, storeId: 2, itemName: "Store 2 Cups", currentQuantity: "9.00" });
+    dbMocks.updateSubmissionHistoryForm.mockResolvedValue({ id: 501, storeId: 2 });
+    const caller = appRouter.createCaller(createContext("admin", 2));
+
+    await caller.forms.submitInventoryUpdate({ id: 401, currentQuantity: 9, notes: "fixture", notifyOwner: false });
+    await caller.dashboard.updateSubmissionForm({ entryId: 501, form: { notes: "fixture" } });
+
+    expect(dbMocks.updateInventoryCount).toHaveBeenCalledWith(expect.objectContaining({ id: 401, storeId: 2 }));
+    expect(dbMocks.updateSubmissionHistoryForm).toHaveBeenCalledWith(expect.objectContaining({ entryId: 501, storeId: 2 }));
   });
 
   it("blocks non-admin sessions from manager dashboard queries", async () => {
@@ -168,6 +218,48 @@ describe("operations router", () => {
       peopleEntries: 6,
       sourceDetail: "vitest-secret-check",
     });
+  });
+
+  it("resolves a managed Frigate key to Store 2 and ignores a forged payload storeId", async () => {
+    dbMocks.resolveActiveStoreCredential.mockResolvedValue({ store: storeTwo, credential: { id: 22 } });
+    const caller = appRouter.createCaller(createContext(null));
+
+    await caller.frigate.submitCounts({
+      apiKey: "store-two-frigate-secret",
+      businessDate: "2026-07-18",
+      cameraName: "handoff",
+      cupsDetected: 14,
+      peopleEntries: 6,
+      sourceDetail: "fixture",
+      storeId: 1,
+    } as never);
+
+    expect(dbMocks.resolveActiveStoreCredential).toHaveBeenCalledWith({
+      credentialType: "frigate",
+      secret: "store-two-frigate-secret",
+    });
+    expect(dbMocks.upsertFrigateCupCount).toHaveBeenCalledWith({
+      storeId: 2,
+      businessDate: "2026-07-18",
+      cameraName: "handoff",
+      cupsDetected: 14,
+      peopleEntries: 6,
+      sourceDetail: "fixture",
+    });
+  });
+
+  it("rejects an invalid or disabled-store Frigate key without writing a count", async () => {
+    dbMocks.getActiveStoreById.mockResolvedValue(null);
+    const caller = appRouter.createCaller(createContext(null));
+
+    await expect(caller.frigate.submitCounts({
+      apiKey: "test-frigate-key",
+      businessDate: "2026-07-18",
+      cameraName: "handoff",
+      cupsDetected: 14,
+      peopleEntries: 6,
+    })).rejects.toThrow("Unauthorized");
+    expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();
   });
 
   it("records a staff clock-in through the shared portal timeclock procedure", async () => {
