@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, isNull, lte } from "drizzle-orm";
+import { and, count, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   checklistQuestions,
@@ -31,7 +31,14 @@ import { PACIFIC_TIME_ZONE, getPacificBusinessDate, getPacificSundayWeekStart, g
 import { DEFAULT_INVENTORY_ITEMS, DEFAULT_RECIPE_ITEMS, READY_MADE_GELATO_FLAVORS } from "../shared/opsCatalog";
 import { ENV } from "./_core/env";
 import { storageGetSignedUrl } from "./storage";
-import { hashStoreCredential, type StoreCredentialType } from "./storeCredentials";
+import { compareFrigateEventOrder } from "./frigateEventOrder";
+import {
+  credentialFormatFor,
+  hashFrigateApiKey,
+  verifyStaffPassword,
+  type StoreCredentialFormat,
+  type StoreCredentialType,
+} from "./storeCredentials";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -1173,7 +1180,10 @@ export async function getActiveUserByOpenId(openId: string) {
   return result[0]?.user;
 }
 
-/** Resolves a credential to one active store using its persisted hash only. */
+/**
+ * Resolves a credential to one active store. Machine keys are an indexed
+ * SHA-256 lookup; staff passwords are verified against bounded scrypt rows.
+ */
 export async function resolveActiveStoreCredential(input: {
   credentialType: StoreCredentialType;
   secret: string;
@@ -1181,38 +1191,57 @@ export async function resolveActiveStoreCredential(input: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const credentialHash = hashStoreCredential(input.secret);
-  const result = await db
+  const activeCredentialWhere = [
+    eq(storeCredentials.credentialType, input.credentialType),
+    isNull(storeCredentials.revokedAt),
+    eq(stores.isActive, 1),
+  ] as const;
+
+  if (input.credentialType === "frigate") {
+    const result = await db
+      .select({ store: stores, credential: storeCredentials })
+      .from(storeCredentials)
+      .innerJoin(stores, eq(storeCredentials.storeId, stores.id))
+      .where(and(...activeCredentialWhere, eq(storeCredentials.verifierFormat, "sha256_v1"), eq(storeCredentials.credentialVerifier, hashFrigateApiKey(input.secret))))
+      .limit(1);
+    return result[0] ?? null;
+  }
+
+  // A bounded scan prevents unbounded scrypt work if administrators retain
+  // obsolete staff-password rows instead of revoking them.
+  const candidates = await db
     .select({ store: stores, credential: storeCredentials })
     .from(storeCredentials)
     .innerJoin(stores, eq(storeCredentials.storeId, stores.id))
-    .where(
-      and(
-        eq(storeCredentials.credentialType, input.credentialType),
-        eq(storeCredentials.credentialHash, credentialHash),
-        isNull(storeCredentials.revokedAt),
-        eq(stores.isActive, 1)
-      )
-    )
-    .limit(1);
+    .where(and(...activeCredentialWhere, eq(storeCredentials.verifierFormat, "scrypt_v1")))
+    .limit(32);
 
-  return result[0] ?? null;
+  for (const candidate of candidates) {
+    if (await verifyStaffPassword(input.secret, candidate.credential.credentialVerifier)) return candidate;
+  }
+
+  return null;
 }
 
-/** Server-side provisioning helper. Callers must hash secrets before calling. */
+/** Server-side provisioning helper. It accepts only a persisted verifier. */
 export async function createStoreCredential(input: {
   storeId: number;
   credentialType: StoreCredentialType;
-  credentialHash: string;
+  verifierFormat: StoreCredentialFormat;
+  credentialVerifier: string;
   label?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  if (input.verifierFormat !== credentialFormatFor(input.credentialType)) {
+    throw new Error("Credential verifier format does not match credential type");
+  }
 
   await db.insert(storeCredentials).values({
-    storeId: input.storeId,
+    storeId: requireStoreId(input.storeId),
     credentialType: input.credentialType,
-    credentialHash: input.credentialHash,
+    verifierFormat: input.verifierFormat,
+    credentialVerifier: input.credentialVerifier,
     label: input.label ?? "",
   });
 }
@@ -2461,6 +2490,8 @@ export async function upsertFrigateCupCount(input: {
   cupsDetected: number;
   peopleEntries: number;
   sourceDetail?: string;
+  sourceEventId: string;
+  sourceEventAt: Date;
   storeId: number;
 }) {
   const db = await getDb();
@@ -2468,9 +2499,18 @@ export async function upsertFrigateCupCount(input: {
 
   const businessDate = input.businessDate;
 
-  // Contract: a payload is the latest absolute count for one
-  // (storeId,businessDate,cameraName), not an increment. The scoped unique
-  // index makes retries idempotent without a delete/insert gap.
+  const existing = await getFrigateCupCountForDate(businessDate, input.cameraName, input.storeId);
+  const disposition = compareFrigateEventOrder(
+    existing ? { sourceEventId: existing.sourceEventId, sourceEventAt: existing.sourceEventAt } : null,
+    { sourceEventId: input.sourceEventId, sourceEventAt: input.sourceEventAt },
+  );
+  if (disposition === "stale") return { success: true, disposition };
+
+  const incomingIsNewer = sql`VALUES(\`sourceEventAt\`) > \`sourceEventAt\``;
+
+  // Contract: payloads are absolute snapshots, not deltas. A correction may
+  // lower a count, so source time (not MAX(cupsDetected)) decides ordering.
+  // The scoped unique index makes an exact retry update the same tuple.
   await db
     .insert(frigateCupCounts)
     .values({
@@ -2480,17 +2520,25 @@ export async function upsertFrigateCupCount(input: {
       cupsDetected: input.cupsDetected,
       peopleEntries: input.peopleEntries,
       sourceDetail: input.sourceDetail ?? "",
+      sourceEventId: input.sourceEventId,
+      sourceEventAt: input.sourceEventAt,
     })
     .onDuplicateKeyUpdate({
       set: {
-        cupsDetected: input.cupsDetected,
-        peopleEntries: input.peopleEntries,
-        sourceDetail: input.sourceDetail ?? "",
-        receivedAt: new Date(),
+        cupsDetected: sql`IF(${incomingIsNewer}, VALUES(\`cupsDetected\`), \`cupsDetected\`)`,
+        peopleEntries: sql`IF(${incomingIsNewer}, VALUES(\`peopleEntries\`), \`peopleEntries\`)`,
+        sourceDetail: sql`IF(${incomingIsNewer}, VALUES(\`sourceDetail\`), \`sourceDetail\`)`,
+        sourceEventId: sql`IF(${incomingIsNewer}, VALUES(\`sourceEventId\`), \`sourceEventId\`)`,
+        sourceEventAt: sql`IF(${incomingIsNewer}, VALUES(\`sourceEventAt\`), \`sourceEventAt\`)`,
+        receivedAt: sql`IF(${incomingIsNewer}, VALUES(\`receivedAt\`), \`receivedAt\`)`,
       },
     });
 
-  return { success: true };
+  const current = await getFrigateCupCountForDate(businessDate, input.cameraName, input.storeId);
+  return {
+    success: true,
+    disposition: current?.sourceEventId === input.sourceEventId ? disposition : "stale",
+  };
 }
 
 export async function getFrigateCupCountForDate(businessDate: string, cameraName = "handoff", storeId = 1) {

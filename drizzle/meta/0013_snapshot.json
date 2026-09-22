@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "183bc001-94c1-45ce-9dfa-9ff15032f437",
+  "id": "d977eceb-2ff8-49e7-8a18-fe41786da3cf",
   "prevId": "135a2450-0072-4880-937e-3bf34e0731ef",
   "tables": {
     "checklistQuestions": {
@@ -561,6 +561,20 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false,
+          "autoincrement": false
+        },
+        "sourceEventId": {
+          "name": "sourceEventId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sourceEventAt": {
+          "name": "sourceEventAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
           "autoincrement": false
         },
         "receivedAt": {
@@ -1452,9 +1466,16 @@
           "notNull": true,
           "autoincrement": false
         },
-        "credentialHash": {
-          "name": "credentialHash",
-          "type": "varchar(64)",
+        "storeCredentialVerifierFormat": {
+          "name": "storeCredentialVerifierFormat",
+          "type": "enum('scrypt_v1','sha256_v1')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "credentialVerifier": {
+          "name": "credentialVerifier",
+          "type": "varchar(512)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -1500,11 +1521,11 @@
           ],
           "isUnique": false
         },
-        "storeCredentials_type_hash_unique": {
-          "name": "storeCredentials_type_hash_unique",
+        "storeCredentials_type_verifier_unique": {
+          "name": "storeCredentials_type_verifier_unique",
           "columns": [
             "storeCredentialType",
-            "credentialHash"
+            "credentialVerifier"
           ],
           "isUnique": true
         }
