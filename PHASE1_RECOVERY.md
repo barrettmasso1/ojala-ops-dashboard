@@ -39,6 +39,14 @@ Use the daily coverage to find the last populated date in each section. Compare 
 
 ## Recovery sequence
 
+After the separately reviewed migration, compare the original JSON audit with a fresh audit for exactly the same period and configured database:
+
+```sh
+node scripts/verify-phase1-evidence.mjs before.json after.json
+```
+
+This command never connects to a database or writes data. It blocks acceptance when fingerprints differ, counts or daily coverage change, tenant assignments differ from the legacy store-1 migration, or required schema evidence is missing. Use a controlled migration window or reconcile concurrent writes before comparison. Equal aggregate counts cannot prove row-level preservation. A passing comparison deliberately leaves `phase1Certified` false until deployment binding, backup, authentication, cross-store authorization, and ingestion are verified. A Word summary cannot substitute for the original JSON reports.
+
 1. Inspect the audit and the database migration ledger in the authorized deployment environment. Identify the exact applied and missing statements.
 2. Verify a recoverable database backup and retain aggregate before counts.
 3. Generate a recovery migration for the observed schema, preserving existing store configuration and tenant assignments. Do not reapply the original migration or run `db:push` blindly.
