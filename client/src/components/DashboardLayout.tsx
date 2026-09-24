@@ -21,7 +21,8 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { BarChart3, BookOpen, ClipboardList, Clock3, FileCheck, LineChart, LogOut, PackagePlus, PanelLeft, ShieldCheck } from "lucide-react";
+import { BarChart3, BookOpen, ClipboardList, Clock3, FileCheck, LineChart, LogOut, PackagePlus, PanelLeft, ShieldCheck, Store } from "lucide-react";
+import { trpc } from "@/lib/trpc";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
@@ -38,6 +39,7 @@ export const menuItems: Array<{
   { icon: PackagePlus, label: "Inventory Setup", path: "/dashboard/inventory", roles: ["admin"] },
   { icon: BookOpen, label: "Cookbook", path: "/cookbook", roles: ["admin"] },
   { icon: FileCheck, label: "Form Setup", path: "/dashboard/forms", roles: ["admin"] },
+  { icon: Store, label: "Store settings", path: "/dashboard/store", roles: ["admin"] },
   { icon: LineChart, label: "History", path: "/dashboard/history", roles: ["admin"] },
   { icon: ClipboardList, label: "Employee Portal", path: "/portal", roles: ["admin", "user"] },
 ];
@@ -109,6 +111,7 @@ type DashboardLayoutContentProps = {
 
 function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutContentProps) {
   const { user, logout } = useAuth();
+  const storeProfile = trpc.storeAdmin.profile.useQuery(undefined, { enabled: user?.role === "admin" });
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
@@ -170,7 +173,7 @@ function DashboardLayoutContent({ children, setSidebarWidth }: DashboardLayoutCo
               </button>
               {!isCollapsed ? (
                 <div className="min-w-0">
-                  <p className="text-xl font-medium tracking-[-0.04em] text-[#21312d]">Ojalá Gelato</p>
+                  <p className="text-xl font-medium tracking-[-0.04em] text-[#21312d]">{storeProfile.data?.nombre ?? "Ojala Gelato"}</p>
                   <p className="text-xs uppercase tracking-[0.28em] text-[#7a8077]">Staff access and operations</p>
                 </div>
               ) : null}

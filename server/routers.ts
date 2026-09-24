@@ -47,6 +47,7 @@ import { formatPacificDateTime, getPacificBusinessDate, getPacificSundayWeekStar
 import { legacyCredentialsMatch } from "./storeCredentials";
 import { clearCredentialFailures, getCredentialRetryAfterMs, recordCredentialFailure } from "./credentialRateLimit";
 import { normalizeFrigateEventAt } from "./frigateEventOrder";
+import { storeAdminRouter } from "./storeAdminRouter";
 
 const PHASE1_OJALA_STORE_ID = 1;
 
@@ -362,6 +363,7 @@ function enforceCredentialRateLimit(channel: "staff_portal" | "frigate", clientK
 
 export const appRouter = router({
   system: systemRouter,
+  storeAdmin: storeAdminRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     staffPortalLogin: publicProcedure.input(z.object({ password: z.string().min(1) })).mutation(async ({ ctx, input }) => {
