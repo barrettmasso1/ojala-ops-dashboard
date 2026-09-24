@@ -37,7 +37,7 @@ export function getBusinessDateTimeTimestamp(businessDate: string, timeValue: st
   const target = `${businessDate} ${timeValue}`;
   const offsets = new Set([localAsUtc - 86_400_000, localAsUtc, localAsUtc + 86_400_000]
     .map(value => getUtcOffsetMinutes(new Date(value), timeZone)));
-  const candidates = [...offsets].map(offset => localAsUtc - offset * 60_000).sort((a, b) => a - b);
+  const candidates = Array.from(offsets).map(offset => localAsUtc - offset * 60_000).sort((a, b) => a - b);
   const match = candidates.find(candidate => {
     const parts = formatter.formatToParts(new Date(candidate));
     const value = (type: string) => parts.find(part => part.type === type)?.value;
