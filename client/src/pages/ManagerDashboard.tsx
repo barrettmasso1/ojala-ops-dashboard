@@ -8,7 +8,7 @@ import { buildManagerReconciliationSnapshot, MANAGER_INVENTORY_TABS, type Manage
 import { buildShopifyVarianceSnapshot, summarizeShopifySalesCsv, type ShopifySalesImportSummary } from "@/lib/shopifySalesCsv";
 import { trpc } from "@/lib/trpc";
 import { applyAnalyzedPhotoPanSetup, getAnalyzedPhotoCombinedGrossWeightKg, getAnalyzedPhotoPanSetup } from "./EmployeePortal";
-import { formatPacificCalendarDate, formatPacificTime, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart } from "../../../shared/businessDate";
+import { formatBusinessCalendarDate, formatBusinessTime, getBusinessDate, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, PACIFIC_TIME_ZONE } from "../../../shared/businessDate";
 import {
   AlertTriangle,
   CalendarRange,
@@ -647,13 +647,15 @@ export default function ManagerDashboard() {
     redirectOnUnauthenticated: true,
     redirectPath: getLoginUrl(redirectPath),
   });
+  const storeContext = trpc.auth.store.useQuery(undefined, { enabled: Boolean(user) });
+  const timeZone = storeContext.data?.timezone ?? PACIFIC_TIME_ZONE;
   const utils = trpc.useUtils();
   const [liveNow, setLiveNow] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(todayValue());
   const [hoursRangeStart, setHoursRangeStart] = useState(() => getPacificSundayWeekStart(todayValue()));
   const [hoursRangeEnd, setHoursRangeEnd] = useState(todayValue());
-  const currentPacificDateLabel = useMemo(() => formatPacificCalendarDate(liveNow, "en-US"), [liveNow]);
-  const currentPacificTimeLabel = useMemo(() => formatPacificTime(liveNow, "en-US"), [liveNow]);
+  const currentPacificDateLabel = useMemo(() => formatBusinessCalendarDate(liveNow, "en-US", timeZone), [liveNow, timeZone]);
+  const currentPacificTimeLabel = useMemo(() => formatBusinessTime(liveNow, "en-US", timeZone), [liveNow, timeZone]);
   const currentPacificDateTimeLabel = useMemo(() => `${currentPacificDateLabel} · ${currentPacificTimeLabel}`, [currentPacificDateLabel, currentPacificTimeLabel]);
   const [inventoryDashboardView, setInventoryDashboardView] = useState<ManagerInventoryView>("product");
   const [inventoryForm, setInventoryForm] = useState({
@@ -693,7 +695,15 @@ export default function ManagerDashboard() {
   const [shopifyImportError, setShopifyImportError] = useState<string | null>(null);
 
   const isAdmin = user?.role === "admin";
-  const maxBusinessDate = todayValue();
+  const maxBusinessDate = getBusinessDate(liveNow, timeZone);
+
+  useEffect(() => {
+    if (!storeContext.data) return;
+    const today = getBusinessDate(new Date(), storeContext.data.timezone);
+    setSelectedDate(today);
+    setHoursRangeEnd(today);
+    setHoursRangeStart(getPacificSundayWeekStart(today));
+  }, [storeContext.data?.timezone]);
 
   useEffect(() => {
     if (!loading && user && !isAdmin) {

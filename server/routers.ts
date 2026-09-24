@@ -43,7 +43,7 @@ import {
   upsertUser,
 } from "./db";
 import { extractGelatoPhotos } from "./gelatoPhotoPilot";
-import { formatPacificDateTime, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "../shared/businessDate";
+import { formatPacificDateTime, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "./storeBusinessDate";
 import { legacyCredentialsMatch } from "./storeCredentials";
 import { clearCredentialFailures, getCredentialRetryAfterMs, recordCredentialFailure } from "./credentialRateLimit";
 import { normalizeFrigateEventAt } from "./frigateEventOrder";
@@ -366,6 +366,13 @@ export const appRouter = router({
   storeAdmin: storeAdminRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
+    store: protectedProcedure.query(async ({ ctx }) => {
+      const store = await getActiveStoreById(ctx.user.storeId);
+      if (!store) throw new TRPCError({ code: "FORBIDDEN", message: "Store is inactive" });
+      let cupSizes: string[] = [];
+      try { cupSizes = JSON.parse(store.cupSizesJson ?? "[]"); } catch { /* legacy metadata */ }
+      return { id: store.id, nombre: store.nombre, timezone: store.timezone, cupSizes };
+    }),
     staffPortalLogin: publicProcedure.input(z.object({ password: z.string().min(1) })).mutation(async ({ ctx, input }) => {
       const clientKey = credentialClientKey(ctx.req);
       enforceCredentialRateLimit("staff_portal", clientKey);

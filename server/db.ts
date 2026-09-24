@@ -27,7 +27,7 @@ import {
   submissionHistoryEntries,
   users,
 } from "../drizzle/schema";
-import { PACIFIC_TIME_ZONE, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "../shared/businessDate";
+import { getCurrentBusinessTimeZone, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "./storeBusinessDate";
 import { DEFAULT_INVENTORY_ITEMS, DEFAULT_RECIPE_ITEMS, READY_MADE_GELATO_FLAVORS } from "../shared/opsCatalog";
 import { ENV } from "./_core/env";
 import { storageGetSignedUrl } from "./storage";
@@ -1954,10 +1954,11 @@ function normalizeStaffAttendanceRecord(row: typeof staffAttendance.$inferSelect
 
 function getPacificUtcOffsetMinutes(date: Date) {
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: PACIFIC_TIME_ZONE,
+    timeZone: getCurrentBusinessTimeZone(),
     timeZoneName: "shortOffset",
   }).formatToParts(date);
   const offsetValue = parts.find(part => part.type === "timeZoneName")?.value ?? "GMT-8";
+  if (offsetValue === "GMT" || offsetValue === "UTC") return 0;
   const match = offsetValue.match(/^GMT([+-])(\d{1,2})(?::(\d{2}))?$/i);
   if (!match) return -8 * 60;
   const sign = match[1] === "+" ? 1 : -1;

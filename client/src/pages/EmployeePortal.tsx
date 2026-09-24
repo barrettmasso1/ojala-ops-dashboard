@@ -5,7 +5,7 @@ import { getOpeningNapkinsQuestion, groupOpeningQuestionsForPortal } from "@/lib
 import { savePortalDraft, loadPortalDraft, clearPortalDraft } from "@/lib/portalDrafts";
 import { normalizeGelatoFlavorName } from "@/lib/gelatoFlavorAliases";
 import { getReplacementConfirmationMessage, getResubmissionReplacementDescription, type SubmissionViewKey } from "@/lib/submissionReplacement";
-import { formatPacificCalendarDate, formatPacificTime, getPacificBusinessDate } from "../../../shared/businessDate";
+import { formatBusinessCalendarDate, formatBusinessTime, getBusinessDate, getPacificBusinessDate, PACIFIC_TIME_ZONE } from "../../../shared/businessDate";
 import { trpc } from "@/lib/trpc";
 import { ArrowRight, ClipboardCheck, House, LoaderCircle, LogOut, MoonStar, Package2, ReceiptText, Save, SunMedium, Upload, X } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
@@ -768,16 +768,18 @@ function buildAnswersPayload(questions: ChecklistQuestion[], answers: ChecklistA
 
 export default function EmployeePortal(props: any) {
   const { defaultView } = props as { defaultView?: PortalView };
-  const { loading, logout } = useAuth({ redirectOnUnauthenticated: true, redirectPath: "/staff-login" });
+  const { loading, logout, user } = useAuth({ redirectOnUnauthenticated: true, redirectPath: "/staff-login" });
+  const storeContext = trpc.auth.store.useQuery(undefined, { enabled: Boolean(user) });
   const utils = trpc.useUtils();
   const [location] = useLocation();
   const [language, setLanguage] = useState<PortalLanguage>("en");
   const [liveNow, setLiveNow] = useState(() => new Date());
   const t = (text: string) => translatePortalText(text, language);
   const locale = language === "es" ? "es-US" : "en-US";
-  const currentBusinessDate = useMemo(() => todayValue(liveNow), [liveNow]);
-  const currentPacificDateLabel = useMemo(() => formatPacificCalendarDate(liveNow, locale), [liveNow, locale]);
-  const currentPacificTimeLabel = useMemo(() => formatPacificTime(liveNow, locale), [liveNow, locale]);
+  const timeZone = storeContext.data?.timezone ?? PACIFIC_TIME_ZONE;
+  const currentBusinessDate = useMemo(() => getBusinessDate(liveNow, timeZone), [liveNow, timeZone]);
+  const currentPacificDateLabel = useMemo(() => formatBusinessCalendarDate(liveNow, locale, timeZone), [liveNow, locale, timeZone]);
+  const currentPacificTimeLabel = useMemo(() => formatBusinessTime(liveNow, locale, timeZone), [liveNow, locale, timeZone]);
   const portalView: PortalView =
     defaultView ??
     (location.endsWith("/inventory") ? "inventory" : location.endsWith("/closing") ? "closing" : location.endsWith("/opening") ? "opening" : "hub");
@@ -998,7 +1000,7 @@ export default function EmployeePortal(props: any) {
   }
 
   useEffect(() => {
-    if (portalView !== "opening" || didAttemptOpeningDraftRestore.current) return;
+    if (!storeContext.data || portalView !== "opening" || didAttemptOpeningDraftRestore.current) return;
     didAttemptOpeningDraftRestore.current = true;
 
     const draft = loadPortalDraft<OpeningDraft>(openingDraftKey, currentBusinessDate);
@@ -1012,10 +1014,10 @@ export default function EmployeePortal(props: any) {
     setGelatoAnalyzedPhotos(current => ({ ...current, opening: draft.data.gelatoOpeningPhotos ?? [] }));
     setDraftSavedAt(current => ({ ...current, opening: draft.savedAt }));
     toast.success(t("Saved opening draft restored."));
-  }, [currentBusinessDate, portalView, t]);
+  }, [currentBusinessDate, portalView, storeContext.data, t]);
 
   useEffect(() => {
-    if (portalView !== "closing" || didAttemptClosingDraftRestore.current) return;
+    if (!storeContext.data || portalView !== "closing" || didAttemptClosingDraftRestore.current) return;
     didAttemptClosingDraftRestore.current = true;
 
     const draft = loadPortalDraft<ClosingDraft>(closingDraftKey, currentBusinessDate);
@@ -1030,10 +1032,10 @@ export default function EmployeePortal(props: any) {
     setGelatoAnalyzedPhotos(current => ({ ...current, closing: draft.data.gelatoClosingPhotos ?? [] }));
     setDraftSavedAt(current => ({ ...current, closing: draft.savedAt }));
     toast.success(t("Saved closing draft restored."));
-  }, [currentBusinessDate, portalView, t]);
+  }, [currentBusinessDate, portalView, storeContext.data, t]);
 
   useEffect(() => {
-    if (portalView !== "inventory" || didAttemptInventoryDraftRestore.current) return;
+    if (!storeContext.data || portalView !== "inventory" || didAttemptInventoryDraftRestore.current) return;
     didAttemptInventoryDraftRestore.current = true;
 
     const draft = loadPortalDraft<InventoryDraft>(inventoryDraftKey, currentBusinessDate);
@@ -1046,7 +1048,7 @@ export default function EmployeePortal(props: any) {
     setGelatoAnalyzedPhotos(current => ({ ...current, opening: draft.data.gelatoOpeningPhotos ?? [] }));
     setDraftSavedAt(current => ({ ...current, inventory: draft.savedAt }));
     toast.success(t("Saved inventory draft restored."));
-  }, [currentBusinessDate, portalView, t]);
+  }, [currentBusinessDate, portalView, storeContext.data, t]);
 
   function updateInventoryItem(itemId: number, value: string) {
     setServiceInventoryCounts(current => ({ ...current, [itemId]: value }));
@@ -1893,9 +1895,10 @@ export default function EmployeePortal(props: any) {
     );
   }
 
-  if (loading) {
+  if (loading || (user && storeContext.isLoading)) {
     return <div className="min-h-screen bg-[#f8f4ed]" />;
   }
+  if (user && !storeContext.data) return <div role="alert">Store settings are unavailable.</div>;
 
   const navLinks = [
     { href: "/portal/opening", label: t("Opening Form"), active: portalView === "opening" },
