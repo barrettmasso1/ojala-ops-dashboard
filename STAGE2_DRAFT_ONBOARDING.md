@@ -8,7 +8,7 @@ La migración `0014_glossy_silvermane.sql` añade `stores.posType` y `stores.cup
 
 ## Alcance pendiente antes de activar Store 2
 
-- Los formularios y el dashboard aún usan fechas y tamaños de vaso fijos de Ojala, basados en `America/Los_Angeles`, mientras el registro de Store 1 indica `America/Mazatlan`. Las preferencias de otra tienda son metadatos hasta adaptar y probar todo el flujo por zona horaria y tamaño. Por esa razón `updateProfile` no permite cambiar estos campos en una tienda activa.
+- Las fechas de negocio del portal, dashboard y operaciones autenticadas usan ahora la zona horaria de su tienda (Store 1 indica `America/Mazatlan`). Los borradores locales del personal se separan por tienda. Aún faltan pruebas de extremo a extremo para cada flujo y adaptar los tamaños de vaso fijos de Ojala en formularios y cálculos; por eso `updateProfile` no permite cambiar zona ni tamaños en una tienda activa.
 - El POS configurado es descriptivo; no existe integración con Square, Toast o Shopify.
 - La rotación gestiona credenciales de la tabla `storeCredentials`. Las claves heredadas de Store 1 en variables de entorno siguen activas hasta retirarlas por separado.
 - El login staff actual examina hasta 32 credenciales scrypt activas; antes de escalar a más tiendas necesita un selector de tienda verificado o un índice de autenticación distinto.

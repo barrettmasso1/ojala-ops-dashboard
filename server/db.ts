@@ -27,7 +27,7 @@ import {
   submissionHistoryEntries,
   users,
 } from "../drizzle/schema";
-import { getCurrentBusinessTimeZone, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "./storeBusinessDate";
+import { getBusinessDateTimeTimestamp, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "./storeBusinessDate";
 import { DEFAULT_INVENTORY_ITEMS, DEFAULT_RECIPE_ITEMS, READY_MADE_GELATO_FLAVORS } from "../shared/opsCatalog";
 import { ENV } from "./_core/env";
 import { storageGetSignedUrl } from "./storage";
@@ -1952,26 +1952,8 @@ function normalizeStaffAttendanceRecord(row: typeof staffAttendance.$inferSelect
   };
 }
 
-function getPacificUtcOffsetMinutes(date: Date) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: getCurrentBusinessTimeZone(),
-    timeZoneName: "shortOffset",
-  }).formatToParts(date);
-  const offsetValue = parts.find(part => part.type === "timeZoneName")?.value ?? "GMT-8";
-  if (offsetValue === "GMT" || offsetValue === "UTC") return 0;
-  const match = offsetValue.match(/^GMT([+-])(\d{1,2})(?::(\d{2}))?$/i);
-  if (!match) return -8 * 60;
-  const sign = match[1] === "+" ? 1 : -1;
-  const hours = Number(match[2] ?? 0);
-  const minutes = Number(match[3] ?? 0);
-  return sign * (hours * 60 + minutes);
-}
-
 export function getPacificBusinessDateAutoClockOutAt(businessDate: string) {
-  const [year, month, day] = businessDate.split("-").map(value => Number(value));
-  const pacificMiddayUtc = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-  const offsetMinutes = getPacificUtcOffsetMinutes(pacificMiddayUtc);
-  return Date.UTC(year, month - 1, day, AUTO_CLOCK_OUT_HOUR_PACIFIC, 0, 0, 0) - offsetMinutes * 60 * 1000;
+  return getBusinessDateTimeTimestamp(businessDate, `${AUTO_CLOCK_OUT_HOUR_PACIFIC}:00`);
 }
 
 export function getEffectiveAttendanceClockOutAt(record: Pick<StaffAttendanceRecord, "businessDate" | "clockInAt" | "clockOutAt">, referenceTime = Date.now()) {

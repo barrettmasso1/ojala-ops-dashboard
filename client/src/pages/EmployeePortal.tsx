@@ -194,10 +194,10 @@ function roundTo(value: number, decimals = 3) {
   return Math.round(value * factor) / factor;
 }
 
-function formatTimeClockLabel(timestamp: number | null | undefined, locale: Intl.LocalesArgument) {
+function formatTimeClockLabel(timestamp: number | null | undefined, locale: Intl.LocalesArgument, timeZone = PACIFIC_TIME_ZONE) {
   if (!timestamp) return "—";
   return new Intl.DateTimeFormat(locale, {
-    timeZone: "America/Los_Angeles",
+    timeZone,
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(timestamp));
@@ -807,9 +807,9 @@ export default function EmployeePortal(props: any) {
   const [draftSavedAt, setDraftSavedAt] = useState<DraftSavedAtState>({});
   const [selectedClockStaffName, setSelectedClockStaffName] = useState<TimeClockStaffName | null>(null);
   const currentDeviceDrafts: DeviceDraftSummary[] = [
-    { view: "opening" as const, href: "/portal/opening", label: t("Opening Form"), record: loadPortalDraft<OpeningDraft>(openingDraftKey, currentBusinessDate) },
-    { view: "closing" as const, href: "/portal/closing", label: t("Closing Form"), record: loadPortalDraft<ClosingDraft>(closingDraftKey, currentBusinessDate) },
-    { view: "inventory" as const, href: "/portal/inventory", label: t("Inventory Form"), record: loadPortalDraft<InventoryDraft>(inventoryDraftKey, currentBusinessDate) },
+    { view: "opening" as const, href: "/portal/opening", label: t("Opening Form"), record: user?.storeId ? loadPortalDraft<OpeningDraft>(openingDraftKey, currentBusinessDate, undefined, user.storeId) : null },
+    { view: "closing" as const, href: "/portal/closing", label: t("Closing Form"), record: user?.storeId ? loadPortalDraft<ClosingDraft>(closingDraftKey, currentBusinessDate, undefined, user.storeId) : null },
+    { view: "inventory" as const, href: "/portal/inventory", label: t("Inventory Form"), record: user?.storeId ? loadPortalDraft<InventoryDraft>(inventoryDraftKey, currentBusinessDate, undefined, user.storeId) : null },
   ]
     .flatMap(draft =>
       draft.record
@@ -1000,10 +1000,10 @@ export default function EmployeePortal(props: any) {
   }
 
   useEffect(() => {
-    if (!storeContext.data || portalView !== "opening" || didAttemptOpeningDraftRestore.current) return;
+    if (!user?.storeId || !storeContext.data || portalView !== "opening" || didAttemptOpeningDraftRestore.current) return;
     didAttemptOpeningDraftRestore.current = true;
 
-    const draft = loadPortalDraft<OpeningDraft>(openingDraftKey, currentBusinessDate);
+    const draft = loadPortalDraft<OpeningDraft>(openingDraftKey, currentBusinessDate, undefined, user?.storeId);
     if (!draft) return;
 
     hasOpeningDraftRestored.current = true;
@@ -1014,13 +1014,13 @@ export default function EmployeePortal(props: any) {
     setGelatoAnalyzedPhotos(current => ({ ...current, opening: draft.data.gelatoOpeningPhotos ?? [] }));
     setDraftSavedAt(current => ({ ...current, opening: draft.savedAt }));
     toast.success(t("Saved opening draft restored."));
-  }, [currentBusinessDate, portalView, storeContext.data, t]);
+  }, [currentBusinessDate, portalView, storeContext.data, t, user?.storeId]);
 
   useEffect(() => {
-    if (!storeContext.data || portalView !== "closing" || didAttemptClosingDraftRestore.current) return;
+    if (!user?.storeId || !storeContext.data || portalView !== "closing" || didAttemptClosingDraftRestore.current) return;
     didAttemptClosingDraftRestore.current = true;
 
-    const draft = loadPortalDraft<ClosingDraft>(closingDraftKey, currentBusinessDate);
+    const draft = loadPortalDraft<ClosingDraft>(closingDraftKey, currentBusinessDate, undefined, user?.storeId);
     if (!draft) return;
 
     hasClosingDraftRestored.current = true;
@@ -1032,13 +1032,13 @@ export default function EmployeePortal(props: any) {
     setGelatoAnalyzedPhotos(current => ({ ...current, closing: draft.data.gelatoClosingPhotos ?? [] }));
     setDraftSavedAt(current => ({ ...current, closing: draft.savedAt }));
     toast.success(t("Saved closing draft restored."));
-  }, [currentBusinessDate, portalView, storeContext.data, t]);
+  }, [currentBusinessDate, portalView, storeContext.data, t, user?.storeId]);
 
   useEffect(() => {
-    if (!storeContext.data || portalView !== "inventory" || didAttemptInventoryDraftRestore.current) return;
+    if (!user?.storeId || !storeContext.data || portalView !== "inventory" || didAttemptInventoryDraftRestore.current) return;
     didAttemptInventoryDraftRestore.current = true;
 
-    const draft = loadPortalDraft<InventoryDraft>(inventoryDraftKey, currentBusinessDate);
+    const draft = loadPortalDraft<InventoryDraft>(inventoryDraftKey, currentBusinessDate, undefined, user?.storeId);
     if (!draft) return;
 
     hasInventoryDraftRestored.current = true;
@@ -1048,7 +1048,7 @@ export default function EmployeePortal(props: any) {
     setGelatoAnalyzedPhotos(current => ({ ...current, opening: draft.data.gelatoOpeningPhotos ?? [] }));
     setDraftSavedAt(current => ({ ...current, inventory: draft.savedAt }));
     toast.success(t("Saved inventory draft restored."));
-  }, [currentBusinessDate, portalView, storeContext.data, t]);
+  }, [currentBusinessDate, portalView, storeContext.data, t, user?.storeId]);
 
   function updateInventoryItem(itemId: number, value: string) {
     setServiceInventoryCounts(current => ({ ...current, [itemId]: value }));
@@ -1149,7 +1149,7 @@ export default function EmployeePortal(props: any) {
       gelatoOpening: extractGelatoShiftDraft(readyMadeGelato, "opening"),
       gelatoOpeningMode: gelatoEntryMode.opening,
       gelatoOpeningPhotos: gelatoAnalyzedPhotos.opening,
-    });
+    }, undefined, user?.storeId);
     if (!savedDraft) return;
 
     hasOpeningDraftRestored.current = true;
@@ -1165,7 +1165,7 @@ export default function EmployeePortal(props: any) {
       gelatoClosing: extractGelatoShiftDraft(readyMadeGelato, "closing"),
       gelatoClosingMode: gelatoEntryMode.closing,
       gelatoClosingPhotos: gelatoAnalyzedPhotos.closing,
-    });
+    }, undefined, user?.storeId);
     if (!savedDraft) return;
 
     hasClosingDraftRestored.current = true;
@@ -1178,7 +1178,7 @@ export default function EmployeePortal(props: any) {
       gelatoOpening: extractGelatoShiftDraft(readyMadeGelato, "opening"),
       gelatoOpeningMode: gelatoEntryMode.opening,
       gelatoOpeningPhotos: gelatoAnalyzedPhotos.opening,
-    });
+    }, undefined, user?.storeId);
 
     if (!savedDraft) return;
 
@@ -1188,7 +1188,7 @@ export default function EmployeePortal(props: any) {
   }
 
   function deleteSavedDraft(view: Exclude<PortalView, "hub">, draftKey: typeof openingDraftKey | typeof closingDraftKey | typeof inventoryDraftKey) {
-    clearPortalDraft(draftKey);
+    clearPortalDraft(draftKey, undefined, user?.storeId);
     setDraftSavedAt(current => {
       const next = { ...current };
       delete next[view];
@@ -1411,7 +1411,7 @@ export default function EmployeePortal(props: any) {
 
       toast.success(t("Opening form submitted."));
       showSubmissionNotice("opening", t("Opening form submitted."), `${t("Saved for")} ${normalizedStaffName} · ${currentBusinessDate}. ${t("Managers can review it in the dashboard.")}`);
-      clearPortalDraft(openingDraftKey);
+      clearPortalDraft(openingDraftKey, undefined, user?.storeId);
       hasOpeningDraftRestored.current = false;
       setDraftSavedAt(current => ({ ...current, opening: undefined }));
       clearGelatoPhotoSelection("opening");
@@ -1502,7 +1502,7 @@ export default function EmployeePortal(props: any) {
 
       toast.success(t("Closing form submitted."));
       showSubmissionNotice("closing", t("Closing form submitted."), `${t("Saved for")} ${normalizedStaffName} · ${currentBusinessDate}. ${t("Managers can review it in the dashboard.")}`);
-      clearPortalDraft(closingDraftKey);
+      clearPortalDraft(closingDraftKey, undefined, user?.storeId);
       hasClosingDraftRestored.current = false;
       setDraftSavedAt(current => ({ ...current, closing: undefined }));
       clearGelatoPhotoSelection("closing");
@@ -1554,7 +1554,7 @@ export default function EmployeePortal(props: any) {
       });
       toast.success(t("Inventory and ready-made gelato updated."));
       showSubmissionNotice("inventory", t("Inventory and ready-made gelato updated."), `${t("Saved for")} ${currentBusinessDate}. ${t("Managers can review it in the dashboard.")}`);
-      clearPortalDraft(inventoryDraftKey);
+      clearPortalDraft(inventoryDraftKey, undefined, user?.storeId);
       hasInventoryDraftRestored.current = false;
       setDraftSavedAt(current => ({ ...current, inventory: undefined }));
       clearGelatoAnalyzedPhotos("opening");
@@ -2039,16 +2039,16 @@ export default function EmployeePortal(props: any) {
                           <>
                             <p>
                               {selectedClockStaffStatus.isClockedIn
-                                ? `${t("Currently signed in since")} ${formatTimeClockLabel(selectedClockStaffStatus.activeEntry?.clockInAt, locale)}`
+                                ? `${t("Currently signed in since")} ${formatTimeClockLabel(selectedClockStaffStatus.activeEntry?.clockInAt, locale, timeZone)}`
                                 : selectedClockStaffStatus.latestEntry?.clockOutAt
-                                  ? `${t("Signed out at")} ${formatTimeClockLabel(selectedClockStaffStatus.latestEntry.clockOutAt, locale)}`
+                                  ? `${t("Signed out at")} ${formatTimeClockLabel(selectedClockStaffStatus.latestEntry.clockOutAt, locale, timeZone)}`
                                   : t("Not signed in yet.")}
                             </p>
                             <p className="text-xs uppercase tracking-[0.16em] text-[#8a8176]">
                               {t("Today's hours")}: {selectedClockStaffStatus.totalHoursToday.toFixed(2)}
                             </p>
                             {selectedClockStaffStatus.activeEntry ? (
-                              <p className="text-xs text-[#7d756b]">{t("Signed in at")} {formatTimeClockLabel(selectedClockStaffStatus.activeEntry.clockInAt, locale)}</p>
+                              <p className="text-xs text-[#7d756b]">{t("Signed in at")} {formatTimeClockLabel(selectedClockStaffStatus.activeEntry.clockInAt, locale, timeZone)}</p>
                             ) : null}
                           </>
                         ) : (
