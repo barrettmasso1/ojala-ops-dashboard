@@ -75,3 +75,13 @@ rm -rf rehearsal/beelink-phase1/results/*
 ```
 
 Esto actúa únicamente sobre el volumen Docker local `ojala_phase1_rehearsal_data` y los resultados locales.
+
+## Ensayo ejecutado en Beelink: 24 de septiembre de 2026
+
+TiDB v8.5.0 Unistore restauró el respaldo con SHA-256 764c2cef4654730b35562b0ace7e0bc159f6375c298a65ab7b8d7e0874ab6a96. Se aplicaron 0012 y 0013 (ledger 12 a 14); el audit posterior no tuvo bloqueadores. Se conservaron fila por fila las columnas originales de 2,439 registros en las 12 tablas operativas.
+
+Ocho verificaciones de fixtures pasaron contra TiDB real, incluyendo login staff y verificación de sesión, aislamiento, revocación y orden Frigate. Son llamadas al router en proceso y consultas reales a TiDB; no prueban navegador, OAuth externo ni emisor de cámara.
+
+El verificador agregado conserva un fallo por ausencia de Store 1 antes de migrar este respaldo. No se alteró el verificador ni se declara certificación de producción. La evidencia local está en results/20260924T213914Z.
+
+El lanzador usa tsx. El script de fixtures separa diagnósticos del JSON, cierra el pool de aplicación y devuelve error si una comprobación falla. Las sesiones usan material aleatorio local, nunca secretos de producción.
