@@ -10,6 +10,8 @@ export const stores = mysqlTable("stores", {
   horarioApertura: varchar("horario_apertura", { length: 8 }),
   horarioCierre: varchar("horario_cierre", { length: 8 }),
   duenoEmail: varchar("dueno_email", { length: 320 }),
+  posType: mysqlEnum("posType", ["none", "square", "toast", "shopify", "other"]).notNull().default("none"),
+  cupSizesJson: text("cupSizesJson"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

@@ -99,6 +99,13 @@
       "when": 1790111774186,
       "tag": "0013_tenant_credential_and_frigate_event_boundaries",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "5",
+      "when": 1790287569631,
+      "tag": "0014_glossy_silvermane",
+      "breakpoints": true
     }
   ]
 }

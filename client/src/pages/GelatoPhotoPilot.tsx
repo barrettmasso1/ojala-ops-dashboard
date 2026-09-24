@@ -215,7 +215,7 @@ function getPilotDraftView(shiftType: ShiftType): PilotDraftView {
 }
 
 export default function GelatoPhotoPilot() {
-  const { logout } = useAuth({ redirectOnUnauthenticated: true, redirectPath: "/staff-login" });
+  const { logout, user } = useAuth({ redirectOnUnauthenticated: true, redirectPath: "/staff-login" });
   const [shiftType, setShiftType] = useState<ShiftType>("opening");
   const [businessDate, setBusinessDate] = useState(todayValue());
   const maxBusinessDate = todayValue();
@@ -226,7 +226,7 @@ export default function GelatoPhotoPilot() {
   const restoredDraftKeyRef = useRef<string | null>(null);
 
   const draftView = getPilotDraftView(shiftType);
-  const draftRestoreKey = `${draftView}:${businessDate}`;
+  const draftRestoreKey = `${user?.storeId ?? "pending"}:${draftView}:${businessDate}`;
 
   const extractMutation = trpc.forms.extractGelatoPhotos.useMutation({
     onError: error => {
@@ -244,6 +244,7 @@ export default function GelatoPhotoPilot() {
   });
 
   useEffect(() => {
+    if (!user?.storeId) return;
     if (businessDate > maxBusinessDate) {
       setBusinessDate(maxBusinessDate);
       return;
@@ -252,7 +253,7 @@ export default function GelatoPhotoPilot() {
     if (restoredDraftKeyRef.current === draftRestoreKey) return;
     restoredDraftKeyRef.current = draftRestoreKey;
 
-    const draft = loadPortalDraft<PilotDraft>(draftView, businessDate);
+    const draft = loadPortalDraft<PilotDraft>(draftView, businessDate, undefined, user?.storeId);
     if (!draft) {
       setDraftSavedAt(undefined);
       setDraftEntries([]);
@@ -266,7 +267,7 @@ export default function GelatoPhotoPilot() {
     }
     setDraftSavedAt(draft.savedAt);
     toast.success(`Saved ${shiftType} photo pilot draft restored.`);
-  }, [businessDate, draftRestoreKey, draftView, maxBusinessDate, shiftType]);
+  }, [businessDate, draftRestoreKey, draftView, maxBusinessDate, shiftType, user?.storeId]);
 
   const usableEntryCount = useMemo(
     () => draftEntries.filter(entry => isDraftEntryReady(entry)).length,
@@ -306,6 +307,7 @@ export default function GelatoPhotoPilot() {
   }
 
   function handleSaveProgress() {
+    if (!user?.storeId) return;
     const serializableEntries = serializePilotDraftEntries(draftEntries);
 
     if (serializableEntries.length === 0) {
@@ -315,7 +317,7 @@ export default function GelatoPhotoPilot() {
 
     const savedDraft = savePortalDraft<PilotDraft>(draftView, businessDate, {
       entries: serializableEntries,
-    });
+    }, undefined, user?.storeId);
 
     if (!savedDraft) return;
 
@@ -350,7 +352,7 @@ export default function GelatoPhotoPilot() {
       entries: cleanedEntries,
     });
 
-    clearPortalDraft(draftView);
+    clearPortalDraft(draftView, undefined, user?.storeId);
     setDraftSavedAt(undefined);
     setDraftEntries([]);
     setSelectedFiles([]);

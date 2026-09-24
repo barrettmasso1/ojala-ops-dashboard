@@ -43,10 +43,11 @@ import {
   upsertUser,
 } from "./db";
 import { extractGelatoPhotos } from "./gelatoPhotoPilot";
-import { formatPacificDateTime, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "../shared/businessDate";
+import { formatPacificDateTime, getBusinessDateTimeTimestamp, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "./storeBusinessDate";
 import { legacyCredentialsMatch } from "./storeCredentials";
 import { clearCredentialFailures, getCredentialRetryAfterMs, recordCredentialFailure } from "./credentialRateLimit";
 import { normalizeFrigateEventAt } from "./frigateEventOrder";
+import { storeAdminRouter } from "./storeAdminRouter";
 
 const PHASE1_OJALA_STORE_ID = 1;
 
@@ -261,23 +262,6 @@ const checklistQuestionSchema = z.object({
 
 const staffAttendanceTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 
-function convertPacificBusinessDateTimeToTimestamp(businessDate: string, timeValue: string) {
-  const [year, month, day] = businessDate.split("-").map(Number);
-  const [hours, minutes] = timeValue.split(":").map(Number);
-  const pacificReference = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-  const offsetParts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Los_Angeles",
-    timeZoneName: "shortOffset",
-  }).formatToParts(pacificReference);
-  const offsetValue = offsetParts.find(part => part.type === "timeZoneName")?.value ?? "GMT-8";
-  const match = offsetValue.match(/^GMT([+-])(\d{1,2})(?::(\d{2}))?$/i);
-  const sign = match?.[1] === "-" ? -1 : 1;
-  const offsetHours = Number(match?.[2] ?? 8);
-  const offsetMinutes = Number(match?.[3] ?? 0);
-  const totalOffsetMinutes = sign * (offsetHours * 60 + offsetMinutes);
-  return Date.UTC(year, month - 1, day, hours, minutes, 0) - totalOffsetMinutes * 60 * 1000;
-}
-
 function normalizeFrontendOrigin(origin?: string) {
   if (!origin) return "";
 
@@ -362,8 +346,16 @@ function enforceCredentialRateLimit(channel: "staff_portal" | "frigate", clientK
 
 export const appRouter = router({
   system: systemRouter,
+  storeAdmin: storeAdminRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
+    store: protectedProcedure.query(async ({ ctx }) => {
+      const store = await getActiveStoreById(ctx.user.storeId);
+      if (!store) throw new TRPCError({ code: "FORBIDDEN", message: "Store is inactive" });
+      let cupSizes: string[] = [];
+      try { cupSizes = JSON.parse(store.cupSizesJson ?? "[]"); } catch { /* legacy metadata */ }
+      return { id: store.id, nombre: store.nombre, timezone: store.timezone, cupSizes };
+    }),
     staffPortalLogin: publicProcedure.input(z.object({ password: z.string().min(1) })).mutation(async ({ ctx, input }) => {
       const clientKey = credentialClientKey(ctx.req);
       enforceCredentialRateLimit("staff_portal", clientKey);
@@ -722,10 +714,10 @@ export const appRouter = router({
           entryId: input.entryId,
           staffName: input.staffName,
           businessDate: input.businessDate,
-          clockInAt: convertPacificBusinessDateTimeToTimestamp(input.businessDate, input.clockInTime),
+          clockInAt: getBusinessDateTimeTimestamp(input.businessDate, input.clockInTime),
           clockOutAt:
             input.clockOutTime && input.clockOutTime.trim().length > 0
-              ? convertPacificBusinessDateTimeToTimestamp(input.businessDate, input.clockOutTime)
+              ? getBusinessDateTimeTimestamp(input.businessDate, input.clockOutTime)
               : null,
           submittedByUserId: ctx.user.id,
         });

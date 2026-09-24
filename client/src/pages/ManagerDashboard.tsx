@@ -8,7 +8,7 @@ import { buildManagerReconciliationSnapshot, MANAGER_INVENTORY_TABS, type Manage
 import { buildShopifyVarianceSnapshot, summarizeShopifySalesCsv, type ShopifySalesImportSummary } from "@/lib/shopifySalesCsv";
 import { trpc } from "@/lib/trpc";
 import { applyAnalyzedPhotoPanSetup, getAnalyzedPhotoCombinedGrossWeightKg, getAnalyzedPhotoPanSetup } from "./EmployeePortal";
-import { formatPacificCalendarDate, formatPacificTime, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart } from "../../../shared/businessDate";
+import { formatBusinessCalendarDate, formatBusinessTime, getBusinessDate, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, PACIFIC_TIME_ZONE } from "../../../shared/businessDate";
 import {
   AlertTriangle,
   CalendarRange,
@@ -63,12 +63,12 @@ function formatWholeOunces(value: number | null | undefined) {
   return `${formatCount(value)} oz`;
 }
 
-function formatDateTime(value: string | Date | null | undefined) {
+function formatDateTime(value: string | Date | null | undefined, timeZone = PACIFIC_TIME_ZONE) {
   if (!value) return "—";
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
   return new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Los_Angeles",
+    timeZone,
     month: "short",
     day: "numeric",
     hour: "numeric",
@@ -76,10 +76,10 @@ function formatDateTime(value: string | Date | null | undefined) {
   }).format(date);
 }
 
-function formatTimeOnly(value: number | null | undefined) {
+function formatTimeOnly(value: number | null | undefined, timeZone = PACIFIC_TIME_ZONE) {
   if (!value) return "—";
   return new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Los_Angeles",
+    timeZone,
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
@@ -98,7 +98,7 @@ type DailyStaffActivityRowInput = {
   } | null;
 };
 
-export function buildSelectedDayStaffActivityRows(staff: DailyStaffActivityRowInput[]) {
+export function buildSelectedDayStaffActivityRows(staff: DailyStaffActivityRowInput[], timeZone = PACIFIC_TIME_ZONE) {
   return staff
     .map(member => {
       const entries = [...(member.todayEntries ?? [])].sort((left, right) => left.clockInAt - right.clockInAt);
@@ -110,8 +110,8 @@ export function buildSelectedDayStaffActivityRows(staff: DailyStaffActivityRowIn
       return {
         staffName: member.staffName,
         hasWorked,
-        checkInLabel: formatTimeOnly(firstClockIn),
-        checkOutLabel: member.activeEntry && member.activeEntry.clockOutAt == null ? "Open shift" : formatTimeOnly(lastClockOut),
+        checkInLabel: formatTimeOnly(firstClockIn, timeZone),
+        checkOutLabel: member.activeEntry && member.activeEntry.clockOutAt == null ? "Open shift" : formatTimeOnly(lastClockOut, timeZone),
         totalHoursLabel: `${member.totalHoursToday.toFixed(2)} hrs`,
         shiftCountLabel: `${entries.length} shift${entries.length === 1 ? "" : "s"}`,
       };
@@ -363,13 +363,13 @@ export function rebuildSubmissionFormFromEditor(form: Record<string, unknown>, e
   return nextForm;
 }
 
-function buildTimeInputValue(value: number | null | undefined) {
+function buildTimeInputValue(value: number | null | undefined, timeZone = PACIFIC_TIME_ZONE) {
   if (value == null) return "";
   return new Intl.DateTimeFormat("en-CA", {
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
-    timeZone: "America/Los_Angeles",
+    timeZone,
   }).format(new Date(value));
 }
 
@@ -647,13 +647,15 @@ export default function ManagerDashboard() {
     redirectOnUnauthenticated: true,
     redirectPath: getLoginUrl(redirectPath),
   });
+  const storeContext = trpc.auth.store.useQuery(undefined, { enabled: Boolean(user) });
+  const timeZone = storeContext.data?.timezone ?? PACIFIC_TIME_ZONE;
   const utils = trpc.useUtils();
   const [liveNow, setLiveNow] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(todayValue());
   const [hoursRangeStart, setHoursRangeStart] = useState(() => getPacificSundayWeekStart(todayValue()));
   const [hoursRangeEnd, setHoursRangeEnd] = useState(todayValue());
-  const currentPacificDateLabel = useMemo(() => formatPacificCalendarDate(liveNow, "en-US"), [liveNow]);
-  const currentPacificTimeLabel = useMemo(() => formatPacificTime(liveNow, "en-US"), [liveNow]);
+  const currentPacificDateLabel = useMemo(() => formatBusinessCalendarDate(liveNow, "en-US", timeZone), [liveNow, timeZone]);
+  const currentPacificTimeLabel = useMemo(() => formatBusinessTime(liveNow, "en-US", timeZone), [liveNow, timeZone]);
   const currentPacificDateTimeLabel = useMemo(() => `${currentPacificDateLabel} · ${currentPacificTimeLabel}`, [currentPacificDateLabel, currentPacificTimeLabel]);
   const [inventoryDashboardView, setInventoryDashboardView] = useState<ManagerInventoryView>("product");
   const [inventoryForm, setInventoryForm] = useState({
@@ -693,7 +695,15 @@ export default function ManagerDashboard() {
   const [shopifyImportError, setShopifyImportError] = useState<string | null>(null);
 
   const isAdmin = user?.role === "admin";
-  const maxBusinessDate = todayValue();
+  const maxBusinessDate = getBusinessDate(liveNow, timeZone);
+
+  useEffect(() => {
+    if (!storeContext.data) return;
+    const today = getBusinessDate(new Date(), storeContext.data.timezone);
+    setSelectedDate(today);
+    setHoursRangeEnd(today);
+    setHoursRangeStart(getPacificSundayWeekStart(today));
+  }, [storeContext.data?.timezone]);
 
   useEffect(() => {
     if (!loading && user && !isAdmin) {
@@ -895,7 +905,7 @@ export default function ManagerDashboard() {
 
   const submissionHistory = useMemo(() => (submissionHistoryQuery.data ?? []) as SubmissionHistoryEntryRecord[], [submissionHistoryQuery.data]);
   const flavorPhotoPreviewMap = useMemo(() => buildFlavorPhotoPreviewMap(submissionHistory), [submissionHistory]);
-  const selectedDayStaffRows = useMemo(() => buildSelectedDayStaffActivityRows(selectedDayStaffQuery.data?.staff ?? []), [selectedDayStaffQuery.data]);
+  const selectedDayStaffRows = useMemo(() => buildSelectedDayStaffActivityRows(selectedDayStaffQuery.data?.staff ?? [], timeZone), [selectedDayStaffQuery.data, timeZone]);
   const payrollDateRange = useMemo(() => buildBusinessDateRange(hoursRangeStart, hoursRangeEnd), [hoursRangeStart, hoursRangeEnd]);
   const payrollSummary = payrollHoursQuery.data;
   const timeBook = timeBookQuery.data;
@@ -1806,13 +1816,13 @@ export default function ManagerDashboard() {
                                       return (
                                         <Fragment key={entry.id}>
                                           <tr>
-                                            <td className="px-4 py-3">{formatTimeOnly(entry.clockInAt)}</td>
-                                            <td className="px-4 py-3">{formatTimeOnly(entry.clockOutAt)}</td>
+                                            <td className="px-4 py-3">{formatTimeOnly(entry.clockInAt, timeZone)}</td>
+                                            <td className="px-4 py-3">{formatTimeOnly(entry.clockOutAt, timeZone)}</td>
                                             <td className="px-4 py-3">{entry.hoursWorked.toFixed(2)}</td>
                                             <td className="px-4 py-3">
                                               <button
                                                 type="button"
-                                                onClick={() => startAttendanceEdit({ entryId: entry.id, staffName: staffMember.staffName, businessDate: day.businessDate, clockInTime: buildTimeInputValue(entry.clockInAt), clockOutTime: buildTimeInputValue(entry.clockOutAt) })}
+                                                onClick={() => startAttendanceEdit({ entryId: entry.id, staffName: staffMember.staffName, businessDate: day.businessDate, clockInTime: buildTimeInputValue(entry.clockInAt, timeZone), clockOutTime: buildTimeInputValue(entry.clockOutAt, timeZone) })}
                                                 className="rounded-full border border-[#d7cec0] bg-white/90 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-[#31423d] shadow-sm transition hover:bg-white"
                                               >
                                                 Edit punch
@@ -2616,7 +2626,7 @@ export default function ManagerDashboard() {
                             <span className="rounded-full bg-[#ece3d5] px-3 py-1 text-[11px] uppercase tracking-[0.24em] text-[#5f6e68]">{entry.submissionType}</span>
                             <span className="rounded-full bg-white px-3 py-1 text-sm text-[#66706a]">{entry.staffName || "Staff member"}</span>
                           </div>
-                          <p className="mt-3 text-sm text-[#66706a]">Saved {formatDateTime(entry.createdAt)} · Business date {entry.businessDate}</p>
+                          <p className="mt-3 text-sm text-[#66706a]">Saved {formatDateTime(entry.createdAt, timeZone)} · Business date {entry.businessDate}</p>
                         </div>
                         <div className="flex flex-col items-start gap-3 lg:items-end">
                           <div className="rounded-[1.2rem] border border-[#e4dccf] bg-white/90 px-4 py-3 text-sm text-[#52665f]">
