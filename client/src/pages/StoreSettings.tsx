@@ -73,7 +73,7 @@ export default function StoreSettings() {
           {input("Closing (HH:mm)", form.horarioCierre, value => setForm({ ...form, horarioCierre: value }), "time")}
           {posSelect(form.posType, value => setForm({ ...form, posType: value }))}
         </div>
-        <p className="text-sm text-[#5c645e]">Time zone: {profile.data.timezone}. Cup sizes: {profile.data.cupSizes.join(", ") || "legacy Ojala sizes"}.</p>
+        <p className="text-sm text-[#5c645e]">Time zone: {profile.data.timezone}. Requested cup sizes: {profile.data.cupSizes.join(", ") || "Ojala's existing sizes"}.</p>
         <Button disabled={save.isPending} onClick={() => save.mutate({
           ...form, horarioApertura: form.horarioApertura || null, horarioCierre: form.horarioCierre || null,
         })}>Save settings</Button>
@@ -91,14 +91,14 @@ export default function StoreSettings() {
       </section>
       {canProvision.data && <section className="space-y-5 rounded-2xl bg-white p-6 shadow-sm">
         <h2 className="text-xl font-semibold">Prepare a new store</h2>
-        <p className="text-sm text-[#5c645e]">This creates an inactive draft. Its owner and credentials cannot sign in or ingest data until operational rules are ready.</p>
+        <p className="text-sm text-[#5c645e]">This creates an inactive draft. Its owner and credentials cannot sign in or ingest data. Cup sizes are planning information; forms and calculations still use Ojala's 4oz, 8oz, Pint and Liter fields.</p>
         <div className="grid gap-4 md:grid-cols-2">
           {input("Store name", draft.nombre, value => setDraft({ ...draft, nombre: value }))}
           {input("Owner email", draft.duenoEmail, value => setDraft({ ...draft, duenoEmail: value }), "email")}
           {input("Owner OAuth Open ID", draft.ownerOpenId, value => setDraft({ ...draft, ownerOpenId: value }))}
           {input("Owner name", draft.ownerName, value => setDraft({ ...draft, ownerName: value }))}
           {input("IANA time zone", draft.timezone, value => setDraft({ ...draft, timezone: value }))}
-          {input("Cup size labels (comma-separated)", draft.cupSizes, value => setDraft({ ...draft, cupSizes: value }))}
+          {input("Proposed cup sizes (comma-separated)", draft.cupSizes, value => setDraft({ ...draft, cupSizes: value }))}
           {input("Opening (HH:mm)", draft.horarioApertura, value => setDraft({ ...draft, horarioApertura: value }), "time")}
           {input("Closing (HH:mm)", draft.horarioCierre, value => setDraft({ ...draft, horarioCierre: value }), "time")}
           {posSelect(draft.posType, value => setDraft({ ...draft, posType: value }))}
