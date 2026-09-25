@@ -24,6 +24,19 @@ shiftId,eventAt,sourceEventId
 
 Cada `sourceEventId` identifica **un candidato por vaso**, estable al reintentar una entrega. Un fotograma con una caja de detección no constituye por sí solo un evento de entrega. El receptor `frigate.submitCounts` acepta actualizaciones agregadas con su propio `sourceEventId/sourceEventAt`; ese identificador de actualización tampoco sustituye la lista de eventos candidatos por vaso. El emisor de eventos aún debe construirse y validarse. Estos CSV son **ejemplos sintéticos**, no resultados de Ojala.
 
+Para medir qué ocurre hoy con las detecciones existentes, se puede exportar una lista JSON completa del endpoint de lectura `GET /api/events` de Frigate para el periodo y ejecutar el convertidor local. Selecciona eventos **terminados** de la cámara `handoff` con etiqueta `cup`, toma la hora de fin del objeto como aproximación y usa el ID estable del track. Una zona se puede exigir con `--zone` si está configurada. Revisar la paginación y confirmar que el archivo contiene todo el turno; un export incompleto aumenta artificialmente las omisiones.
+
+```bash
+node scripts/export-frigate-track-proxies.mjs \
+  --events frigate-events.json \
+  --shift-id 2026-09-25-tarde \
+  --from 2026-09-25T17:00:00-07:00 \
+  --to 2026-09-25T19:00:00-07:00 \
+  --out candidates.csv
+```
+
+**Un track terminado tampoco equivale a una entrega**: la hora de salida de cuadro puede diferir de la entrega o corresponder a un vaso inmóvil, retirado o mal detectado. La comparación con la referencia humana cuantifica las limitaciones de este proxy; no debe enviarse su total a producción. La estructura de eventos y `end_time` está descrita en la [documentación oficial de Frigate](https://docs.frigate.video/integrations/api/schemas/eventresponse/).
+
 Opcionalmente, registrar `availability.csv` con minutos programados y minutos realmente en línea, medidos por turno:
 
 ```csv

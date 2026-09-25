@@ -43,7 +43,7 @@ function parseShiftId(value) {
   return value;
 }
 
-function parseEventTime(value) {
+export function parseEventTime(value) {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) {
     throw new Error(`eventAt must be ISO 8601 with an explicit UTC offset: ${value}`);
   }
