@@ -65,7 +65,7 @@ The one-line JSON output contains aggregate counts only: `discovered`, `sent`, a
 
 - Supported files: `.jpg`, `.jpeg`, `.png`, `.webp`, max **8 MB**.
 - Every image **must** have a JSON sidecar named either `<image>.json` or `<image-stem>.json`. The sender waits locally when the sidecar is missing; it never derives identity or time from a filename or file modification time.
-- Required sidecar fields are `camera: "handoff"`, `cup_zone: "handoff_zone"`, `cup_event_id`, `captured_at_utc` (UTC ISO-8601 ending in `Z`), and `image_sha256` (lowercase SHA-256 of the exact image bytes). Invalid, corrupt, or mismatched pairs are rejected locally.
+- Required sidecar fields are `camera: "handoff"`, `cup_zone: "handoff_zone"`, `cup_event_id`, `captured_at_utc` (UTC ISO-8601 ending in `Z` or the capture worker's `+00:00`), and `image_sha256` (lowercase SHA-256 of the exact image bytes). The sender normalizes the UTC suffix to `Z` without dropping fractional precision. Naive/non-UTC timestamps and invalid or mismatched pairs are rejected locally.
 - The sender preserves that exact event identity and timestamp through retries. The server derives the business date from `captured_at_utc` and the authenticated store's time zone; it does not accept a client business date.
 - The server only accepts the handoff camera and resolves the store from the API key, never from a payload store ID.
 - Before any image can be AI-approved, a manager must save the real normalized `handoff_zone` polygon in **Store settings** for that store/camera. Without it, the image is retained as pending evidence and retried after configuration.
@@ -83,6 +83,23 @@ Example sidecar (values shown are placeholders):
 ```
 
 ## Operational behavior
+
+### Queue locally before the receiver is deployed
+
+The Beelink can preserve verified event identities in SQLite before credentials or
+the website receiver are configured. This mode never opens a network connection:
+
+```bash
+python3 handoff_visual_sender.py --queue-only --queue ./state/queue.sqlite3
+```
+
+Repeat runs add only new completed pairs. Restarting the program retains the queue.
+Use that same queue with the normal configured sender after the controlled receiver
+deployment. Source image files must remain available until delivery; this queue
+records their references and checksums, not copies of their bytes.
+
+Known queued paths are not rehashed during discovery. The sender still verifies
+the original image checksum before each upload attempt.
 
 The server stores the image and durable visual record, then runs conservative image analysis. It verifies a visible person, a gelato cup, the handoff zone, and cup count visible in that **same image**. Lamps, arms, hands without a cup, reflections, and unrelated objects are discarded. Any low-confidence or ambiguous response is saved as `pending_review`.
 

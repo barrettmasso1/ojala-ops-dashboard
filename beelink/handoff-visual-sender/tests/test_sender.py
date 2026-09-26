@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import tempfile
 import unittest
@@ -53,6 +54,51 @@ class VerifiedSnapshotSenderTests(unittest.TestCase):
         self.assertEqual(discovered, 1)  # the valid fixture from setUp
         self.assertEqual(awaiting_metadata, 1)
         self.assertEqual(connection.execute("SELECT COUNT(*) FROM verified_snapshot_queue WHERE source_path = ?", (str(image),)).fetchone()[0], 0)
+
+    def test_accepts_capture_worker_utc_offset_without_losing_precision(self) -> None:
+        self.write_sidecar(self.image, captured_at_utc="2026-09-26T21:58:33.230890+00:00")
+        connection = sender.open_queue(self.queue_path)
+        self.assertTrue(sender.enqueue_verified_snapshot(connection, self.image))
+        connection.close()
+        connection = sender.open_queue(self.queue_path)
+        row = connection.execute("SELECT * FROM verified_snapshot_queue").fetchone()
+        self.assertEqual(row["captured_at"], "2026-09-26T21:58:33.230890Z")
+        self.assertEqual(row["business_date"], "2026-09-26")
+        self.assertEqual(sender.build_payload(row, "test-key")["capture"]["captured_at_utc"], row["captured_at"])
+        self.assertFalse(sender.enqueue_verified_snapshot(connection, self.image))
+        connection.close()
+
+    def test_preserves_existing_z_timestamp_microseconds(self) -> None:
+        original = "2026-09-26T06:59:59.999999Z"
+        self.write_sidecar(self.image, captured_at_utc=original)
+        connection = sender.open_queue(self.queue_path)
+        sender.enqueue_verified_snapshot(connection, self.image)
+        row = connection.execute("SELECT * FROM verified_snapshot_queue").fetchone()
+        self.assertEqual(row["captured_at"], original)
+        self.assertEqual(row["business_date"], "2026-09-25")
+        connection.close()
+
+    def test_rejects_naive_non_utc_or_malformed_timestamps(self) -> None:
+        for value in ["2026-09-26T21:58:33.230890", "2026-09-26T14:58:33-07:00",
+                      "2026-09-26 21:58:33+00:00", "2026-09-99T21:58:33Z"]:
+            with self.subTest(value=value):
+                self.write_sidecar(self.image, captured_at_utc=value)
+                with self.assertRaises(sender.SenderError):
+                    sender.event_metadata(self.image)
+
+    def test_queue_only_is_persistent_idempotent_and_does_not_use_network_or_keys(self) -> None:
+        self.write_sidecar(self.image, captured_at_utc="2026-09-26T21:58:33.230890+00:00")
+        args = ["sender", "--queue-only", "--queue", str(self.queue_path)]
+        with patch.object(sys, "argv", args), patch.object(sender, "load_config", side_effect=AssertionError("config read")), \
+             patch.object(sender, "post_snapshot", side_effect=AssertionError("network used")), \
+             patch.object(sys, "stdout", new_callable=io.StringIO) as output:
+            self.assertEqual(sender.main(), 0)
+            self.assertEqual(sender.main(), 0)
+        first, second = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual(first["discovered"], 1)
+        self.assertEqual(second["discovered"], 0)
+        self.assertEqual(second["queued"], 1)
+        self.assertFalse(second["network_attempted"])
 
     def test_rejects_corrupt_or_mismatched_sidecar_identity(self) -> None:
         self.write_sidecar(self.image, image_sha256="0" * 64)
