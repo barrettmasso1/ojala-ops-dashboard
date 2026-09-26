@@ -1,8 +1,8 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "7c716883-18a0-4087-9a30-fe8e0c10847f",
-  "prevId": "d977eceb-2ff8-49e7-8a18-fe41786da3cf",
+  "id": "0746c0b4-26c4-4537-92c1-b072490188bf",
+  "prevId": "7c716883-18a0-4087-9a30-fe8e0c10847f",
   "tables": {
     "checklistQuestions": {
       "name": "checklistQuestions",
@@ -507,6 +507,123 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
+    "frigateCameraZones": {
+      "name": "frigateCameraZones",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "storeId": {
+          "name": "storeId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "cameraName": {
+          "name": "cameraName",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "zoneName": {
+          "name": "zoneName",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'handoff_zone'"
+        },
+        "polygonJson": {
+          "name": "polygonJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "geometryVersion": {
+          "name": "geometryVersion",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "isActive": {
+          "name": "isActive",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "idx_frigateCameraZones_storeId": {
+          "name": "idx_frigateCameraZones_storeId",
+          "columns": [
+            "storeId"
+          ],
+          "isUnique": false
+        },
+        "frigateCameraZones_store_camera_zone_unique": {
+          "name": "frigateCameraZones_store_camera_zone_unique",
+          "columns": [
+            "storeId",
+            "cameraName",
+            "zoneName"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "frigateCameraZones_storeId_stores_id_fk": {
+          "name": "frigateCameraZones_storeId_stores_id_fk",
+          "tableFrom": "frigateCameraZones",
+          "tableTo": "stores",
+          "columnsFrom": [
+            "storeId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {
+        "frigateCameraZones_id": {
+          "name": "frigateCameraZones_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
     "frigateCupCounts": {
       "name": "frigateCupCounts",
       "columns": {
@@ -630,6 +747,328 @@
       "compositePrimaryKeys": {
         "frigateCupCounts_id": {
           "name": "frigateCupCounts_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "frigateHandoffVisualEvents": {
+      "name": "frigateHandoffVisualEvents",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "storeId": {
+          "name": "storeId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "businessDate": {
+          "name": "businessDate",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "cameraName": {
+          "name": "cameraName",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'handoff'"
+        },
+        "cupEventId": {
+          "name": "cupEventId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "capturedAt": {
+          "name": "capturedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "imageKey": {
+          "name": "imageKey",
+          "type": "varchar(512)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "imageMimeType": {
+          "name": "imageMimeType",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "imageSha256": {
+          "name": "imageSha256",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "captureMetadataJson": {
+          "name": "captureMetadataJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "zoneId": {
+          "name": "zoneId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "zoneGeometryVersion": {
+          "name": "zoneGeometryVersion",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "zoneGeometryJson": {
+          "name": "zoneGeometryJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "sourceDetail": {
+          "name": "sourceDetail",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "analysisStatus": {
+          "name": "analysisStatus",
+          "type": "enum('pending_review','approved_by_ai','discarded','approved_by_manager','discarded_by_manager')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending_review'"
+        },
+        "analysisModel": {
+          "name": "analysisModel",
+          "type": "varchar(96)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'platform-default-vision'"
+        },
+        "personPresent": {
+          "name": "personPresent",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "gelatoCupPresent": {
+          "name": "gelatoCupPresent",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "cupInHandoffZone": {
+          "name": "cupInHandoffZone",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "visibleCupCount": {
+          "name": "visibleCupCount",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "confidence": {
+          "name": "confidence",
+          "type": "enum('high','medium','low')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'low'"
+        },
+        "analysisReason": {
+          "name": "analysisReason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "analysisAttempts": {
+          "name": "analysisAttempts",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "nextRetryAt": {
+          "name": "nextRetryAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "analysisLeaseUntil": {
+          "name": "analysisLeaseUntil",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "analysisLeaseToken": {
+          "name": "analysisLeaseToken",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "lastAnalysisError": {
+          "name": "lastAnalysisError",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reviewedAt": {
+          "name": "reviewedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reviewedByUserId": {
+          "name": "reviewedByUserId",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reviewNotes": {
+          "name": "reviewNotes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "receivedAt": {
+          "name": "receivedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "onUpdate": true,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "idx_frigateHandoffVisualEvents_storeId": {
+          "name": "idx_frigateHandoffVisualEvents_storeId",
+          "columns": [
+            "storeId"
+          ],
+          "isUnique": false
+        },
+        "frigateHandoffVisualEvents_store_camera_event_unique": {
+          "name": "frigateHandoffVisualEvents_store_camera_event_unique",
+          "columns": [
+            "storeId",
+            "cameraName",
+            "cupEventId"
+          ],
+          "isUnique": true
+        },
+        "idx_frigateHandoffVisualEvents_review_queue": {
+          "name": "idx_frigateHandoffVisualEvents_review_queue",
+          "columns": [
+            "storeId",
+            "analysisStatus",
+            "nextRetryAt"
+          ],
+          "isUnique": false
+        },
+        "idx_frigateHandoffVisualEvents_capturedAt": {
+          "name": "idx_frigateHandoffVisualEvents_capturedAt",
+          "columns": [
+            "storeId",
+            "capturedAt"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "frigateHandoffVisualEvents_storeId_stores_id_fk": {
+          "name": "frigateHandoffVisualEvents_storeId_stores_id_fk",
+          "tableFrom": "frigateHandoffVisualEvents",
+          "tableTo": "stores",
+          "columnsFrom": [
+            "storeId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        },
+        "frigateHandoffVisualEvents_zoneId_frigateCameraZones_id_fk": {
+          "name": "frigateHandoffVisualEvents_zoneId_frigateCameraZones_id_fk",
+          "tableFrom": "frigateHandoffVisualEvents",
+          "tableTo": "frigateCameraZones",
+          "columnsFrom": [
+            "zoneId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {
+        "frigateHandoffVisualEvents_id": {
+          "name": "frigateHandoffVisualEvents_id",
           "columns": [
             "id"
           ]

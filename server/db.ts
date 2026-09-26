@@ -1,9 +1,11 @@
 import { and, count, desc, eq, gte, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   checklistQuestions,
   closingChecklists,
   endOfDayReports,
+  frigateCameraZones,
   frigateHandoffVisualEvents,
   InsertChecklistQuestion,
   InsertClosingChecklist,
@@ -28,7 +30,7 @@ import {
   submissionHistoryEntries,
   users,
 } from "../drizzle/schema";
-import { PACIFIC_TIME_ZONE, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "../shared/businessDate";
+import { getBusinessDateTimeTimestamp, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "./storeBusinessDate";
 import { DEFAULT_INVENTORY_ITEMS, DEFAULT_RECIPE_ITEMS, READY_MADE_GELATO_FLAVORS } from "../shared/opsCatalog";
 import { ENV } from "./_core/env";
 import { storageGetSignedUrl } from "./storage";
@@ -1954,25 +1956,8 @@ function normalizeStaffAttendanceRecord(row: typeof staffAttendance.$inferSelect
   };
 }
 
-function getPacificUtcOffsetMinutes(date: Date) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: PACIFIC_TIME_ZONE,
-    timeZoneName: "shortOffset",
-  }).formatToParts(date);
-  const offsetValue = parts.find(part => part.type === "timeZoneName")?.value ?? "GMT-8";
-  const match = offsetValue.match(/^GMT([+-])(\d{1,2})(?::(\d{2}))?$/i);
-  if (!match) return -8 * 60;
-  const sign = match[1] === "+" ? 1 : -1;
-  const hours = Number(match[2] ?? 0);
-  const minutes = Number(match[3] ?? 0);
-  return sign * (hours * 60 + minutes);
-}
-
 export function getPacificBusinessDateAutoClockOutAt(businessDate: string) {
-  const [year, month, day] = businessDate.split("-").map(value => Number(value));
-  const pacificMiddayUtc = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-  const offsetMinutes = getPacificUtcOffsetMinutes(pacificMiddayUtc);
-  return Date.UTC(year, month - 1, day, AUTO_CLOCK_OUT_HOUR_PACIFIC, 0, 0, 0) - offsetMinutes * 60 * 1000;
+  return getBusinessDateTimeTimestamp(businessDate, `${AUTO_CLOCK_OUT_HOUR_PACIFIC}:00`);
 }
 
 export function getEffectiveAttendanceClockOutAt(record: Pick<StaffAttendanceRecord, "businessDate" | "clockInAt" | "clockOutAt">, referenceTime = Date.now()) {
@@ -2561,6 +2546,22 @@ export async function getFrigateCupCountForDate(businessDate: string, cameraName
   return rows[0] ?? null;
 }
 
+export async function getActiveHandoffCameraZone(input: { storeId: number; cameraName: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [zone] = await db
+    .select()
+    .from(frigateCameraZones)
+    .where(and(
+      eq(frigateCameraZones.storeId, requireStoreId(input.storeId)),
+      eq(frigateCameraZones.cameraName, input.cameraName),
+      eq(frigateCameraZones.zoneName, "handoff_zone"),
+      eq(frigateCameraZones.isActive, 1),
+    ))
+    .limit(1);
+  return zone ?? null;
+}
+
 type HandoffVisualStoredStatus = HandoffVisualStatus;
 
 function handoffVisualPublicRow(row: typeof frigateHandoffVisualEvents.$inferSelect) {
@@ -2596,6 +2597,11 @@ export async function reserveHandoffVisualEvent(input: {
   cameraName: string;
   cupEventId: string;
   capturedAt: Date;
+  imageSha256: string;
+  captureMetadataJson: string;
+  zoneId?: number;
+  zoneGeometryVersion?: number;
+  zoneGeometryJson?: string;
   sourceDetail?: string;
 }) {
   const db = await getDb();
@@ -2617,6 +2623,11 @@ export async function reserveHandoffVisualEvent(input: {
       cameraName: input.cameraName,
       cupEventId: input.cupEventId,
       capturedAt: input.capturedAt,
+      imageSha256: input.imageSha256,
+      captureMetadataJson: input.captureMetadataJson,
+      zoneId: input.zoneId ?? null,
+      zoneGeometryVersion: input.zoneGeometryVersion ?? null,
+      zoneGeometryJson: input.zoneGeometryJson ?? null,
       sourceDetail: input.sourceDetail ?? "",
       analysisStatus: "pending_review",
       imageMimeType: "application/octet-stream",
@@ -2631,6 +2642,51 @@ export async function reserveHandoffVisualEvent(input: {
   const created = await db.select().from(frigateHandoffVisualEvents).where(where).limit(1);
   if (!created[0]) throw new Error("Unable to reserve handoff visual event");
   return { event: created[0], created: true };
+}
+
+/** Binds an unconfigured pending event to a real zone exactly once. */
+export async function bindHandoffVisualEventZone(input: {
+  id: number;
+  storeId: number;
+  zoneId: number;
+  zoneGeometryVersion: number;
+  zoneGeometryJson: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .update(frigateHandoffVisualEvents)
+    .set({
+      zoneId: input.zoneId,
+      zoneGeometryVersion: input.zoneGeometryVersion,
+      zoneGeometryJson: input.zoneGeometryJson,
+    })
+    .where(and(
+      eq(frigateHandoffVisualEvents.id, input.id),
+      eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
+      eq(frigateHandoffVisualEvents.analysisStatus, "pending_review"),
+      isNull(frigateHandoffVisualEvents.zoneId),
+    ));
+  return getHandoffVisualEventById(input);
+}
+
+/** Keeps a verified capture visible when its store/camera geometry is absent. */
+export async function queueHandoffVisualForZoneConfiguration(input: { id: number; storeId: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .update(frigateHandoffVisualEvents)
+    .set({
+      nextRetryAt: new Date(Date.now() + 60 * 60 * 1_000),
+      lastAnalysisError: "Handoff zone geometry is not configured for this store and camera. The verified capture remains pending review.",
+    })
+    .where(and(
+      eq(frigateHandoffVisualEvents.id, input.id),
+      eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
+      eq(frigateHandoffVisualEvents.analysisStatus, "pending_review"),
+      isNull(frigateHandoffVisualEvents.zoneId),
+    ));
+  return getHandoffVisualEventById(input);
 }
 
 export async function attachHandoffVisualImage(input: {
@@ -2669,12 +2725,14 @@ export async function claimHandoffVisualAnalysis(input: { id: number; storeId: n
   if (!db) throw new Error("Database not available");
   const now = new Date();
   const leaseUntil = new Date(now.getTime() + 5 * 60 * 1_000);
+  const analysisLeaseToken = randomUUID();
 
   const result = await db
     .update(frigateHandoffVisualEvents)
     .set({
       analysisAttempts: sql`${frigateHandoffVisualEvents.analysisAttempts} + 1`,
       analysisLeaseUntil: leaseUntil,
+      analysisLeaseToken,
       nextRetryAt: null,
       lastAnalysisError: null,
     })
@@ -2692,12 +2750,13 @@ export async function claimHandoffVisualAnalysis(input: { id: number; storeId: n
     ));
 
   const header = Array.isArray(result) ? result[0] : result;
-  return Number((header as { affectedRows?: number } | undefined)?.affectedRows ?? 0) === 1;
+  return Number((header as { affectedRows?: number } | undefined)?.affectedRows ?? 0) === 1 ? analysisLeaseToken : null;
 }
 
 export async function finalizeHandoffVisualAnalysis(input: {
   id: number;
   storeId: number;
+  analysisLeaseToken: string;
   analysis: NormalizedHandoffVisualAnalysis;
 }) {
   const db = await getDb();
@@ -2714,12 +2773,15 @@ export async function finalizeHandoffVisualAnalysis(input: {
       confidence: input.analysis.confidence,
       analysisReason: input.analysis.reason,
       analysisLeaseUntil: null,
+      analysisLeaseToken: null,
       nextRetryAt: null,
       lastAnalysisError: null,
     })
     .where(and(
       eq(frigateHandoffVisualEvents.id, input.id),
       eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
+      eq(frigateHandoffVisualEvents.analysisStatus, "pending_review"),
+      eq(frigateHandoffVisualEvents.analysisLeaseToken, input.analysisLeaseToken),
     ));
 
   const event = await getHandoffVisualEventById(input);
@@ -2731,6 +2793,7 @@ export async function finalizeHandoffVisualAnalysis(input: {
 export async function deferHandoffVisualAnalysis(input: {
   id: number;
   storeId: number;
+  analysisLeaseToken: string;
   nextRetryAt: Date;
 }) {
   const db = await getDb();
@@ -2741,12 +2804,15 @@ export async function deferHandoffVisualAnalysis(input: {
     .set({
       analysisStatus: "pending_review",
       analysisLeaseUntil: null,
+      analysisLeaseToken: null,
       nextRetryAt: input.nextRetryAt,
       lastAnalysisError: "Image analysis is temporarily unavailable. This case remains queued for retry or manager review.",
     })
     .where(and(
       eq(frigateHandoffVisualEvents.id, input.id),
       eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
+      eq(frigateHandoffVisualEvents.analysisStatus, "pending_review"),
+      eq(frigateHandoffVisualEvents.analysisLeaseToken, input.analysisLeaseToken),
     ));
 
   const event = await getHandoffVisualEventById(input);
@@ -2796,6 +2862,7 @@ export async function reviewHandoffVisualEvent(input: {
       reviewNotes: notes,
       nextRetryAt: null,
       analysisLeaseUntil: null,
+      analysisLeaseToken: null,
     })
     .where(and(
       eq(frigateHandoffVisualEvents.id, input.id),

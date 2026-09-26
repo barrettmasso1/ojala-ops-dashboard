@@ -12,6 +12,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -32,6 +33,14 @@ BACKOFF_MAX_SECONDS = 60 * 60
 
 class SenderError(RuntimeError):
     pass
+
+
+class AwaitingMetadata(SenderError):
+    """A verified image is retained locally until its required JSON sidecar appears."""
+
+
+EVENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$")
+SHA256_PATTERN = re.compile(r"^[a-f0-9]{64}$")
 
 
 def now_epoch() -> int:
@@ -70,6 +79,7 @@ def open_queue(path: Path) -> sqlite3.Connection:
           business_date TEXT NOT NULL,
           captured_at TEXT NOT NULL,
           image_sha256 TEXT NOT NULL,
+          capture_metadata_json TEXT NOT NULL,
           status TEXT NOT NULL CHECK(status IN ('queued', 'retry', 'sent')),
           attempts INTEGER NOT NULL DEFAULT 0,
           next_attempt_at INTEGER NOT NULL,
@@ -79,7 +89,20 @@ def open_queue(path: Path) -> sqlite3.Connection:
         )
         """
     )
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(verified_snapshot_queue)")}
+    if "capture_metadata_json" not in columns:
+        connection.execute("ALTER TABLE verified_snapshot_queue ADD COLUMN capture_metadata_json TEXT")
     return connection
+
+
+def has_expected_image_signature(image_path: Path) -> bool:
+    prefix = image_path.read_bytes()[:12]
+    suffix = image_path.suffix.lower()
+    if suffix in {".jpg", ".jpeg"}:
+        return prefix.startswith(b"\xff\xd8\xff")
+    if suffix == ".png":
+        return prefix.startswith(b"\x89PNG\r\n\x1a\n")
+    return len(prefix) >= 12 and prefix[:4] == b"RIFF" and prefix[8:12] == b"WEBP"
 
 
 def require_verified_path(candidate: Path) -> Path:
@@ -94,63 +117,104 @@ def require_verified_path(candidate: Path) -> Path:
     size = resolved.stat().st_size
     if size <= 0 or size > MAX_IMAGE_BYTES:
         raise SenderError("refusing an empty or oversized verified snapshot")
+    if not has_expected_image_signature(resolved):
+        raise SenderError("refusing a corrupt verified snapshot")
     return resolved
 
 
-def sidecar_metadata(image_path: Path) -> dict[str, Any]:
+def sidecar_path(image_path: Path) -> Path:
     candidates = [
         image_path.with_suffix(image_path.suffix + ".json"),
         image_path.with_suffix(".json"),
     ]
     for candidate in candidates:
         if candidate.exists():
+            root = VERIFIED_SNAPSHOT_DIR.resolve(strict=True)
+            resolved = candidate.resolve(strict=True)
             try:
-                parsed = json.loads(candidate.read_text(encoding="utf-8"))
-                return parsed if isinstance(parsed, dict) else {}
-            except (OSError, json.JSONDecodeError):
-                return {}
-    return {}
+                resolved.relative_to(root)
+            except ValueError as error:
+                raise SenderError("refusing metadata outside the verified handoff directory") from error
+            if not resolved.is_file() or resolved.stat().st_size > 64 * 1024:
+                raise SenderError("refusing invalid verified snapshot metadata")
+            return resolved
+    raise AwaitingMetadata("verified image is awaiting its required JSON sidecar")
 
 
-def event_metadata(image_path: Path) -> tuple[str, str, str, str]:
+def parse_sidecar_metadata(image_path: Path, image_digest: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(sidecar_path(image_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise SenderError("verified snapshot metadata is unreadable") from error
+    if not isinstance(parsed, dict):
+        raise SenderError("verified snapshot metadata must be a JSON object")
+
+    camera = parsed.get("camera")
+    cup_zone = parsed.get("cup_zone")
+    cup_event_id = parsed.get("cup_event_id")
+    captured_at_utc = parsed.get("captured_at_utc")
+    image_sha256 = parsed.get("image_sha256")
+    if camera != "handoff" or cup_zone != "handoff_zone":
+        raise SenderError("verified snapshot metadata camera or cup_zone is invalid")
+    if not isinstance(cup_event_id, str) or not EVENT_ID_PATTERN.fullmatch(cup_event_id):
+        raise SenderError("verified snapshot metadata cup_event_id is invalid")
+    if not isinstance(image_sha256, str) or not SHA256_PATTERN.fullmatch(image_sha256) or image_sha256 != image_digest:
+        raise SenderError("verified snapshot metadata image_sha256 does not match the image")
+    if not isinstance(captured_at_utc, str) or not captured_at_utc.endswith("Z"):
+        raise SenderError("verified snapshot metadata captured_at_utc is invalid")
+    try:
+        captured = datetime.fromisoformat(captured_at_utc.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise SenderError("verified snapshot metadata captured_at_utc is invalid") from error
+    if captured.tzinfo is None or captured.utcoffset() != UTC.utcoffset(captured):
+        raise SenderError("verified snapshot metadata captured_at_utc must be UTC")
+    return {
+        "camera": camera,
+        "cup_zone": cup_zone,
+        "cup_event_id": cup_event_id,
+        "captured_at_utc": captured.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+        "image_sha256": image_sha256,
+    }
+
+
+def event_metadata(image_path: Path) -> tuple[dict[str, Any], str]:
     verified = require_verified_path(image_path)
     contents = verified.read_bytes()
     digest = hashlib.sha256(contents).hexdigest()
-    metadata = sidecar_metadata(verified)
-    provided_event_id = metadata.get("cup_event_id")
-    cup_event_id = provided_event_id.strip() if isinstance(provided_event_id, str) and len(provided_event_id.strip()) >= 8 else f"snapshot-{digest[:40]}"
-    captured_epoch = verified.stat().st_mtime
-    captured_at = utc_timestamp(captured_epoch)
-    return cup_event_id, business_date(captured_epoch), captured_at, digest
+    return parse_sidecar_metadata(verified, digest), digest
 
 
 def enqueue_verified_snapshot(connection: sqlite3.Connection, image_path: Path) -> bool:
     verified = require_verified_path(image_path)
-    cup_event_id, date_value, captured_at, digest = event_metadata(verified)
+    metadata, digest = event_metadata(verified)
+    captured_epoch = datetime.fromisoformat(metadata["captured_at_utc"].replace("Z", "+00:00")).timestamp()
     now = now_epoch()
     cursor = connection.execute(
         """
         INSERT OR IGNORE INTO verified_snapshot_queue
-          (cup_event_id, source_path, camera_name, business_date, captured_at, image_sha256, status, attempts, next_attempt_at, created_at, updated_at)
-        VALUES (?, ?, 'handoff', ?, ?, ?, 'queued', 0, ?, ?, ?)
+          (cup_event_id, source_path, camera_name, business_date, captured_at, image_sha256, capture_metadata_json, status, attempts, next_attempt_at, created_at, updated_at)
+        VALUES (?, ?, 'handoff', ?, ?, ?, ?, 'queued', 0, ?, ?, ?)
         """,
-        (cup_event_id, str(verified), date_value, captured_at, digest, now, now, now),
+        (metadata["cup_event_id"], str(verified), business_date(captured_epoch), metadata["captured_at_utc"], digest, json.dumps(metadata, separators=(",", ":")), now, now, now),
     )
     connection.commit()
     return cursor.rowcount == 1
 
 
-def discover_verified_snapshots(connection: sqlite3.Connection) -> int:
+def discover_verified_snapshots(connection: sqlite3.Connection) -> tuple[int, int]:
     root = VERIFIED_SNAPSHOT_DIR.resolve(strict=True)
     added = 0
+    awaiting_metadata = 0
     for path in sorted(root.iterdir()):
         if not path.is_file() or path.suffix.lower() not in ALLOWED_SUFFIXES:
             continue
         try:
             added += int(enqueue_verified_snapshot(connection, path))
+        except AwaitingMetadata:
+            awaiting_metadata += 1
         except SenderError:
             continue
-    return added
+    return added, awaiting_metadata
 
 
 def backoff_seconds(attempts: int) -> int:
@@ -160,15 +224,21 @@ def backoff_seconds(attempts: int) -> int:
 def build_payload(row: sqlite3.Row, api_key: str) -> dict[str, Any]:
     image_path = require_verified_path(Path(row["source_path"]))
     image_bytes = image_path.read_bytes()
+    image_sha256 = hashlib.sha256(image_bytes).hexdigest()
+    if image_sha256 != row["image_sha256"]:
+        raise SenderError("verified image bytes changed after queueing")
+    try:
+        capture = json.loads(row["capture_metadata_json"])
+    except (TypeError, json.JSONDecodeError) as error:
+        raise SenderError("queued capture metadata is invalid") from error
+    if not isinstance(capture, dict) or capture.get("image_sha256") != image_sha256:
+        raise SenderError("queued capture metadata no longer matches the image")
     suffix = image_path.suffix.lower()
     image_data_url = f"data:{MIME_BY_SUFFIX[suffix]};base64," + base64.b64encode(image_bytes).decode("ascii")
     return {
         "apiKey": api_key,
-        "businessDate": row["business_date"],
-        "cameraName": row["camera_name"],
-        "cupEventId": row["cup_event_id"],
-        "capturedAt": row["captured_at"],
         "imageDataUrl": image_data_url,
+        "capture": capture,
         "sourceDetail": "verified_snapshot_sender",
     }
 
@@ -284,9 +354,9 @@ def main() -> int:
         if not api_key:
             raise SenderError(f"missing API key environment variable {config['api_key_env']}")
         connection = open_queue(args.queue)
-        discovered = discover_verified_snapshots(connection)
+        discovered, awaiting_metadata = discover_verified_snapshots(connection)
         outcome = send_due_snapshots(connection, config["endpoint"], api_key, max(1, min(args.limit, 100)))
-        print(json.dumps({"discovered": discovered, **outcome}, separators=(",", ":")))
+        print(json.dumps({"discovered": discovered, "awaiting_metadata": awaiting_metadata, **outcome}, separators=(",", ":")))
         return 0
     except (OSError, SenderError) as error:
         print(f"handoff visual sender: {error}", file=sys.stderr)

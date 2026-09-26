@@ -297,3 +297,7 @@
 - [x] Add a verified-snapshot-only Frigate handoff visual filter with authenticated ingest, deduplication, conservative AI review, persistent retry states, and no sales/delivery/inventory mutation
 - [x] Add a manager-only Handoff Review queue for AI-approved, discarded, and pending visual evidence with scoped correction actions
 - [x] Prepare the non-destructive 0014 Frigate handoff visual migration, verified-snapshot Beelink sender, and mocked positive/false-positive/retry regression coverage for PR review
+- [x] Rebase the verified handoff visual filter onto the pending onboarding and pilot branch, preserving the existing 0014 onboarding migration and adding non-destructive visual migration 0015
+- [x] Require a manager-configured per-store, per-camera handoff polygon; retain captures without geometry as pending evidence instead of approving them
+- [x] Require a verified image plus JSON sidecar with camera, cup_zone, event ID, original UTC capture time, and image SHA-256; reject corrupt or mismatched pairs
+- [x] Add analysis timeout, lease-token finalization, expired-lease recovery, and manager-review race guards; add an isolated no-network real-image trial preparer

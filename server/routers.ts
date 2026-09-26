@@ -12,6 +12,7 @@ import {
   createEndOfDayReport,
   clockInStaff,
   clockOutStaff,
+  bindHandoffVisualEventZone,
   createOpeningChecklist,
   attachHandoffVisualImage,
   claimHandoffVisualAnalysis,
@@ -20,6 +21,7 @@ import {
   finalizeHandoffVisualAnalysis,
   getAttendanceTimeBook,
   getDailyOperationsSnapshot,
+  getActiveHandoffCameraZone,
   listHandoffVisualEvents,
   getSubmissionStatusForBusinessDate,
   getInventoryAlerts,
@@ -43,6 +45,7 @@ import {
   STAFF_ATTENDANCE_NAMES,
   getActiveStoreById,
   resolveActiveStoreCredential,
+  queueHandoffVisualForZoneConfiguration,
   updateInventoryCount,
   updateSubmissionHistoryForm,
  updateSubmissionHistoryGelato,
@@ -50,13 +53,16 @@ import {
   upsertUser,
 } from "./db";
 import { extractGelatoPhotos } from "./gelatoPhotoPilot";
-import { formatPacificDateTime, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "../shared/businessDate";
+import { formatPacificDateTime, getBusinessDateTimeTimestamp, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "./storeBusinessDate";
 import { legacyCredentialsMatch } from "./storeCredentials";
 import { clearCredentialFailures, getCredentialRetryAfterMs, recordCredentialFailure } from "./credentialRateLimit";
 import { normalizeFrigateEventAt } from "./frigateEventOrder";
+import { storeAdminRouter } from "./storeAdminRouter";
 import { analyzeHandoffVisualImage, getHandoffVisualRetryDelayMs } from "./handoffVisualAnalysis";
-import { decodeHandoffImageDataUrl, handoffImageExtension } from "./handoffVisualPayload";
+import { decodeHandoffImageDataUrl, handoffCaptureMetadataJson, handoffImageExtension, parseHandoffCaptureMetadata } from "./handoffVisualPayload";
 import { storageGetSignedUrl, storagePut } from "./storage";
+import { getBusinessDate } from "../shared/businessDate";
+import { parseStoredHandoffZoneGeometry } from "./handoffZoneGeometry";
 
 const PHASE1_OJALA_STORE_ID = 1;
 
@@ -271,23 +277,6 @@ const checklistQuestionSchema = z.object({
 
 const staffAttendanceTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 
-function convertPacificBusinessDateTimeToTimestamp(businessDate: string, timeValue: string) {
-  const [year, month, day] = businessDate.split("-").map(Number);
-  const [hours, minutes] = timeValue.split(":").map(Number);
-  const pacificReference = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-  const offsetParts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Los_Angeles",
-    timeZoneName: "shortOffset",
-  }).formatToParts(pacificReference);
-  const offsetValue = offsetParts.find(part => part.type === "timeZoneName")?.value ?? "GMT-8";
-  const match = offsetValue.match(/^GMT([+-])(\d{1,2})(?::(\d{2}))?$/i);
-  const sign = match?.[1] === "-" ? -1 : 1;
-  const offsetHours = Number(match?.[2] ?? 8);
-  const offsetMinutes = Number(match?.[3] ?? 0);
-  const totalOffsetMinutes = sign * (offsetHours * 60 + offsetMinutes);
-  return Date.UTC(year, month - 1, day, hours, minutes, 0) - totalOffsetMinutes * 60 * 1000;
-}
-
 function normalizeFrontendOrigin(origin?: string) {
   if (!origin) return "";
 
@@ -372,22 +361,38 @@ function enforceCredentialRateLimit(channel: "staff_portal" | "frigate", clientK
 
 async function processHandoffVisualEvent(input: {
   storeId: number;
-  businessDate: string;
-  cameraName: "handoff";
-  cupEventId: string;
-  capturedAt: Date;
+  storeTimeZone: string;
+  metadata: ReturnType<typeof parseHandoffCaptureMetadata>;
   sourceDetail: string;
   imageDataUrl: string;
 }) {
+  const decoded = decodeHandoffImageDataUrl(input.imageDataUrl);
+  if (decoded.checksum !== input.metadata.imageSha256) {
+    throw new Error("Capture metadata image_sha256 does not match the submitted image");
+  }
+  const businessDate = getBusinessDate(input.metadata.capturedAt, input.storeTimeZone);
+  const activeZone = await getActiveHandoffCameraZone({ storeId: input.storeId, cameraName: input.metadata.camera });
   const reserved = await reserveHandoffVisualEvent({
     storeId: input.storeId,
-    businessDate: input.businessDate,
-    cameraName: input.cameraName,
-    cupEventId: input.cupEventId,
-    capturedAt: input.capturedAt,
+    businessDate,
+    cameraName: input.metadata.camera,
+    cupEventId: input.metadata.cupEventId,
+    capturedAt: input.metadata.capturedAt,
+    imageSha256: input.metadata.imageSha256,
+    captureMetadataJson: handoffCaptureMetadataJson(input.metadata),
+    zoneId: activeZone?.id,
+    zoneGeometryVersion: activeZone?.geometryVersion,
+    zoneGeometryJson: activeZone?.polygonJson,
     sourceDetail: input.sourceDetail,
   });
   let event = reserved.event;
+
+  // The store/camera/event tuple identifies a capture. A retry must preserve
+  // its original identity; reusing that ID with different image bytes is not a
+  // correction and is rejected before it can mutate the durable evidence.
+  if (event.imageSha256 !== input.metadata.imageSha256 || event.capturedAt.getTime() !== input.metadata.capturedAt.getTime()) {
+    throw new Error("cup_event_id is already reserved for a different verified capture");
+  }
 
   // Terminal reviews are immutable to sender retries. A photo cannot alter a
   // manager decision and never updates sales, deliveries, or cup counts.
@@ -396,9 +401,8 @@ async function processHandoffVisualEvent(input: {
   }
 
   if (!event.imageKey) {
-    const decoded = decodeHandoffImageDataUrl(input.imageDataUrl);
     const uploaded = await storagePut(
-      `frigate-handoff-verified/store-${input.storeId}/${input.cameraName}/${input.cupEventId}-${decoded.checksum.slice(0, 16)}.${handoffImageExtension(decoded.mimeType)}`,
+      `frigate-handoff-verified/store-${input.storeId}/${input.metadata.camera}/${input.metadata.cupEventId}-${decoded.checksum.slice(0, 16)}.${handoffImageExtension(decoded.mimeType)}`,
       decoded.buffer,
       decoded.mimeType,
     );
@@ -410,8 +414,23 @@ async function processHandoffVisualEvent(input: {
     });
   }
 
-  const claimed = await claimHandoffVisualAnalysis({ id: event.id, storeId: input.storeId });
-  if (!claimed) {
+  if (!event.zoneId || !event.zoneGeometryVersion || !event.zoneGeometryJson) {
+    if (activeZone) {
+      event = await bindHandoffVisualEventZone({
+        id: event.id,
+        storeId: input.storeId,
+        zoneId: activeZone.id,
+        zoneGeometryVersion: activeZone.geometryVersion,
+        zoneGeometryJson: activeZone.polygonJson,
+      }) ?? event;
+    } else {
+      const queued = await queueHandoffVisualForZoneConfiguration({ id: event.id, storeId: input.storeId });
+      return { eventId: queued?.id ?? event.id, status: queued?.analysisStatus ?? event.analysisStatus, disposition: "awaiting_zone_configuration" as const, retryable: true };
+    }
+  }
+
+  const analysisLeaseToken = await claimHandoffVisualAnalysis({ id: event.id, storeId: input.storeId });
+  if (!analysisLeaseToken) {
     return {
       eventId: event.id,
       status: event.analysisStatus,
@@ -422,23 +441,43 @@ async function processHandoffVisualEvent(input: {
 
   try {
     const imageUrl = await storageGetSignedUrl(event.imageKey!);
-    const analysis = await analyzeHandoffVisualImage({ imageUrl, cameraName: input.cameraName });
-    const completed = await finalizeHandoffVisualAnalysis({ id: event.id, storeId: input.storeId, analysis });
+    const geometry = parseStoredHandoffZoneGeometry(event.zoneGeometryJson!);
+    const analysis = await analyzeHandoffVisualImage({
+      imageUrl,
+      cameraName: input.metadata.camera,
+      handoffZonePolygon: geometry.points,
+      handoffZoneGeometryVersion: event.zoneGeometryVersion!,
+    });
+    const completed = await finalizeHandoffVisualAnalysis({ id: event.id, storeId: input.storeId, analysisLeaseToken, analysis });
     return { eventId: completed.id, status: completed.analysisStatus, disposition: "analyzed" as const, retryable: false };
   } catch {
     const deferred = await deferHandoffVisualAnalysis({
       id: event.id,
       storeId: input.storeId,
+      analysisLeaseToken,
       nextRetryAt: new Date(Date.now() + getHandoffVisualRetryDelayMs(event.analysisAttempts + 1)),
     });
-    return { eventId: deferred.id, status: deferred.analysisStatus, disposition: "queued_for_retry" as const, retryable: true };
+    return {
+      eventId: deferred.id,
+      status: deferred.analysisStatus,
+      disposition: deferred.analysisStatus === "pending_review" ? "queued_for_retry" as const : "already_reviewed" as const,
+      retryable: deferred.analysisStatus === "pending_review",
+    };
   }
 }
 
 export const appRouter = router({
   system: systemRouter,
+  storeAdmin: storeAdminRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
+    store: protectedProcedure.query(async ({ ctx }) => {
+      const store = await getActiveStoreById(ctx.user.storeId);
+      if (!store) throw new TRPCError({ code: "FORBIDDEN", message: "Store is inactive" });
+      let cupSizes: string[] = [];
+      try { cupSizes = JSON.parse(store.cupSizesJson ?? "[]"); } catch { /* legacy metadata */ }
+      return { id: store.id, nombre: store.nombre, timezone: store.timezone, cupSizes };
+    }),
     staffPortalLogin: publicProcedure.input(z.object({ password: z.string().min(1) })).mutation(async ({ ctx, input }) => {
       const clientKey = credentialClientKey(ctx.req);
       enforceCredentialRateLimit("staff_portal", clientKey);
@@ -727,11 +766,14 @@ export const appRouter = router({
     submitHandoffVisual: publicProcedure
       .input(z.object({
         apiKey: z.string().min(1),
-        businessDate: requiredBusinessDateSchema,
-        cameraName: z.literal("handoff").default("handoff"),
-        cupEventId: z.string().min(8).max(128),
-        capturedAt: z.string().datetime({ offset: false }),
         imageDataUrl: z.string().min(32).max(12 * 1024 * 1024),
+        capture: z.object({
+          camera: z.literal("handoff"),
+          cup_zone: z.literal("handoff_zone"),
+          cup_event_id: z.string().min(8).max(128),
+          captured_at_utc: z.string().min(20).max(40),
+          image_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+        }),
         sourceDetail: z.string().max(500).optional().default("verified_snapshot"),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -744,17 +786,21 @@ export const appRouter = router({
         }
         clearCredentialFailures("frigate", clientKey);
 
-        const capturedAt = normalizeFrigateEventAt(input.capturedAt);
-        if (!capturedAt || capturedAt.getTime() > Date.now() + 5 * 60 * 1_000) {
+        const metadata = parseHandoffCaptureMetadata({
+          camera: input.capture.camera,
+          cupZone: input.capture.cup_zone,
+          cupEventId: input.capture.cup_event_id,
+          capturedAtUtc: input.capture.captured_at_utc,
+          imageSha256: input.capture.image_sha256,
+        });
+        if (metadata.capturedAt.getTime() > Date.now() + 5 * 60 * 1_000) {
           throw new Error("Invalid handoff image timestamp");
         }
 
         const result = await processHandoffVisualEvent({
           storeId: store.id,
-          businessDate: input.businessDate,
-          cameraName: input.cameraName,
-          cupEventId: input.cupEventId,
-          capturedAt,
+          storeTimeZone: store.timezone,
+          metadata,
           imageDataUrl: input.imageDataUrl,
           sourceDetail: input.sourceDetail,
         });
@@ -834,10 +880,10 @@ export const appRouter = router({
           entryId: input.entryId,
           staffName: input.staffName,
           businessDate: input.businessDate,
-          clockInAt: convertPacificBusinessDateTimeToTimestamp(input.businessDate, input.clockInTime),
+          clockInAt: getBusinessDateTimeTimestamp(input.businessDate, input.clockInTime),
           clockOutAt:
             input.clockOutTime && input.clockOutTime.trim().length > 0
-              ? convertPacificBusinessDateTimeToTimestamp(input.businessDate, input.clockOutTime)
+              ? getBusinessDateTimeTimestamp(input.businessDate, input.clockOutTime)
               : null,
           submittedByUserId: ctx.user.id,
         });

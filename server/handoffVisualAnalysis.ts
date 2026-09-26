@@ -33,6 +33,26 @@ export type NormalizedHandoffVisualAnalysis = {
 };
 
 const MAX_VISIBLE_CUPS = 8;
+export const HANDOFF_VISUAL_ANALYSIS_TIMEOUT_MS = 45_000;
+
+/**
+ * The underlying request may finish after this timeout, but callers use a
+ * lease token so that a late result cannot change a manager decision or a
+ * newer retry state.
+ */
+export async function withHandoffVisualAnalysisTimeout<T>(operation: Promise<T>, timeoutMs = HANDOFF_VISUAL_ANALYSIS_TIMEOUT_MS): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error("Handoff image analysis timed out")), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
 
 function normalizeText(value: unknown) {
   return typeof value === "string" ? value.trim().slice(0, 2_000) : "";
@@ -110,20 +130,22 @@ export function getHandoffVisualRetryDelayMs(attempts: number) {
 export async function analyzeHandoffVisualImage(input: {
   imageUrl: string;
   cameraName: string;
+  handoffZonePolygon: Array<{ x: number; y: number }>;
+  handoffZoneGeometryVersion: number;
 }): Promise<NormalizedHandoffVisualAnalysis> {
-  const response = await invokeLLM({
+  const response = await withHandoffVisualAnalysisTimeout(invokeLLM({
     messages: [
       {
         role: "system",
         content:
-          "You are a conservative visual safety filter for a gelato-shop handoff camera. Analyze one still image only. A valid handoff requires a visible person and one or more visible gelato cups in the same image, with the cup located inside the configured handoff zone. Reject lamps, reflected lights, arms, hands without a cup, bags, lids, signage, bowls, cones, and any non-cup object. Do not infer a sale, delivery, payment, customer identity, or inventory movement. If zone boundaries, cup identity, person presence, or the number of cups cannot be seen clearly, mark the result ambiguous for human review.",
+          "You are a conservative visual safety filter for a gelato-shop handoff camera. Analyze one still image only. A valid handoff requires a visible person and one or more visible gelato cups in the same image, with the cup located inside the configured handoff polygon supplied by the server. Reject lamps, reflected lights, arms, hands without a cup, bags, lids, signage, bowls, cones, and any non-cup object. Do not infer a sale, delivery, payment, customer identity, or inventory movement. If zone boundaries, cup identity, person presence, or the number of cups cannot be seen clearly, mark the result ambiguous for human review.",
       },
       {
         role: "user",
         content: [
           {
             type: "text",
-            text: `Camera: ${input.cameraName}. Inspect this verified handoff snapshot. Report only visible evidence: whether a person is present, whether a gelato cup is present, whether the cup is inside handoff_zone, and the number of visible gelato cups. Do not count lamps, arms, hands, reflections, or other objects as cups.`,
+            text: `Camera: ${input.cameraName}. The active handoff_zone is a normalized-image polygon (x,y in 0..1), version ${input.handoffZoneGeometryVersion}: ${JSON.stringify(input.handoffZonePolygon)}. Inspect this verified handoff snapshot. Report only visible evidence: whether a person is present, whether a gelato cup is present, whether the cup is inside that exact configured polygon, and the number of visible gelato cups. Do not count lamps, arms, hands, reflections, or other objects as cups. If the polygon cannot be related to the visible image, mark the result ambiguous.`,
           },
           {
             type: "image_url",
@@ -166,7 +188,7 @@ export async function analyzeHandoffVisualImage(input: {
         },
       },
     },
-  });
+  }));
 
   const content = response.choices[0]?.message.content;
   if (typeof content !== "string") {
