@@ -294,3 +294,6 @@
 - [x] Query all stored Frigate count rows, send the requested 999-cup handoff sentinel payload for the current Baja California Sur date, and verify the saved row
 - [x] Trace and fix why the manager dashboard Camera cup count tile does not show the stored Frigate handoff count for 2026-08-21
 - [x] Ensure getDailyOperationsSnapshot returns the requested handoff camera count as frigateCounts for the manager dashboard tile
+- [x] Add a verified-snapshot-only Frigate handoff visual filter with authenticated ingest, deduplication, conservative AI review, persistent retry states, and no sales/delivery/inventory mutation
+- [x] Add a manager-only Handoff Review queue for AI-approved, discarded, and pending visual evidence with scoped correction actions
+- [x] Prepare the non-destructive 0014 Frigate handoff visual migration, verified-snapshot Beelink sender, and mocked positive/false-positive/retry regression coverage for PR review
