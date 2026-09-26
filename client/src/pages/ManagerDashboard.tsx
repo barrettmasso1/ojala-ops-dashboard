@@ -8,14 +8,17 @@ import { buildManagerReconciliationSnapshot, MANAGER_INVENTORY_TABS, type Manage
 import { buildShopifyVarianceSnapshot, summarizeShopifySalesCsv, type ShopifySalesImportSummary } from "@/lib/shopifySalesCsv";
 import { trpc } from "@/lib/trpc";
 import { applyAnalyzedPhotoPanSetup, getAnalyzedPhotoCombinedGrossWeightKg, getAnalyzedPhotoPanSetup } from "./EmployeePortal";
-import { formatPacificCalendarDate, formatPacificTime, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart } from "../../../shared/businessDate";
+import { formatBusinessCalendarDate, formatBusinessTime, getBusinessDate, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, PACIFIC_TIME_ZONE } from "../../../shared/businessDate";
 import {
   AlertTriangle,
   CalendarRange,
+  Camera,
+  CheckCircle2,
   ClipboardCheck,
   CupSoda,
   PackagePlus,
   Trash2,
+  XCircle,
 } from "lucide-react";
 import { Fragment, useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { createPortal } from "react-dom";
@@ -63,12 +66,12 @@ function formatWholeOunces(value: number | null | undefined) {
   return `${formatCount(value)} oz`;
 }
 
-function formatDateTime(value: string | Date | null | undefined) {
+function formatDateTime(value: string | Date | null | undefined, timeZone = PACIFIC_TIME_ZONE) {
   if (!value) return "—";
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
   return new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Los_Angeles",
+    timeZone,
     month: "short",
     day: "numeric",
     hour: "numeric",
@@ -76,13 +79,31 @@ function formatDateTime(value: string | Date | null | undefined) {
   }).format(date);
 }
 
-function formatTimeOnly(value: number | null | undefined) {
+function formatTimeOnly(value: number | null | undefined, timeZone = PACIFIC_TIME_ZONE) {
   if (!value) return "—";
   return new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Los_Angeles",
+    timeZone,
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+type HandoffVisualStatus = "pending_review" | "approved_by_ai" | "discarded" | "approved_by_manager" | "discarded_by_manager";
+
+function handoffVisualStatusLabel(status: HandoffVisualStatus) {
+  return {
+    pending_review: "Pending review",
+    approved_by_ai: "AI approved",
+    discarded: "Discarded by AI",
+    approved_by_manager: "Approved by manager",
+    discarded_by_manager: "Discarded by manager",
+  }[status];
+}
+
+function handoffVisualStatusClass(status: HandoffVisualStatus) {
+  if (status === "approved_by_ai" || status === "approved_by_manager") return "border-[#d5e3d3] bg-[#f0f8ee] text-[#3f6747]";
+  if (status === "pending_review") return "border-[#eadcb6] bg-[#fff9e9] text-[#86672a]";
+  return "border-[#ead4d4] bg-[#fff5f5] text-[#8a4343]";
 }
 
 type DailyStaffActivityRowInput = {
@@ -98,7 +119,7 @@ type DailyStaffActivityRowInput = {
   } | null;
 };
 
-export function buildSelectedDayStaffActivityRows(staff: DailyStaffActivityRowInput[]) {
+export function buildSelectedDayStaffActivityRows(staff: DailyStaffActivityRowInput[], timeZone = PACIFIC_TIME_ZONE) {
   return staff
     .map(member => {
       const entries = [...(member.todayEntries ?? [])].sort((left, right) => left.clockInAt - right.clockInAt);
@@ -110,8 +131,8 @@ export function buildSelectedDayStaffActivityRows(staff: DailyStaffActivityRowIn
       return {
         staffName: member.staffName,
         hasWorked,
-        checkInLabel: formatTimeOnly(firstClockIn),
-        checkOutLabel: member.activeEntry && member.activeEntry.clockOutAt == null ? "Open shift" : formatTimeOnly(lastClockOut),
+        checkInLabel: formatTimeOnly(firstClockIn, timeZone),
+        checkOutLabel: member.activeEntry && member.activeEntry.clockOutAt == null ? "Open shift" : formatTimeOnly(lastClockOut, timeZone),
         totalHoursLabel: `${member.totalHoursToday.toFixed(2)} hrs`,
         shiftCountLabel: `${entries.length} shift${entries.length === 1 ? "" : "s"}`,
       };
@@ -363,13 +384,13 @@ export function rebuildSubmissionFormFromEditor(form: Record<string, unknown>, e
   return nextForm;
 }
 
-function buildTimeInputValue(value: number | null | undefined) {
+function buildTimeInputValue(value: number | null | undefined, timeZone = PACIFIC_TIME_ZONE) {
   if (value == null) return "";
   return new Intl.DateTimeFormat("en-CA", {
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
-    timeZone: "America/Los_Angeles",
+    timeZone,
   }).format(new Date(value));
 }
 
@@ -630,7 +651,8 @@ export default function ManagerDashboard() {
   const isCookbookRoute = location.startsWith("/cookbook");
   const isFormsRoute = location.startsWith("/dashboard/forms");
   const isHistoryRoute = location.startsWith("/dashboard/history") || location.startsWith("/dashboard/analysis");
-  const isOverviewRoute = !isInventoryWorkspaceRoute && !isTimeBookRoute && !isCookbookRoute && !isFormsRoute && !isHistoryRoute;
+  const isHandoffReviewRoute = location.startsWith("/dashboard/handoff-review");
+  const isOverviewRoute = !isInventoryWorkspaceRoute && !isTimeBookRoute && !isCookbookRoute && !isFormsRoute && !isHistoryRoute && !isHandoffReviewRoute;
   const redirectPath = isInventoryWorkspaceRoute
     ? "/dashboard/inventory"
     : isTimeBookRoute
@@ -641,19 +663,23 @@ export default function ManagerDashboard() {
           ? "/dashboard/forms"
           : isHistoryRoute
             ? "/dashboard/history"
-            : "/dashboard";
+            : isHandoffReviewRoute
+              ? "/dashboard/handoff-review"
+              : "/dashboard";
 
   const { user, loading } = useAuth({
     redirectOnUnauthenticated: true,
     redirectPath: getLoginUrl(redirectPath),
   });
+  const storeContext = trpc.auth.store.useQuery(undefined, { enabled: Boolean(user) });
+  const timeZone = storeContext.data?.timezone ?? PACIFIC_TIME_ZONE;
   const utils = trpc.useUtils();
   const [liveNow, setLiveNow] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(todayValue());
   const [hoursRangeStart, setHoursRangeStart] = useState(() => getPacificSundayWeekStart(todayValue()));
   const [hoursRangeEnd, setHoursRangeEnd] = useState(todayValue());
-  const currentPacificDateLabel = useMemo(() => formatPacificCalendarDate(liveNow, "en-US"), [liveNow]);
-  const currentPacificTimeLabel = useMemo(() => formatPacificTime(liveNow, "en-US"), [liveNow]);
+  const currentPacificDateLabel = useMemo(() => formatBusinessCalendarDate(liveNow, "en-US", timeZone), [liveNow, timeZone]);
+  const currentPacificTimeLabel = useMemo(() => formatBusinessTime(liveNow, "en-US", timeZone), [liveNow, timeZone]);
   const currentPacificDateTimeLabel = useMemo(() => `${currentPacificDateLabel} · ${currentPacificTimeLabel}`, [currentPacificDateLabel, currentPacificTimeLabel]);
   const [inventoryDashboardView, setInventoryDashboardView] = useState<ManagerInventoryView>("product");
   const [inventoryForm, setInventoryForm] = useState({
@@ -693,7 +719,15 @@ export default function ManagerDashboard() {
   const [shopifyImportError, setShopifyImportError] = useState<string | null>(null);
 
   const isAdmin = user?.role === "admin";
-  const maxBusinessDate = todayValue();
+  const maxBusinessDate = getBusinessDate(liveNow, timeZone);
+
+  useEffect(() => {
+    if (!storeContext.data) return;
+    const today = getBusinessDate(new Date(), storeContext.data.timezone);
+    setSelectedDate(today);
+    setHoursRangeEnd(today);
+    setHoursRangeStart(getPacificSundayWeekStart(today));
+  }, [storeContext.data?.timezone]);
 
   useEffect(() => {
     if (!loading && user && !isAdmin) {
@@ -763,6 +797,10 @@ export default function ManagerDashboard() {
   const closingChecklistQuery = trpc.dashboard.checklistQuestions.useQuery({ checklistType: "closing" }, { enabled: isAdmin, refetchOnWindowFocus: false });
   const notesQuery = trpc.dashboard.recentNotes.useQuery({ limit: 10 }, { enabled: isAdmin, refetchOnWindowFocus: false });
   const submissionHistoryQuery = trpc.dashboard.submissionHistory.useQuery({ businessDate: selectedDate }, { enabled: isAdmin, refetchOnWindowFocus: false });
+  const handoffVisualEventsQuery = trpc.dashboard.handoffVisualEvents.useQuery(
+    { businessDate: selectedDate, status: "all", limit: 100 },
+    { enabled: isAdmin && isHandoffReviewRoute, refetchOnWindowFocus: false }
+  );
   const selectedDayStaffQuery = trpc.timeclock.todayStatus.useQuery(
     { businessDate: selectedDate },
     { enabled: isAdmin && isOverviewRoute, refetchOnWindowFocus: false }
@@ -835,6 +873,14 @@ export default function ManagerDashboard() {
     onError: error => toast.error(error.message),
   });
 
+  const reviewHandoffVisualMutation = trpc.dashboard.reviewHandoffVisualEvent.useMutation({
+    onSuccess: async () => {
+      toast.success("Handoff visual review saved. No sales, delivery, or cup counts were changed.");
+      await utils.dashboard.handoffVisualEvents.invalidate({ businessDate: selectedDate, status: "all", limit: 100 });
+    },
+    onError: error => toast.error(error.message),
+  });
+
   const updateSubmissionGelatoMutation = trpc.dashboard.updateSubmissionGelato.useMutation({
     onSuccess: async () => {
       toast.success("Saved submission updated.");
@@ -895,7 +941,7 @@ export default function ManagerDashboard() {
 
   const submissionHistory = useMemo(() => (submissionHistoryQuery.data ?? []) as SubmissionHistoryEntryRecord[], [submissionHistoryQuery.data]);
   const flavorPhotoPreviewMap = useMemo(() => buildFlavorPhotoPreviewMap(submissionHistory), [submissionHistory]);
-  const selectedDayStaffRows = useMemo(() => buildSelectedDayStaffActivityRows(selectedDayStaffQuery.data?.staff ?? []), [selectedDayStaffQuery.data]);
+  const selectedDayStaffRows = useMemo(() => buildSelectedDayStaffActivityRows(selectedDayStaffQuery.data?.staff ?? [], timeZone), [selectedDayStaffQuery.data, timeZone]);
   const payrollDateRange = useMemo(() => buildBusinessDateRange(hoursRangeStart, hoursRangeEnd), [hoursRangeStart, hoursRangeEnd]);
   const payrollSummary = payrollHoursQuery.data;
   const timeBook = timeBookQuery.data;
@@ -1202,6 +1248,10 @@ export default function ManagerDashboard() {
   const recipes = recipesQuery.data ?? [];
   const openingChecklistQuestions = openingChecklistQuery.data ?? [];
   const closingChecklistQuestions = closingChecklistQuery.data ?? [];
+  const handoffVisualEvents = handoffVisualEventsQuery.data ?? [];
+  const handoffPendingCount = handoffVisualEvents.filter(event => event.analysisStatus === "pending_review").length;
+  const handoffApprovedCount = handoffVisualEvents.filter(event => event.analysisStatus === "approved_by_ai" || event.analysisStatus === "approved_by_manager").length;
+  const handoffDiscardedCount = handoffVisualEvents.filter(event => event.analysisStatus === "discarded" || event.analysisStatus === "discarded_by_manager").length;
   const filteredManagerInventoryItems = inventoryItems
     .filter(item =>
       inventoryDashboardView === "ingredients"
@@ -1217,24 +1267,28 @@ export default function ManagerDashboard() {
     : isTimeBookRoute
       ? "Attendance logs and payroll hours live in their own manager workspace."
       : isCookbookRoute
-        ? "Recipe and ingredient details live here instead of crowding the daily dashboard."
-        : isFormsRoute
-          ? "Manage opening and closing checklist questions in their own workspace."
-          : isHistoryRoute
-            ? "Review every submitted form, photo, and note for the selected business date."
-            : "A quick daily glance at sales, form completion, and reconciliation.";
+          ? "Recipe and ingredient details live here instead of crowding the daily dashboard."
+          : isFormsRoute
+            ? "Manage opening and closing checklist questions in their own workspace."
+            : isHistoryRoute
+              ? "Review every submitted form, photo, and note for the selected business date."
+              : isHandoffReviewRoute
+                ? "Review verified handoff snapshots without changing sales, delivery, or inventory records."
+                : "A quick daily glance at sales, form completion, and reconciliation.";
 
   const heroCopy = isInventoryWorkspaceRoute
     ? "Maintain ingredient and utensil records, review reorder pressure, and keep setup work separate from the manager's at-a-glance dashboard."
     : isTimeBookRoute
       ? "Use Time Book to audit every punch, confirm each day's hours, and review payroll totals across a Sunday-through-Saturday work week or any custom date range you choose."
       : isCookbookRoute
-        ? "Use the cookbook to review flavor formulas, ingredient costs, and yield placeholders without putting recipe details on the main dashboard."
-        : isFormsRoute
-          ? "Adjust checklist prompts in one place so the staff forms stay current without mixing setup work into the manager overview."
-          : isHistoryRoute
-            ? "Use this workspace to audit exactly what staff submitted, including gelato analysis photos, editable values, inventory updates, and notes, all grouped under the selected Pacific business date."
-            : "Use this page to answer the core questions fast: what sold, whether opening and closing were completed, how much volume started and ended the day, and where the differences landed.";
+          ? "Use the cookbook to review flavor formulas, ingredient costs, and yield placeholders without putting recipe details on the main dashboard."
+          : isFormsRoute
+            ? "Adjust checklist prompts in one place so the staff forms stay current without mixing setup work into the manager overview."
+            : isHistoryRoute
+              ? "Use this workspace to audit exactly what staff submitted, including gelato analysis photos, editable values, inventory updates, and notes, all grouped under the selected Pacific business date."
+              : isHandoffReviewRoute
+                ? "Only snapshots submitted from the verified handoff sender appear here. AI labels are visual evidence only; use manager review to correct them without affecting cups sold, deliveries, revenue, or inventory."
+                : "Use this page to answer the core questions fast: what sold, whether opening and closing were completed, how much volume started and ended the day, and where the differences landed.";
 
   const latestSubmissionFullName = submissionHistory[0]?.staffName ?? "—";
   const latestSubmissionDisplayName = getCompactSnapshotName(latestSubmissionFullName);
@@ -1272,7 +1326,14 @@ export default function ManagerDashboard() {
               { label: "Photo uploads", value: submissionHistory.reduce((sum, entry) => sum + (entry.payload.analyzedPhotos?.length ?? 0), 0).toString(), helper: "Submitted gelato evidence saved with those records." },
               { label: "Latest submission", value: latestSubmissionDisplayName, helper: "Most recent staff member recorded on the selected date.", valueTitle: latestSubmissionFullName },
             ]
-          : [
+          : isHandoffReviewRoute
+            ? [
+                { label: "Pending review", value: handoffPendingCount.toString(), helper: "Ambiguous or temporarily unavailable AI cases." },
+                { label: "Approved visual evidence", value: handoffApprovedCount.toString(), helper: "AI- or manager-approved images only; not delivery counts." },
+                { label: "Discarded evidence", value: handoffDiscardedCount.toString(), helper: "Rejected lamps, arms, and non-cup observations." },
+                { label: "Verified snapshots", value: handoffVisualEvents.length.toString(), helper: `Received for ${selectedDate} from the handoff sender.` },
+              ]
+            : [
               { label: "Total sales", value: formatCurrency(daily?.sales.total ?? 0), helper: "What sold today." },
               { label: "Cash sales", value: formatCurrency(daily?.sales.cash ?? 0), helper: "Cash collected for the selected day." },
               { label: "Card sales", value: formatCurrency(daily?.sales.card ?? 0), helper: "Card collected for the selected day." },
@@ -1312,7 +1373,9 @@ export default function ManagerDashboard() {
                           ? "Owner / Manager cookbook"
                           : isFormsRoute
                             ? "Owner / Manager form setup"
-                            : "Owner / Manager submission history"}
+                            : isHandoffReviewRoute
+                              ? "Owner / Manager handoff visual review"
+                              : "Owner / Manager submission history"}
 
 
               </p>
@@ -1806,13 +1869,13 @@ export default function ManagerDashboard() {
                                       return (
                                         <Fragment key={entry.id}>
                                           <tr>
-                                            <td className="px-4 py-3">{formatTimeOnly(entry.clockInAt)}</td>
-                                            <td className="px-4 py-3">{formatTimeOnly(entry.clockOutAt)}</td>
+                                            <td className="px-4 py-3">{formatTimeOnly(entry.clockInAt, timeZone)}</td>
+                                            <td className="px-4 py-3">{formatTimeOnly(entry.clockOutAt, timeZone)}</td>
                                             <td className="px-4 py-3">{entry.hoursWorked.toFixed(2)}</td>
                                             <td className="px-4 py-3">
                                               <button
                                                 type="button"
-                                                onClick={() => startAttendanceEdit({ entryId: entry.id, staffName: staffMember.staffName, businessDate: day.businessDate, clockInTime: buildTimeInputValue(entry.clockInAt), clockOutTime: buildTimeInputValue(entry.clockOutAt) })}
+                                                onClick={() => startAttendanceEdit({ entryId: entry.id, staffName: staffMember.staffName, businessDate: day.businessDate, clockInTime: buildTimeInputValue(entry.clockInAt, timeZone), clockOutTime: buildTimeInputValue(entry.clockOutAt, timeZone) })}
                                                 className="rounded-full border border-[#d7cec0] bg-white/90 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-[#31423d] shadow-sm transition hover:bg-white"
                                               >
                                                 Edit punch
@@ -2616,7 +2679,7 @@ export default function ManagerDashboard() {
                             <span className="rounded-full bg-[#ece3d5] px-3 py-1 text-[11px] uppercase tracking-[0.24em] text-[#5f6e68]">{entry.submissionType}</span>
                             <span className="rounded-full bg-white px-3 py-1 text-sm text-[#66706a]">{entry.staffName || "Staff member"}</span>
                           </div>
-                          <p className="mt-3 text-sm text-[#66706a]">Saved {formatDateTime(entry.createdAt)} · Business date {entry.businessDate}</p>
+                          <p className="mt-3 text-sm text-[#66706a]">Saved {formatDateTime(entry.createdAt, timeZone)} · Business date {entry.businessDate}</p>
                         </div>
                         <div className="flex flex-col items-start gap-3 lg:items-end">
                           <div className="rounded-[1.2rem] border border-[#e4dccf] bg-white/90 px-4 py-3 text-sm text-[#52665f]">
@@ -3087,6 +3150,90 @@ export default function ManagerDashboard() {
               </div>
             </SurfaceCard>
           </>
+        ) : null}
+
+        {isHandoffReviewRoute ? (
+          <SurfaceCard>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Verified handoff snapshots</p>
+                <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Visual review for {selectedDate}</h2>
+                <p className="mt-3 max-w-3xl text-sm leading-7 text-[#66706a]">This queue only contains images submitted through the authenticated verified-snapshot sender. It does not show legacy automatic captures. Reviewing an image changes its evidence label only.</p>
+              </div>
+              <div className="rounded-[1.3rem] border border-[#e4dccf] bg-[#fbf7f0] px-4 py-3 text-sm leading-6 text-[#68716c]">
+                <div className="flex items-center gap-2"><Camera className="h-4 w-4 text-[#52665f]" /> No sales, deliveries, or inventory updates</div>
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-5">
+              {handoffVisualEventsQuery.isLoading ? (
+                <StatePanel title="Loading verified handoff snapshots" description="Retrieving the authenticated visual evidence for the selected business date." />
+              ) : handoffVisualEventsQuery.error ? (
+                <StatePanel title="Unable to load visual review" description="The visual evidence queue could not be loaded right now. Try again shortly." tone="error" />
+              ) : handoffVisualEvents.length === 0 ? (
+                <StatePanel title="No verified handoff snapshots for this date" description="Only future images sent from the verified handoff snapshot directory will appear here." tone="warning" />
+              ) : (
+                handoffVisualEvents.map(event => {
+                  const status = event.analysisStatus as HandoffVisualStatus;
+                  const canReview = status === "pending_review" || status === "approved_by_ai" || status === "discarded";
+                  return (
+                    <article key={event.id} className="overflow-hidden rounded-[1.6rem] border border-[#e4dccf] bg-[#fcfaf6] shadow-sm">
+                      <div className="grid gap-0 lg:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)]">
+                        <div className="min-h-64 bg-[#eee8de]">
+                          {event.imageUrl ? (
+                            <img src={event.imageUrl} alt={`Verified ${event.cameraName} visual event ${event.cupEventId}`} loading="lazy" decoding="async" className="h-full min-h-64 w-full object-contain" />
+                          ) : (
+                            <div className="flex h-full min-h-64 items-center justify-center px-6 text-center text-sm leading-6 text-[#68716c]">Image storage is pending. The durable event remains queued for retry.</div>
+                          )}
+                        </div>
+                        <div className="p-5 md:p-6">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">{event.cameraName} · {event.businessDate}</p>
+                              <p className="mt-2 text-sm text-[#66706a]">Captured {formatDateTime(event.capturedAt)} · Event {event.cupEventId}</p>
+                            </div>
+                            <span className={`w-max rounded-full border px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] ${handoffVisualStatusClass(status)}`}>{handoffVisualStatusLabel(status)}</span>
+                          </div>
+
+                          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                            <div className="rounded-2xl border border-[#e5ddd0] bg-white/85 p-3"><p className="text-[10px] uppercase tracking-[0.18em] text-[#8a9089]">Person</p><p className="mt-1 font-medium text-[#24332f]">{event.personPresent ? "Visible" : "Not confirmed"}</p></div>
+                            <div className="rounded-2xl border border-[#e5ddd0] bg-white/85 p-3"><p className="text-[10px] uppercase tracking-[0.18em] text-[#8a9089]">Gelato cup</p><p className="mt-1 font-medium text-[#24332f]">{event.gelatoCupPresent ? "Visible" : "Not confirmed"}</p></div>
+                            <div className="rounded-2xl border border-[#e5ddd0] bg-white/85 p-3"><p className="text-[10px] uppercase tracking-[0.18em] text-[#8a9089]">Handoff zone</p><p className="mt-1 font-medium text-[#24332f]">{event.cupInHandoffZone ? "Confirmed" : "Not confirmed"}</p></div>
+                            <div className="rounded-2xl border border-[#e5ddd0] bg-white/85 p-3"><p className="text-[10px] uppercase tracking-[0.18em] text-[#8a9089]">Visible cups</p><p className="mt-1 font-medium text-[#24332f]">{event.visibleCupCount}</p></div>
+                          </div>
+
+                          <p className="mt-4 rounded-2xl border border-[#e5ddd0] bg-white/75 px-4 py-3 text-sm leading-6 text-[#56635d]">{event.analysisReason || "Awaiting analysis."}</p>
+                          {event.lastAnalysisError ? <p className="mt-3 rounded-2xl border border-[#eadcb6] bg-[#fff9e9] px-4 py-3 text-sm leading-6 text-[#86672a]">{event.lastAnalysisError}</p> : null}
+                          {event.reviewNotes ? <p className="mt-3 text-sm leading-6 text-[#66706a]">Manager note: {event.reviewNotes}</p> : null}
+
+                          {canReview ? (
+                            <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+                              <button
+                                type="button"
+                                disabled={reviewHandoffVisualMutation.isPending}
+                                onClick={() => reviewHandoffVisualMutation.mutate({ id: event.id, decision: "approved_by_manager", reviewNotes: "Manager verified the image evidence." })}
+                                className="inline-flex items-center justify-center gap-2 rounded-full bg-[#52665f] px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-white shadow-lg shadow-[#52665f]/20 transition hover:bg-[#43554f] disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                <CheckCircle2 className="h-3.5 w-3.5" /> Approve evidence
+                              </button>
+                              <button
+                                type="button"
+                                disabled={reviewHandoffVisualMutation.isPending}
+                                onClick={() => reviewHandoffVisualMutation.mutate({ id: event.id, decision: "discarded_by_manager", reviewNotes: "Manager discarded this visual evidence." })}
+                                className="inline-flex items-center justify-center gap-2 rounded-full border border-[#ead4d4] bg-[#fff6f6] px-4 py-2 text-xs font-medium uppercase tracking-[0.16em] text-[#8a4343] shadow-sm transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                <XCircle className="h-3.5 w-3.5" /> Discard evidence
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })
+              )}
+            </div>
+          </SurfaceCard>
         ) : null}
       </div>
     </DashboardLayout>

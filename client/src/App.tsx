@@ -13,6 +13,7 @@ const InventoryForm = lazy(() => import("./pages/InventoryForm"));
 const ManagerDashboard = lazy(() => import("./pages/ManagerDashboard"));
 const OpeningForm = lazy(() => import("./pages/OpeningForm"));
 const StaffLogin = lazy(() => import("./pages/StaffLogin"));
+const StoreSettings = lazy(() => import("./pages/StoreSettings"));
 
 function Router() {
   return (
@@ -33,9 +34,11 @@ function Router() {
         <Route path="/portal/closing" component={ClosingForm} />
         <Route path="/portal/inventory" component={InventoryForm} />
         <Route path="/dashboard/inventory" component={ManagerDashboard} />
+        <Route path="/dashboard/store" component={StoreSettings} />
         <Route path="/dashboard/time-book" component={ManagerDashboard} />
         <Route path="/dashboard/forms" component={ManagerDashboard} />
         <Route path="/dashboard/history" component={ManagerDashboard} />
+        <Route path="/dashboard/handoff-review" component={ManagerDashboard} />
         <Route path="/dashboard/analysis" component={ManagerDashboard} />
         <Route path="/dashboard" component={ManagerDashboard} />
         <Route path="/cookbook" component={ManagerDashboard} />

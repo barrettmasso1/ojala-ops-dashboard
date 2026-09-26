@@ -10,6 +10,8 @@ export const stores = mysqlTable("stores", {
   horarioApertura: varchar("horario_apertura", { length: 8 }),
   horarioCierre: varchar("horario_cierre", { length: 8 }),
   duenoEmail: varchar("dueno_email", { length: 320 }),
+  posType: mysqlEnum("posType", ["none", "square", "toast", "shopify", "other"]).notNull().default("none"),
+  cupSizesJson: text("cupSizesJson"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -218,6 +220,71 @@ export const frigateCupCounts = mysqlTable("frigateCupCounts", {
   storeDateCameraUnique: uniqueIndex("frigateCupCounts_store_date_camera_unique").on(table.storeId, table.businessDate, table.cameraName),
 }));
 
+/**
+ * An explicit, normalized polygon for each configured handoff camera.
+ * Geometry is manager-provided; camera labels alone are never treated as a
+ * source of spatial authorization or a substitute for zone coordinates.
+ */
+export const frigateCameraZones = mysqlTable("frigateCameraZones", {
+  id: int("id").autoincrement().primaryKey(),
+  storeId: int("storeId").notNull().references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
+  cameraName: varchar("cameraName", { length: 64 }).notNull(),
+  zoneName: varchar("zoneName", { length: 64 }).notNull().default("handoff_zone"),
+  polygonJson: text("polygonJson").notNull(),
+  geometryVersion: int("geometryVersion").notNull().default(1),
+  isActive: int("isActive").notNull().default(1),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  storeIndex: index("idx_frigateCameraZones_storeId").on(table.storeId),
+  storeCameraZoneUnique: uniqueIndex("frigateCameraZones_store_camera_zone_unique").on(table.storeId, table.cameraName, table.zoneName),
+}));
+
+/**
+ * Verified stills submitted by the handoff sender. These records are visual
+ * evidence only: no state here may change cups sold, deliveries, or revenue.
+ */
+export const frigateHandoffVisualEvents = mysqlTable("frigateHandoffVisualEvents", {
+  id: int("id").autoincrement().primaryKey(),
+  storeId: int("storeId").notNull().references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
+  businessDate: varchar("businessDate", { length: 10 }).notNull(),
+  cameraName: varchar("cameraName", { length: 64 }).notNull().default("handoff"),
+  cupEventId: varchar("cupEventId", { length: 128 }).notNull(),
+  capturedAt: timestamp("capturedAt").notNull(),
+  imageKey: varchar("imageKey", { length: 512 }),
+  imageMimeType: varchar("imageMimeType", { length: 64 }).notNull(),
+  imageSha256: varchar("imageSha256", { length: 64 }).notNull(),
+  captureMetadataJson: text("captureMetadataJson").notNull(),
+  zoneId: int("zoneId").references(() => frigateCameraZones.id, { onDelete: "restrict", onUpdate: "cascade" }),
+  zoneGeometryVersion: int("zoneGeometryVersion"),
+  zoneGeometryJson: text("zoneGeometryJson"),
+  sourceDetail: text("sourceDetail"),
+  analysisStatus: mysqlEnum("analysisStatus", ["pending_review", "approved_by_ai", "discarded", "approved_by_manager", "discarded_by_manager"]).notNull().default("pending_review"),
+  analysisModel: varchar("analysisModel", { length: 96 }).notNull().default("platform-default-vision"),
+  personPresent: int("personPresent").notNull().default(0),
+  gelatoCupPresent: int("gelatoCupPresent").notNull().default(0),
+  cupInHandoffZone: int("cupInHandoffZone").notNull().default(0),
+  visibleCupCount: int("visibleCupCount").notNull().default(0),
+  confidence: mysqlEnum("confidence", ["high", "medium", "low"]).notNull().default("low"),
+  analysisReason: text("analysisReason"),
+  analysisAttempts: int("analysisAttempts").notNull().default(0),
+  nextRetryAt: timestamp("nextRetryAt"),
+  analysisLeaseUntil: timestamp("analysisLeaseUntil"),
+  analysisLeaseToken: varchar("analysisLeaseToken", { length: 64 }),
+  lastAnalysisError: text("lastAnalysisError"),
+  reviewedAt: timestamp("reviewedAt"),
+  reviewedByUserId: int("reviewedByUserId"),
+  reviewNotes: text("reviewNotes"),
+  receivedAt: timestamp("receivedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  storeIndex: index("idx_frigateHandoffVisualEvents_storeId").on(table.storeId),
+  storeCameraEventUnique: uniqueIndex("frigateHandoffVisualEvents_store_camera_event_unique").on(table.storeId, table.cameraName, table.cupEventId),
+  reviewQueueIndex: index("idx_frigateHandoffVisualEvents_review_queue").on(table.storeId, table.analysisStatus, table.nextRetryAt),
+  capturedAtIndex: index("idx_frigateHandoffVisualEvents_capturedAt").on(table.storeId, table.capturedAt),
+}));
+
 export const recipes = mysqlTable("recipes", {
   id: int("id").autoincrement().primaryKey(),
   storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
@@ -278,3 +345,7 @@ export type RecipeIngredient = typeof recipeIngredients.$inferSelect;
 export type InsertRecipeIngredient = typeof recipeIngredients.$inferInsert;
 export type FrigateCupCount = typeof frigateCupCounts.$inferSelect;
 export type InsertFrigateCupCount = typeof frigateCupCounts.$inferInsert;
+export type FrigateCameraZone = typeof frigateCameraZones.$inferSelect;
+export type InsertFrigateCameraZone = typeof frigateCameraZones.$inferInsert;
+export type FrigateHandoffVisualEvent = typeof frigateHandoffVisualEvents.$inferSelect;
+export type InsertFrigateHandoffVisualEvent = typeof frigateHandoffVisualEvents.$inferInsert;
