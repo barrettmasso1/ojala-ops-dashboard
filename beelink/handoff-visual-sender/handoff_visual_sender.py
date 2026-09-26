@@ -41,6 +41,9 @@ class AwaitingMetadata(SenderError):
 
 EVENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$")
 SHA256_PATTERN = re.compile(r"^[a-f0-9]{64}$")
+UTC_TIMESTAMP_PATTERN = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)$"
+)
 
 
 def now_epoch() -> int:
@@ -96,7 +99,8 @@ def open_queue(path: Path) -> sqlite3.Connection:
 
 
 def has_expected_image_signature(image_path: Path) -> bool:
-    prefix = image_path.read_bytes()[:12]
+    with image_path.open('rb') as image:
+        prefix = image.read(12)
     suffix = image_path.suffix.lower()
     if suffix in {".jpg", ".jpeg"}:
         return prefix.startswith(b"\xff\xd8\xff")
@@ -160,7 +164,7 @@ def parse_sidecar_metadata(image_path: Path, image_digest: str) -> dict[str, Any
         raise SenderError("verified snapshot metadata cup_event_id is invalid")
     if not isinstance(image_sha256, str) or not SHA256_PATTERN.fullmatch(image_sha256) or image_sha256 != image_digest:
         raise SenderError("verified snapshot metadata image_sha256 does not match the image")
-    if not isinstance(captured_at_utc, str) or not captured_at_utc.endswith("Z"):
+    if not isinstance(captured_at_utc, str) or not UTC_TIMESTAMP_PATTERN.fullmatch(captured_at_utc):
         raise SenderError("verified snapshot metadata captured_at_utc is invalid")
     try:
         captured = datetime.fromisoformat(captured_at_utc.replace("Z", "+00:00"))
@@ -172,7 +176,9 @@ def parse_sidecar_metadata(image_path: Path, image_digest: str) -> dict[str, Any
         "camera": camera,
         "cup_zone": cup_zone,
         "cup_event_id": cup_event_id,
-        "captured_at_utc": captured.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+        # Python's capture worker writes +00:00. Canonicalize the suffix for
+        # the receiver without changing its timestamp or fractional precision.
+        "captured_at_utc": captured_at_utc[:-6] + "Z" if captured_at_utc.endswith("+00:00") else captured_at_utc,
         "image_sha256": image_sha256,
     }
 
@@ -205,10 +211,15 @@ def discover_verified_snapshots(connection: sqlite3.Connection) -> tuple[int, in
     root = VERIFIED_SNAPSHOT_DIR.resolve(strict=True)
     added = 0
     awaiting_metadata = 0
+    # Captures are immutable after the JSON completion marker. Queued rows
+    # retain that identity; build_payload rechecks bytes before every send.
+    known_paths = {row[0] for row in connection.execute("SELECT source_path FROM verified_snapshot_queue")}
     for path in sorted(root.iterdir()):
         if not path.is_file() or path.suffix.lower() not in ALLOWED_SUFFIXES:
             continue
         try:
+            if str(path.resolve(strict=True)) in known_paths:
+                continue
             added += int(enqueue_verified_snapshot(connection, path))
         except AwaitingMetadata:
             awaiting_metadata += 1
@@ -343,12 +354,25 @@ def send_due_snapshots(connection: sqlite3.Connection, endpoint: str, api_key: s
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Queue and send only verified Frigate handoff snapshots")
-    parser.add_argument("--config", required=True, type=Path)
+    parser.add_argument("--config", type=Path)
+    parser.add_argument("--queue-only", action="store_true",
+                        help="Persist verified pairs locally without credentials or network requests")
     parser.add_argument("--queue", type=Path, default=Path("./state/handoff-visual-queue.sqlite3"))
     parser.add_argument("--limit", type=int, default=20)
     args = parser.parse_args()
+    if not args.queue_only and args.config is None:
+        parser.error("--config is required unless --queue-only is selected")
 
     try:
+        if args.queue_only:
+            connection = open_queue(args.queue)
+            discovered, awaiting_metadata = discover_verified_snapshots(connection)
+            queued = connection.execute("SELECT COUNT(*) FROM verified_snapshot_queue WHERE status IN ('queued', 'retry')").fetchone()[0]
+            connection.close()
+            print(json.dumps({"mode": "queue_only", "discovered": discovered,
+                              "awaiting_metadata": awaiting_metadata, "queued": queued,
+                              "network_attempted": False}, separators=(",", ":")))
+            return 0
         config = load_config(args.config)
         api_key = os.environ.get(config["api_key_env"], "")
         if not api_key:
