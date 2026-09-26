@@ -36,6 +36,7 @@ function Router() {
         <Route path="/dashboard/time-book" component={ManagerDashboard} />
         <Route path="/dashboard/forms" component={ManagerDashboard} />
         <Route path="/dashboard/history" component={ManagerDashboard} />
+        <Route path="/dashboard/handoff-review" component={ManagerDashboard} />
         <Route path="/dashboard/analysis" component={ManagerDashboard} />
         <Route path="/dashboard" component={ManagerDashboard} />
         <Route path="/cookbook" component={ManagerDashboard} />

@@ -1,9 +1,10 @@
-import { and, count, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   checklistQuestions,
   closingChecklists,
   endOfDayReports,
+  frigateHandoffVisualEvents,
   InsertChecklistQuestion,
   InsertClosingChecklist,
   InsertEndOfDayReport,
@@ -32,6 +33,7 @@ import { DEFAULT_INVENTORY_ITEMS, DEFAULT_RECIPE_ITEMS, READY_MADE_GELATO_FLAVOR
 import { ENV } from "./_core/env";
 import { storageGetSignedUrl } from "./storage";
 import { compareFrigateEventOrder } from "./frigateEventOrder";
+import type { HandoffVisualStatus, NormalizedHandoffVisualAnalysis } from "./handoffVisualAnalysis";
 import {
   credentialFormatFor,
   hashFrigateApiKey,
@@ -2557,4 +2559,250 @@ export async function getFrigateCupCountForDate(businessDate: string, cameraName
     .limit(1);
 
   return rows[0] ?? null;
+}
+
+type HandoffVisualStoredStatus = HandoffVisualStatus;
+
+function handoffVisualPublicRow(row: typeof frigateHandoffVisualEvents.$inferSelect) {
+  return {
+    ...row,
+    imageUrl: row.imageKey ? `/manus-storage/${row.imageKey}` : null,
+  };
+}
+
+async function getHandoffVisualEventById(input: { id: number; storeId: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const rows = await db
+    .select()
+    .from(frigateHandoffVisualEvents)
+    .where(and(
+      eq(frigateHandoffVisualEvents.id, input.id),
+      eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
+    ))
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
+/**
+ * Creates the durable queue record before image storage or vision processing.
+ * The scoped unique key prevents a replay from creating a second review item.
+ */
+export async function reserveHandoffVisualEvent(input: {
+  storeId: number;
+  businessDate: string;
+  cameraName: string;
+  cupEventId: string;
+  capturedAt: Date;
+  sourceDetail?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const storeId = requireStoreId(input.storeId);
+
+  const where = and(
+    eq(frigateHandoffVisualEvents.storeId, storeId),
+    eq(frigateHandoffVisualEvents.cameraName, input.cameraName),
+    eq(frigateHandoffVisualEvents.cupEventId, input.cupEventId),
+  );
+  const existing = await db.select().from(frigateHandoffVisualEvents).where(where).limit(1);
+  if (existing[0]) return { event: existing[0], created: false };
+
+  try {
+    await db.insert(frigateHandoffVisualEvents).values({
+      storeId,
+      businessDate: input.businessDate,
+      cameraName: input.cameraName,
+      cupEventId: input.cupEventId,
+      capturedAt: input.capturedAt,
+      sourceDetail: input.sourceDetail ?? "",
+      analysisStatus: "pending_review",
+      imageMimeType: "application/octet-stream",
+    });
+  } catch (error) {
+    // The unique key is the concurrency boundary when two sender retries race.
+    const concurrent = await db.select().from(frigateHandoffVisualEvents).where(where).limit(1);
+    if (concurrent[0]) return { event: concurrent[0], created: false };
+    throw error;
+  }
+
+  const created = await db.select().from(frigateHandoffVisualEvents).where(where).limit(1);
+  if (!created[0]) throw new Error("Unable to reserve handoff visual event");
+  return { event: created[0], created: true };
+}
+
+export async function attachHandoffVisualImage(input: {
+  id: number;
+  storeId: number;
+  imageKey: string;
+  imageMimeType: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .update(frigateHandoffVisualEvents)
+    .set({
+      imageKey: input.imageKey,
+      imageMimeType: input.imageMimeType,
+      nextRetryAt: null,
+      lastAnalysisError: null,
+    })
+    .where(and(
+      eq(frigateHandoffVisualEvents.id, input.id),
+      eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
+    ));
+
+  const event = await getHandoffVisualEventById(input);
+  if (!event) throw new Error("Handoff visual event was not found in this store");
+  return event;
+}
+
+/**
+ * Claims one due queue item with an atomic time-bound lease. A replay can
+ * retrieve an existing event but cannot execute the vision model twice.
+ */
+export async function claimHandoffVisualAnalysis(input: { id: number; storeId: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const now = new Date();
+  const leaseUntil = new Date(now.getTime() + 5 * 60 * 1_000);
+
+  const result = await db
+    .update(frigateHandoffVisualEvents)
+    .set({
+      analysisAttempts: sql`${frigateHandoffVisualEvents.analysisAttempts} + 1`,
+      analysisLeaseUntil: leaseUntil,
+      nextRetryAt: null,
+      lastAnalysisError: null,
+    })
+    .where(and(
+      eq(frigateHandoffVisualEvents.id, input.id),
+      eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
+      eq(frigateHandoffVisualEvents.analysisStatus, "pending_review"),
+      isNotNull(frigateHandoffVisualEvents.imageKey),
+      or(isNull(frigateHandoffVisualEvents.analysisLeaseUntil), lte(frigateHandoffVisualEvents.analysisLeaseUntil, now)),
+      or(
+        eq(frigateHandoffVisualEvents.analysisAttempts, 0),
+        lte(frigateHandoffVisualEvents.nextRetryAt, now),
+        lte(frigateHandoffVisualEvents.analysisLeaseUntil, now),
+      ),
+    ));
+
+  const header = Array.isArray(result) ? result[0] : result;
+  return Number((header as { affectedRows?: number } | undefined)?.affectedRows ?? 0) === 1;
+}
+
+export async function finalizeHandoffVisualAnalysis(input: {
+  id: number;
+  storeId: number;
+  analysis: NormalizedHandoffVisualAnalysis;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .update(frigateHandoffVisualEvents)
+    .set({
+      analysisStatus: input.analysis.status,
+      personPresent: input.analysis.personPresent ? 1 : 0,
+      gelatoCupPresent: input.analysis.gelatoCupPresent ? 1 : 0,
+      cupInHandoffZone: input.analysis.cupInHandoffZone ? 1 : 0,
+      visibleCupCount: input.analysis.visibleCupCount,
+      confidence: input.analysis.confidence,
+      analysisReason: input.analysis.reason,
+      analysisLeaseUntil: null,
+      nextRetryAt: null,
+      lastAnalysisError: null,
+    })
+    .where(and(
+      eq(frigateHandoffVisualEvents.id, input.id),
+      eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
+    ));
+
+  const event = await getHandoffVisualEventById(input);
+  if (!event) throw new Error("Handoff visual event was not found in this store");
+  return event;
+}
+
+/** Keeps an analysis outage visible and retryable without storing the thrown error or any image data. */
+export async function deferHandoffVisualAnalysis(input: {
+  id: number;
+  storeId: number;
+  nextRetryAt: Date;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .update(frigateHandoffVisualEvents)
+    .set({
+      analysisStatus: "pending_review",
+      analysisLeaseUntil: null,
+      nextRetryAt: input.nextRetryAt,
+      lastAnalysisError: "Image analysis is temporarily unavailable. This case remains queued for retry or manager review.",
+    })
+    .where(and(
+      eq(frigateHandoffVisualEvents.id, input.id),
+      eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
+    ));
+
+  const event = await getHandoffVisualEventById(input);
+  if (!event) throw new Error("Handoff visual event was not found in this store");
+  return event;
+}
+
+export async function listHandoffVisualEvents(input: {
+  storeId: number;
+  businessDate?: string;
+  status?: HandoffVisualStoredStatus | "all";
+  limit?: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const where = [eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId))];
+  if (input.businessDate) where.push(eq(frigateHandoffVisualEvents.businessDate, input.businessDate));
+  if (input.status && input.status !== "all") where.push(eq(frigateHandoffVisualEvents.analysisStatus, input.status));
+
+  const rows = await db
+    .select()
+    .from(frigateHandoffVisualEvents)
+    .where(and(...where))
+    .orderBy(desc(frigateHandoffVisualEvents.capturedAt), desc(frigateHandoffVisualEvents.id))
+    .limit(Math.min(Math.max(input.limit ?? 60, 1), 200));
+
+  return rows.map(handoffVisualPublicRow);
+}
+
+export async function reviewHandoffVisualEvent(input: {
+  id: number;
+  storeId: number;
+  reviewedByUserId: number;
+  decision: "approved_by_manager" | "discarded_by_manager";
+  reviewNotes?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const notes = (input.reviewNotes ?? "").trim().slice(0, 2_000);
+
+  await db
+    .update(frigateHandoffVisualEvents)
+    .set({
+      analysisStatus: input.decision,
+      reviewedAt: new Date(),
+      reviewedByUserId: input.reviewedByUserId,
+      reviewNotes: notes,
+      nextRetryAt: null,
+      analysisLeaseUntil: null,
+    })
+    .where(and(
+      eq(frigateHandoffVisualEvents.id, input.id),
+      eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
+    ));
+
+  const event = await getHandoffVisualEventById(input);
+  if (!event) throw new Error("Handoff visual event was not found in this store");
+  return handoffVisualPublicRow(event);
 }

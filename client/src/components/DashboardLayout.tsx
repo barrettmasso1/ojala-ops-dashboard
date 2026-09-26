@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { BarChart3, BookOpen, ClipboardList, Clock3, FileCheck, LineChart, LogOut, PackagePlus, PanelLeft, ShieldCheck } from "lucide-react";
+import { BarChart3, BookOpen, Camera, ClipboardList, Clock3, FileCheck, LineChart, LogOut, PackagePlus, PanelLeft, ShieldCheck } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
@@ -39,6 +39,7 @@ export const menuItems: Array<{
   { icon: BookOpen, label: "Cookbook", path: "/cookbook", roles: ["admin"] },
   { icon: FileCheck, label: "Form Setup", path: "/dashboard/forms", roles: ["admin"] },
   { icon: LineChart, label: "History", path: "/dashboard/history", roles: ["admin"] },
+  { icon: Camera, label: "Handoff Review", path: "/dashboard/handoff-review", roles: ["admin"] },
   { icon: ClipboardList, label: "Employee Portal", path: "/portal", roles: ["admin", "user"] },
 ];
 

@@ -99,6 +99,13 @@
       "when": 1790111774186,
       "tag": "0013_tenant_credential_and_frigate_event_boundaries",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "5",
+      "when": 1790461029323,
+      "tag": "0014_frigate_handoff_visual_filter",
+      "breakpoints": true
     }
   ]
 }

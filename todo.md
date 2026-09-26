@@ -297,3 +297,6 @@
 
 - [x] Publish the first unified daily operations view: keeps closing-entered sales, camera evidence, coverage state, and review-only differences distinct without creating sales or camera counts
 - [ ] Integrate the existing visual evidence queue only after confirming the published database target, a recoverable backup, and the ordered 0012–0017 migration chain
+- [x] Add a verified-snapshot-only Frigate handoff visual filter with authenticated ingest, deduplication, conservative AI review, persistent retry states, and no sales/delivery/inventory mutation
+- [x] Add a manager-only Handoff Review queue for AI-approved, discarded, and pending visual evidence with scoped correction actions
+- [x] Prepare the non-destructive 0014 Frigate handoff visual migration, verified-snapshot Beelink sender, and mocked positive/false-positive/retry regression coverage for PR review

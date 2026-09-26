@@ -13,9 +13,14 @@ import {
   clockInStaff,
   clockOutStaff,
   createOpeningChecklist,
+  attachHandoffVisualImage,
+  claimHandoffVisualAnalysis,
   createSubmissionHistoryEntry,
+  deferHandoffVisualAnalysis,
+  finalizeHandoffVisualAnalysis,
   getAttendanceTimeBook,
   getDailyOperationsSnapshot,
+  listHandoffVisualEvents,
   getSubmissionStatusForBusinessDate,
   getInventoryAlerts,
   getRecentNotes,
@@ -29,6 +34,8 @@ import {
   listReadyMadeGelatoWeights,
   listRecipesWithCosts,
   removeChecklistQuestion,
+  reserveHandoffVisualEvent,
+  reviewHandoffVisualEvent,
   saveChecklistQuestion,
   saveAttendanceEntry,
   saveInventoryItem,
@@ -47,6 +54,9 @@ import { formatPacificDateTime, getPacificBusinessDate, getPacificSundayWeekStar
 import { legacyCredentialsMatch } from "./storeCredentials";
 import { clearCredentialFailures, getCredentialRetryAfterMs, recordCredentialFailure } from "./credentialRateLimit";
 import { normalizeFrigateEventAt } from "./frigateEventOrder";
+import { analyzeHandoffVisualImage, getHandoffVisualRetryDelayMs } from "./handoffVisualAnalysis";
+import { decodeHandoffImageDataUrl, handoffImageExtension } from "./handoffVisualPayload";
+import { storageGetSignedUrl, storagePut } from "./storage";
 
 const PHASE1_OJALA_STORE_ID = 1;
 
@@ -360,6 +370,71 @@ function enforceCredentialRateLimit(channel: "staff_portal" | "frigate", clientK
   }
 }
 
+async function processHandoffVisualEvent(input: {
+  storeId: number;
+  businessDate: string;
+  cameraName: "handoff";
+  cupEventId: string;
+  capturedAt: Date;
+  sourceDetail: string;
+  imageDataUrl: string;
+}) {
+  const reserved = await reserveHandoffVisualEvent({
+    storeId: input.storeId,
+    businessDate: input.businessDate,
+    cameraName: input.cameraName,
+    cupEventId: input.cupEventId,
+    capturedAt: input.capturedAt,
+    sourceDetail: input.sourceDetail,
+  });
+  let event = reserved.event;
+
+  // Terminal reviews are immutable to sender retries. A photo cannot alter a
+  // manager decision and never updates sales, deliveries, or cup counts.
+  if (event.analysisStatus !== "pending_review") {
+    return { eventId: event.id, status: event.analysisStatus, disposition: "already_processed" as const, retryable: false };
+  }
+
+  if (!event.imageKey) {
+    const decoded = decodeHandoffImageDataUrl(input.imageDataUrl);
+    const uploaded = await storagePut(
+      `frigate-handoff-verified/store-${input.storeId}/${input.cameraName}/${input.cupEventId}-${decoded.checksum.slice(0, 16)}.${handoffImageExtension(decoded.mimeType)}`,
+      decoded.buffer,
+      decoded.mimeType,
+    );
+    event = await attachHandoffVisualImage({
+      id: event.id,
+      storeId: input.storeId,
+      imageKey: uploaded.key,
+      imageMimeType: decoded.mimeType,
+    });
+  }
+
+  const claimed = await claimHandoffVisualAnalysis({ id: event.id, storeId: input.storeId });
+  if (!claimed) {
+    return {
+      eventId: event.id,
+      status: event.analysisStatus,
+      disposition: "queued_or_replayed" as const,
+      retryable: Boolean(event.nextRetryAt),
+    };
+  }
+
+  try {
+    const imageUrl = await storageGetSignedUrl(event.imageKey!);
+    const analysis = await analyzeHandoffVisualImage({ imageUrl, cameraName: input.cameraName });
+    const completed = await finalizeHandoffVisualAnalysis({ id: event.id, storeId: input.storeId, analysis });
+    return { eventId: completed.id, status: completed.analysisStatus, disposition: "analyzed" as const, retryable: false };
+  } catch {
+    const deferred = await deferHandoffVisualAnalysis({
+      id: event.id,
+      storeId: input.storeId,
+      nextRetryAt: new Date(Date.now() + getHandoffVisualRetryDelayMs(event.analysisAttempts + 1)),
+    });
+    return { eventId: deferred.id, status: deferred.analysisStatus, disposition: "queued_for_retry" as const, retryable: true };
+  }
+}
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -649,6 +724,43 @@ export const appRouter = router({
         });
         return { success: true, disposition: result.disposition } as const;
       }),
+    submitHandoffVisual: publicProcedure
+      .input(z.object({
+        apiKey: z.string().min(1),
+        businessDate: requiredBusinessDateSchema,
+        cameraName: z.literal("handoff").default("handoff"),
+        cupEventId: z.string().min(8).max(128),
+        capturedAt: z.string().datetime({ offset: false }),
+        imageDataUrl: z.string().min(32).max(12 * 1024 * 1024),
+        sourceDetail: z.string().max(500).optional().default("verified_snapshot"),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const clientKey = credentialClientKey(ctx.req);
+        enforceCredentialRateLimit("frigate", clientKey);
+        const store = await resolveFrigateStore(input.apiKey);
+        if (!store) {
+          recordCredentialFailure("frigate", clientKey);
+          throw new Error("Unauthorized");
+        }
+        clearCredentialFailures("frigate", clientKey);
+
+        const capturedAt = normalizeFrigateEventAt(input.capturedAt);
+        if (!capturedAt || capturedAt.getTime() > Date.now() + 5 * 60 * 1_000) {
+          throw new Error("Invalid handoff image timestamp");
+        }
+
+        const result = await processHandoffVisualEvent({
+          storeId: store.id,
+          businessDate: input.businessDate,
+          cameraName: input.cameraName,
+          cupEventId: input.cupEventId,
+          capturedAt,
+          imageDataUrl: input.imageDataUrl,
+          sourceDetail: input.sourceDetail,
+        });
+
+        return { success: true, ...result } as const;
+      }),
   }),
   timeclock: router({
     clockIn: protectedProcedure
@@ -791,6 +903,34 @@ export const appRouter = router({
         }).optional()
       )
       .query(async ({ ctx, input }) => listSubmissionHistoryEntries(input?.businessDate, ctx.user.storeId)),
+    handoffVisualEvents: adminProcedure
+      .input(z.object({
+        businessDate: optionalBusinessDateSchema,
+        status: z.enum(["all", "pending_review", "approved_by_ai", "discarded", "approved_by_manager", "discarded_by_manager"]).default("all"),
+        limit: z.number().int().min(1).max(200).default(60),
+      }).optional())
+      .query(async ({ ctx, input }) => listHandoffVisualEvents({
+        storeId: ctx.user.storeId,
+        businessDate: input?.businessDate,
+        status: input?.status ?? "all",
+        limit: input?.limit ?? 60,
+      })),
+    reviewHandoffVisualEvent: adminProcedure
+      .input(z.object({
+        id: z.number().int().positive(),
+        decision: z.enum(["approved_by_manager", "discarded_by_manager"]),
+        reviewNotes: z.string().max(2_000).optional().default(""),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const event = await reviewHandoffVisualEvent({
+          id: input.id,
+          storeId: ctx.user.storeId,
+          reviewedByUserId: ctx.user.id,
+          decision: input.decision,
+          reviewNotes: input.reviewNotes,
+        });
+        return { success: true, event } as const;
+      }),
     updateSubmissionGelato: adminProcedure
       .input(
         z.object({
