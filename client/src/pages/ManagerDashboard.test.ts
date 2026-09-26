@@ -193,4 +193,14 @@ describe("manager dashboard layout helpers", () => {
     expect(rows[1].checkInLabel).not.toBe("—");
     expect(rows[1].checkOutLabel).not.toBe("—");
   });
+
+  it("shows a staff punch in the selected store's local time", () => {
+    const staff = [{
+      staffName: "Karol", totalHoursToday: 0,
+      todayEntries: [{ clockInAt: Date.parse("2026-12-15T16:00:00Z"), clockOutAt: null }],
+      activeEntry: null,
+    }];
+    expect(buildSelectedDayStaffActivityRows(staff, "America/Mazatlan")[0].checkInLabel).toContain("9:00");
+    expect(buildSelectedDayStaffActivityRows(staff, "America/Los_Angeles")[0].checkInLabel).toContain("8:00");
+  });
 });

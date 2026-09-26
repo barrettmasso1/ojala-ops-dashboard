@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { classifyHandoffVisualResult, getHandoffVisualRetryDelayMs } from "./handoffVisualAnalysis";
-import { decodeHandoffImageDataUrl, handoffImageExtension } from "./handoffVisualPayload";
+import {
+  classifyHandoffVisualResult,
+  getHandoffVisualRetryDelayMs,
+  withHandoffVisualAnalysisTimeout,
+} from "./handoffVisualAnalysis";
+import {
+  decodeHandoffImageDataUrl,
+  handoffImageExtension,
+  parseHandoffCaptureMetadata,
+} from "./handoffVisualPayload";
 
 describe("handoff visual classifier", () => {
-  it("approves only a confident person-plus-cup observation inside the handoff zone", () => {
+  it("approves only a confident person-plus-cup observation inside the configured handoff zone", () => {
     expect(classifyHandoffVisualResult({
       person_present: true,
       gelato_cup_present: true,
@@ -59,17 +67,43 @@ describe("handoff visual classifier", () => {
     expect(getHandoffVisualRetryDelayMs(2)).toBe(120_000);
     expect(getHandoffVisualRetryDelayMs(99)).toBe(60 * 60 * 1_000);
   });
+
+  it("times out a stuck model request so the durable queue can retry", async () => {
+    await expect(withHandoffVisualAnalysisTimeout(new Promise<never>(() => undefined), 5))
+      .rejects.toThrow("timed out");
+  });
 });
 
-describe("handoff image payload", () => {
-  it("accepts a supported image data URL and records only a checksum", () => {
-    const decoded = decodeHandoffImageDataUrl("data:image/jpeg;base64,dmVyaWZpZWQtaGFuZG9mZi1maXh0dXJlLWltYWdl");
+describe("handoff image and capture metadata", () => {
+  const SHA = "a".repeat(64);
+  const capture = {
+    camera: "handoff",
+    cupZone: "handoff_zone",
+    cupEventId: "verified-cup-event-001",
+    capturedAtUtc: "2026-09-26T20:15:30.000Z",
+    imageSha256: SHA,
+  };
+
+  it("accepts a supported image data URL with a matching image signature", () => {
+    const decoded = decodeHandoffImageDataUrl("data:image/jpeg;base64,/9j/2Q==");
     expect(decoded.mimeType).toBe("image/jpeg");
     expect(decoded.checksum).toMatch(/^[a-f0-9]{64}$/);
     expect(handoffImageExtension(decoded.mimeType)).toBe("jpg");
   });
 
-  it("rejects non-image payloads before storage", () => {
-    expect(() => decodeHandoffImageDataUrl("data:text/plain;base64,bm90LWFuLWltYWdl")).toThrow("JPEG, PNG, or WebP");
+  it("rejects corrupt declared image data before storage", () => {
+    expect(() => decodeHandoffImageDataUrl("data:image/jpeg;base64,bm90LWFuLWltYWdl"))
+      .toThrow("corrupt");
+  });
+
+  it("requires original capture identity, UTC time, zone, and checksum from the sidecar", () => {
+    expect(parseHandoffCaptureMetadata(capture)).toMatchObject({
+      camera: "handoff",
+      cupZone: "handoff_zone",
+      cupEventId: "verified-cup-event-001",
+      imageSha256: SHA,
+    });
+    expect(() => parseHandoffCaptureMetadata({ ...capture, cupZone: "other" })).toThrow("cup_zone");
+    expect(() => parseHandoffCaptureMetadata({ ...capture, capturedAtUtc: "2026-09-26T20:15:30-07:00" })).toThrow("UTC");
   });
 });

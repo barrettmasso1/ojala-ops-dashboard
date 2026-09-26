@@ -45,6 +45,6 @@ EVIDENCE_EXIT=$?
 set -e
 printf '%s\n' "$EVIDENCE_EXIT" > "$RESULTS/evidence-verifier.exit-code"
 
-node "$PACKAGE/scripts/run-tenant-fixtures.mjs" > "$RESULTS/tenant-fixtures.json"
+node --import tsx "$PACKAGE/scripts/run-tenant-fixtures.mjs" > "$RESULTS/tenant-fixtures.json"
 printf '%s\n' "$RESULTS" > "$PACKAGE/results/latest-run-path.txt"
 printf 'Rehearsal completed. Results: %s\n' "$RESULTS"

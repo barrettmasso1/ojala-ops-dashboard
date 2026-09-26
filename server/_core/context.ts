@@ -1,11 +1,13 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
 import type { User } from "../../drizzle/schema";
 import { sdk } from "./sdk";
+import { getActiveStoreById } from "../db";
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
   res: CreateExpressContextOptions["res"];
   user: User | null;
+  storeTimezone?: string;
 };
 
 export async function createContext(
@@ -24,5 +26,6 @@ export async function createContext(
     req: opts.req,
     res: opts.res,
     user,
+    storeTimezone: user ? (await getActiveStoreById(user.storeId))?.timezone : undefined,
   };
 }

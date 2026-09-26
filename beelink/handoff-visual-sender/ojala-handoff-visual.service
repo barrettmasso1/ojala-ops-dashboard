@@ -12,7 +12,8 @@ EnvironmentFile=/etc/ojala-handoff-visual-sender.env
 ExecStart=/usr/bin/python3 /opt/ojala-handoff-visual-sender/handoff_visual_sender.py --config /etc/ojala-handoff-visual-sender.json --queue /var/lib/ojala-handoff-visual-sender/queue.sqlite3
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectHome=true
+# Hide /home, then bind only the verified snapshot root back read-only.
+ProtectHome=tmpfs
 ProtectSystem=strict
 ReadWritePaths=/var/lib/ojala-handoff-visual-sender
-ReadOnlyPaths=/home/ojala/frigate/config/verified_snapshots/handoff
+BindReadOnlyPaths=/home/ojala/frigate/config/verified_snapshots/handoff

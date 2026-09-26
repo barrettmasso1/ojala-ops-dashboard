@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import type { TrpcContext } from "./_core/context";
 
 const dbMocks = vi.hoisted(() => ({
@@ -13,6 +14,7 @@ const dbMocks = vi.hoisted(() => ({
   deferHandoffVisualAnalysis: vi.fn(),
   finalizeHandoffVisualAnalysis: vi.fn(),
   getAttendanceTimeBook: vi.fn(),
+  getActiveHandoffCameraZone: vi.fn(),
   getDailyOperationsSnapshot: vi.fn(),
   getInventoryAlerts: vi.fn(),
   getRecentNotes: vi.fn(),
@@ -26,6 +28,8 @@ const dbMocks = vi.hoisted(() => ({
   listReadyMadeGelatoWeights: vi.fn(),
   removeChecklistQuestion: vi.fn(),
   reserveHandoffVisualEvent: vi.fn(),
+  bindHandoffVisualEventZone: vi.fn(),
+  queueHandoffVisualForZoneConfiguration: vi.fn(),
   reviewHandoffVisualEvent: vi.fn(),
   saveChecklistQuestion: vi.fn(),
   saveInventoryItem: vi.fn(),
@@ -83,6 +87,17 @@ type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
 const storeOne = { id: 1, nombre: "Ojala Gelato", timezone: "America/Mazatlan", isActive: 1 };
 const storeTwo = { id: 2, nombre: "Second Store", timezone: "America/Los_Angeles", isActive: 1 };
+const visualImageBytes = Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+const visualImageDataUrl = `data:image/jpeg;base64,${visualImageBytes.toString("base64")}`;
+const visualImageSha256 = createHash("sha256").update(visualImageBytes).digest("hex");
+const visualZone = { id: 301, geometryVersion: 1, polygonJson: JSON.stringify([{ x: 0.1, y: 0.2 }, { x: 0.8, y: 0.2 }, { x: 0.8, y: 0.9 }]) };
+const visualCapture = (cupEventId: string, capturedAt = "2026-07-18T22:03:00.000Z") => ({
+  camera: "handoff" as const,
+  cup_zone: "handoff_zone" as const,
+  cup_event_id: cupEventId,
+  captured_at_utc: capturedAt,
+  image_sha256: visualImageSha256,
+});
 
 function createContext(role: Role | null, storeId = 1): TrpcContext {
   const user: AuthenticatedUser | null = role
@@ -121,8 +136,13 @@ describe("operations router", () => {
     dbMocks.getActiveStoreById.mockResolvedValue(storeOne);
     dbMocks.resolveActiveStoreCredential.mockResolvedValue(null);
     dbMocks.upsertFrigateCupCount.mockResolvedValue({ success: true, disposition: "apply" });
+    dbMocks.getActiveHandoffCameraZone.mockResolvedValue(visualZone);
     dbMocks.reserveHandoffVisualEvent.mockResolvedValue({
-      event: { id: 610, analysisStatus: "pending_review", imageKey: null, analysisAttempts: 0 },
+      event: {
+        id: 610, analysisStatus: "pending_review", imageKey: null, analysisAttempts: 0,
+        imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
+        zoneId: visualZone.id, zoneGeometryVersion: visualZone.geometryVersion, zoneGeometryJson: visualZone.polygonJson,
+      },
       created: true,
     });
     dbMocks.attachHandoffVisualImage.mockResolvedValue({
@@ -130,8 +150,10 @@ describe("operations router", () => {
       analysisStatus: "pending_review",
       imageKey: "frigate-handoff-verified/fixture.jpg",
       analysisAttempts: 0,
+      imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
+      zoneId: visualZone.id, zoneGeometryVersion: visualZone.geometryVersion, zoneGeometryJson: visualZone.polygonJson,
     });
-    dbMocks.claimHandoffVisualAnalysis.mockResolvedValue(true);
+    dbMocks.claimHandoffVisualAnalysis.mockResolvedValue("fixture-lease-token");
     dbMocks.finalizeHandoffVisualAnalysis.mockResolvedValue({ id: 610, analysisStatus: "approved_by_ai" });
     dbMocks.deferHandoffVisualAnalysis.mockResolvedValue({ id: 610, analysisStatus: "pending_review" });
     storageMocks.storagePut.mockResolvedValue({ key: "frigate-handoff-verified/fixture.jpg", url: "/manus-storage/frigate-handoff-verified/fixture.jpg" });
@@ -321,11 +343,8 @@ describe("operations router", () => {
 
     const result = await caller.frigate.submitHandoffVisual({
       apiKey: "test-frigate-key",
-      businessDate: "2026-07-18",
-      cameraName: "handoff",
-      cupEventId: "cup-event-0001",
-      capturedAt: "2026-07-18T22:03:00.000Z",
-      imageDataUrl: "data:image/jpeg;base64,dmVyaWZpZWQtaGFuZG9mZi1maXh0dXJlLWltYWdl",
+      capture: visualCapture("cup-event-0001"),
+      imageDataUrl: visualImageDataUrl,
       sourceDetail: "verified_snapshot",
       storeId: 2,
     } as never);
@@ -335,10 +354,13 @@ describe("operations router", () => {
       storeId: 1,
       cameraName: "handoff",
       cupEventId: "cup-event-0001",
+      imageSha256: visualImageSha256,
+      zoneId: visualZone.id,
     }));
     expect(dbMocks.finalizeHandoffVisualAnalysis).toHaveBeenCalledWith(expect.objectContaining({
       storeId: 1,
       id: 610,
+      analysisLeaseToken: "fixture-lease-token",
       analysis: expect.objectContaining({ status: "approved_by_ai", visibleCupCount: 1 }),
     }));
     expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();
@@ -350,16 +372,50 @@ describe("operations router", () => {
 
     const result = await caller.frigate.submitHandoffVisual({
       apiKey: "test-frigate-key",
-      businessDate: "2026-07-18",
-      cameraName: "handoff",
-      cupEventId: "cup-event-0002",
-      capturedAt: "2026-07-18T22:04:00.000Z",
-      imageDataUrl: "data:image/jpeg;base64,dmVyaWZpZWQtaGFuZG9mZi1maXh0dXJlLWltYWdl",
+      capture: visualCapture("cup-event-0002"),
+      imageDataUrl: visualImageDataUrl,
     });
 
     expect(result).toEqual({ success: true, eventId: 610, status: "pending_review", disposition: "queued_for_retry", retryable: true });
-    expect(dbMocks.deferHandoffVisualAnalysis).toHaveBeenCalledWith(expect.objectContaining({ id: 610, storeId: 1 }));
+    expect(dbMocks.deferHandoffVisualAnalysis).toHaveBeenCalledWith(expect.objectContaining({ id: 610, storeId: 1, analysisLeaseToken: "fixture-lease-token" }));
     expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();
+  });
+
+  it("retains evidence pending when real store-camera geometry has not been configured", async () => {
+    dbMocks.getActiveHandoffCameraZone.mockResolvedValueOnce(null);
+    dbMocks.reserveHandoffVisualEvent.mockResolvedValueOnce({
+      event: {
+        id: 611, analysisStatus: "pending_review", imageKey: null, analysisAttempts: 0,
+        imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
+        zoneId: null, zoneGeometryVersion: null, zoneGeometryJson: null,
+      },
+      created: true,
+    });
+    dbMocks.attachHandoffVisualImage.mockResolvedValueOnce({
+      id: 611, analysisStatus: "pending_review", imageKey: "frigate-handoff-verified/unconfigured.jpg", analysisAttempts: 0,
+      imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
+      zoneId: null, zoneGeometryVersion: null, zoneGeometryJson: null,
+    });
+    dbMocks.queueHandoffVisualForZoneConfiguration.mockResolvedValueOnce({ id: 611, analysisStatus: "pending_review" });
+    const caller = appRouter.createCaller(createContext(null));
+
+    const result = await caller.frigate.submitHandoffVisual({
+      apiKey: "test-frigate-key", capture: visualCapture("cup-event-no-zone"), imageDataUrl: visualImageDataUrl,
+    });
+
+    expect(result).toEqual({ success: true, eventId: 611, status: "pending_review", disposition: "awaiting_zone_configuration", retryable: true });
+    expect(dbMocks.queueHandoffVisualForZoneConfiguration).toHaveBeenCalledWith({ id: 611, storeId: 1 });
+    expect(handoffVisualMocks.analyzeHandoffVisualImage).not.toHaveBeenCalled();
+  });
+
+  it("rejects a capture whose sidecar checksum does not match the submitted image", async () => {
+    const caller = appRouter.createCaller(createContext(null));
+    await expect(caller.frigate.submitHandoffVisual({
+      apiKey: "test-frigate-key",
+      capture: { ...visualCapture("cup-event-tampered"), image_sha256: "0".repeat(64) },
+      imageDataUrl: visualImageDataUrl,
+    })).rejects.toThrow("does not match");
+    expect(dbMocks.reserveHandoffVisualEvent).not.toHaveBeenCalled();
   });
 
   it("scopes manager visual review records to the authenticated store", async () => {

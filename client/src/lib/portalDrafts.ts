@@ -16,11 +16,13 @@ function getStorage(storage?: StorageLike) {
   return window.localStorage;
 }
 
-export function getPortalDraftKey(view: PortalDraftView) {
-  return `${PORTAL_DRAFT_PREFIX}:${view}`;
+export function getPortalDraftKey(view: PortalDraftView, storeId = 1) {
+  if (!Number.isSafeInteger(storeId) || storeId < 1) throw new Error("Store ID is required for portal drafts");
+  // Preserve Ojala's existing local drafts while isolating each new store.
+  return storeId === 1 ? `${PORTAL_DRAFT_PREFIX}:${view}` : `${PORTAL_DRAFT_PREFIX}:store-${storeId}:${view}`;
 }
 
-export function savePortalDraft<T>(view: PortalDraftView, businessDate: string, data: T, storage?: StorageLike) {
+export function savePortalDraft<T>(view: PortalDraftView, businessDate: string, data: T, storage?: StorageLike, storeId = 1) {
   const target = getStorage(storage);
   if (!target) return null;
 
@@ -30,15 +32,15 @@ export function savePortalDraft<T>(view: PortalDraftView, businessDate: string, 
     data,
   };
 
-  target.setItem(getPortalDraftKey(view), JSON.stringify(record));
+  target.setItem(getPortalDraftKey(view, storeId), JSON.stringify(record));
   return record;
 }
 
-export function loadPortalDraft<T>(view: PortalDraftView, businessDate: string, storage?: StorageLike) {
+export function loadPortalDraft<T>(view: PortalDraftView, businessDate: string, storage?: StorageLike, storeId = 1) {
   const target = getStorage(storage);
   if (!target) return null;
 
-  const raw = target.getItem(getPortalDraftKey(view));
+  const raw = target.getItem(getPortalDraftKey(view, storeId));
   if (!raw) return null;
 
   try {
@@ -48,24 +50,24 @@ export function loadPortalDraft<T>(view: PortalDraftView, businessDate: string, 
       typeof parsed.businessDate !== "string" ||
       !("data" in parsed)
     ) {
-      target.removeItem(getPortalDraftKey(view));
+      target.removeItem(getPortalDraftKey(view, storeId));
       return null;
     }
 
     if (parsed.businessDate !== businessDate) {
-      target.removeItem(getPortalDraftKey(view));
+      target.removeItem(getPortalDraftKey(view, storeId));
       return null;
     }
 
     return parsed as PortalDraftRecord<T>;
   } catch {
-    target.removeItem(getPortalDraftKey(view));
+    target.removeItem(getPortalDraftKey(view, storeId));
     return null;
   }
 }
 
-export function clearPortalDraft(view: PortalDraftView, storage?: StorageLike) {
+export function clearPortalDraft(view: PortalDraftView, storage?: StorageLike, storeId = 1) {
   const target = getStorage(storage);
   if (!target) return;
-  target.removeItem(getPortalDraftKey(view));
+  target.removeItem(getPortalDraftKey(view, storeId));
 }
