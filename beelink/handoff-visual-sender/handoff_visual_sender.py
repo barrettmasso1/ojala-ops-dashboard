@@ -145,6 +145,26 @@ def sidecar_path(image_path: Path) -> Path:
     raise AwaitingMetadata("verified image is awaiting its required JSON sidecar")
 
 
+def canonical_zone_geometry(points: Any) -> str:
+    if not isinstance(points, list) or len(points) < 3 or len(points) > 16:
+        raise SenderError("verified snapshot metadata zone_geometry is invalid")
+    normalized: list[tuple[float, float]] = []
+    for point in points:
+        if not isinstance(point, dict) or not isinstance(point.get("x"), (int, float)) or not isinstance(point.get("y"), (int, float)):
+            raise SenderError("verified snapshot metadata zone_geometry is invalid")
+        x, y = float(point["x"]), float(point["y"])
+        if not (0 <= x <= 1 and 0 <= y <= 1):
+            raise SenderError("verified snapshot metadata zone_geometry is invalid")
+        normalized.append((round(x, 6), round(y, 6)))
+    if len(set(normalized)) != len(normalized):
+        raise SenderError("verified snapshot metadata zone_geometry contains duplicate points")
+
+    def js_number(value: float) -> str:
+        return str(int(value)) if value.is_integer() else format(value, ".6f").rstrip("0").rstrip(".")
+
+    return "[" + ",".join("{\"x\":%s,\"y\":%s}" % (js_number(x), js_number(y)) for x, y in normalized) + "]"
+
+
 def parse_sidecar_metadata(image_path: Path, image_digest: str) -> dict[str, Any]:
     try:
         parsed = json.loads(sidecar_path(image_path).read_text(encoding="utf-8"))
@@ -172,7 +192,8 @@ def parse_sidecar_metadata(image_path: Path, image_digest: str) -> dict[str, Any
         raise SenderError("verified snapshot metadata captured_at_utc is invalid") from error
     if captured.tzinfo is None or captured.utcoffset() != UTC.utcoffset(captured):
         raise SenderError("verified snapshot metadata captured_at_utc must be UTC")
-    return {
+    metadata = {
+        "schema_version": parsed.get("schema_version", 2),
         "camera": camera,
         "cup_zone": cup_zone,
         "cup_event_id": cup_event_id,
@@ -181,6 +202,20 @@ def parse_sidecar_metadata(image_path: Path, image_digest: str) -> dict[str, Any
         "captured_at_utc": captured_at_utc[:-6] + "Z" if captured_at_utc.endswith("+00:00") else captured_at_utc,
         "image_sha256": image_sha256,
     }
+    if metadata["schema_version"] not in {2, 3}:
+        raise SenderError("verified snapshot metadata schema_version is invalid")
+    if metadata["schema_version"] == 3:
+        canonical_zone = canonical_zone_geometry(parsed.get("zone_geometry"))
+        zone_hash = parsed.get("zone_config_sha256")
+        dimensions = parsed.get("image_dimensions")
+        if not isinstance(zone_hash, str) or not SHA256_PATTERN.fullmatch(zone_hash) or hashlib.sha256(canonical_zone.encode("utf-8")).hexdigest() != zone_hash:
+            raise SenderError("verified snapshot metadata zone_config_sha256 is invalid")
+        if not isinstance(dimensions, dict) or not isinstance(dimensions.get("width"), int) or not isinstance(dimensions.get("height"), int) or not (1 <= dimensions["width"] <= 16384 and 1 <= dimensions["height"] <= 16384):
+            raise SenderError("verified snapshot metadata image_dimensions is invalid")
+        metadata["zone_geometry"] = json.loads(canonical_zone)
+        metadata["zone_config_sha256"] = zone_hash
+        metadata["image_dimensions"] = {"width": dimensions["width"], "height": dimensions["height"]}
+    return metadata
 
 
 def event_metadata(image_path: Path) -> tuple[dict[str, Any], str]:

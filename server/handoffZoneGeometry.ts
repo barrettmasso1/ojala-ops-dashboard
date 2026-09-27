@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 export type HandoffZonePoint = { x: number; y: number };
 
 export type HandoffZoneGeometry = {
@@ -52,4 +54,23 @@ export function parseStoredHandoffZoneGeometry(serialized: string): HandoffZoneG
   } catch (error) {
     throw new Error(`Stored handoff zone geometry is invalid: ${error instanceof Error ? error.message : "unknown error"}`);
   }
+}
+
+/** A stable server-side fingerprint for a normalized zone configuration. */
+export function handoffZoneConfigSha256(geometry: HandoffZoneGeometry) {
+  return createHash("sha256").update(serializeHandoffZoneGeometry(geometry), "utf8").digest("hex");
+}
+
+/**
+ * Client-provided capture geometry is evidence only. It never authorizes a
+ * visual decision; it must agree with the store/camera geometry that the
+ * server already configured before automated analysis may proceed.
+ */
+export function isHandoffCaptureZoneCoherent(input: {
+  capturedGeometry: HandoffZoneGeometry;
+  capturedConfigSha256: string;
+  serverGeometry: HandoffZoneGeometry;
+}) {
+  const capturedHash = handoffZoneConfigSha256(input.capturedGeometry);
+  return capturedHash === input.capturedConfigSha256 && capturedHash === handoffZoneConfigSha256(input.serverGeometry);
 }
