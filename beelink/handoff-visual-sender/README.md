@@ -66,6 +66,7 @@ The one-line JSON output contains aggregate counts only: `discovered`, `sent`, a
 - Supported files: `.jpg`, `.jpeg`, `.png`, `.webp`, max **8 MB**.
 - Every image **must** have a JSON sidecar named either `<image>.json` or `<image-stem>.json`. The sender waits locally when the sidecar is missing; it never derives identity or time from a filename or file modification time.
 - Required sidecar fields are `camera: "handoff"`, `cup_zone: "handoff_zone"`, `cup_event_id`, `captured_at_utc` (UTC ISO-8601 ending in `Z` or the capture worker's `+00:00`), and `image_sha256` (lowercase SHA-256 of the exact image bytes). The sender normalizes the UTC suffix to `Z` without dropping fractional precision. Naive/non-UTC timestamps and invalid or mismatched pairs are rejected locally.
+- New captures must emit `schema_version: 3`, `zone_geometry`, `zone_config_sha256`, and `image_dimensions`. `zone_geometry` is the normalized polygon used by the capture worker; `zone_config_sha256` is the SHA-256 of its compact canonical JSON (`[{"x":0.1,"y":0.2},...]`, coordinates rounded to six decimals with no whitespace). The sender verifies the hash before queueing. The server then compares it to the active store/camera geometry; a mismatch remains human-review evidence and cannot become an automatic approval.
 - The sender preserves that exact event identity and timestamp through retries. The server derives the business date from `captured_at_utc` and the authenticated store's time zone; it does not accept a client business date.
 - The server only accepts the handoff camera and resolves the store from the API key, never from a payload store ID.
 - Before any image can be AI-approved, a manager must save the real normalized `handoff_zone` polygon in **Store settings** for that store/camera. Without it, the image is retained as pending evidence and retried after configuration.
@@ -74,11 +75,15 @@ Example sidecar (values shown are placeholders):
 
 ```json
 {
+  "schema_version": 3,
   "camera": "handoff",
   "cup_zone": "handoff_zone",
   "cup_event_id": "frigate-cup-event-20260926-001",
   "captured_at_utc": "2026-09-26T20:15:30.000Z",
-  "image_sha256": "lowercase-64-character-sha256-of-the-image"
+  "image_sha256": "lowercase-64-character-sha256-of-the-image",
+  "zone_geometry": [{"x": 0.10, "y": 0.20}, {"x": 0.90, "y": 0.20}, {"x": 0.90, "y": 0.80}],
+  "zone_config_sha256": "sha256-of-compact-canonical-zone-geometry",
+  "image_dimensions": {"width": 1920, "height": 1080}
 }
 ```
 

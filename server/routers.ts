@@ -46,6 +46,7 @@ import {
   getActiveStoreById,
   resolveActiveStoreCredential,
   queueHandoffVisualForZoneConfiguration,
+  queueHandoffVisualForZoneMismatch,
   updateInventoryCount,
   updateSubmissionHistoryForm,
  updateSubmissionHistoryGelato,
@@ -62,7 +63,7 @@ import { analyzeHandoffVisualImage, getHandoffVisualRetryDelayMs } from "./hando
 import { decodeHandoffImageDataUrl, handoffCaptureMetadataJson, handoffImageExtension, parseHandoffCaptureMetadata } from "./handoffVisualPayload";
 import { storageGetSignedUrl, storagePut } from "./storage";
 import { getBusinessDate } from "../shared/businessDate";
-import { parseStoredHandoffZoneGeometry } from "./handoffZoneGeometry";
+import { isHandoffCaptureZoneCoherent, parseStoredHandoffZoneGeometry } from "./handoffZoneGeometry";
 
 const PHASE1_OJALA_STORE_ID = 1;
 
@@ -359,6 +360,16 @@ function enforceCredentialRateLimit(channel: "staff_portal" | "frigate", clientK
   }
 }
 
+function storedCaptureTimestamp(event: { captureMetadataJson?: string | null; capturedAt: Date }) {
+  try {
+    const value = JSON.parse(event.captureMetadataJson ?? "") as { captured_at_utc?: unknown };
+    if (typeof value.captured_at_utc === "string") return value.captured_at_utc;
+  } catch {
+    // Rows created before metadata preservation use the Date fallback below.
+  }
+  return event.capturedAt.toISOString();
+}
+
 async function processHandoffVisualEvent(input: {
   storeId: number;
   storeTimeZone: string;
@@ -390,7 +401,7 @@ async function processHandoffVisualEvent(input: {
   // The store/camera/event tuple identifies a capture. A retry must preserve
   // its original identity; reusing that ID with different image bytes is not a
   // correction and is rejected before it can mutate the durable evidence.
-  if (event.imageSha256 !== input.metadata.imageSha256 || event.capturedAt.getTime() !== input.metadata.capturedAt.getTime()) {
+  if (event.imageSha256 !== input.metadata.imageSha256 || storedCaptureTimestamp(event) !== input.metadata.capturedAtUtc) {
     throw new Error("cup_event_id is already reserved for a different verified capture");
   }
 
@@ -426,6 +437,22 @@ async function processHandoffVisualEvent(input: {
     } else {
       const queued = await queueHandoffVisualForZoneConfiguration({ id: event.id, storeId: input.storeId });
       return { eventId: queued?.id ?? event.id, status: queued?.analysisStatus ?? event.analysisStatus, disposition: "awaiting_zone_configuration" as const, retryable: true };
+    }
+  }
+
+  // Schema v3 records capture-side geometry solely as evidence. It must match
+  // the independently configured store/camera geometry before automation can
+  // use the server snapshot. A client polygon never grants authorization.
+  if (input.metadata.schemaVersion === 3) {
+    const configuredGeometry = parseStoredHandoffZoneGeometry(event.zoneGeometryJson!);
+    const coherent = isHandoffCaptureZoneCoherent({
+      capturedGeometry: input.metadata.capturedZoneGeometry!,
+      capturedConfigSha256: input.metadata.capturedZoneConfigSha256!,
+      serverGeometry: configuredGeometry,
+    });
+    if (!coherent) {
+      const queued = await queueHandoffVisualForZoneMismatch({ id: event.id, storeId: input.storeId });
+      return { eventId: queued?.id ?? event.id, status: queued?.analysisStatus ?? event.analysisStatus, disposition: "zone_metadata_mismatch" as const, retryable: false };
     }
   }
 
@@ -768,11 +795,15 @@ export const appRouter = router({
         apiKey: z.string().min(1),
         imageDataUrl: z.string().min(32).max(12 * 1024 * 1024),
         capture: z.object({
+          schema_version: z.union([z.literal(2), z.literal(3)]).optional(),
           camera: z.literal("handoff"),
           cup_zone: z.literal("handoff_zone"),
           cup_event_id: z.string().min(8).max(128),
           captured_at_utc: z.string().min(20).max(40),
           image_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+          zone_geometry: z.array(z.object({ x: z.number(), y: z.number() })).min(3).max(16).optional(),
+          zone_config_sha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+          image_dimensions: z.object({ width: z.number().int(), height: z.number().int() }).optional(),
         }),
         sourceDetail: z.string().max(500).optional().default("verified_snapshot"),
       }))
@@ -792,6 +823,10 @@ export const appRouter = router({
           cupEventId: input.capture.cup_event_id,
           capturedAtUtc: input.capture.captured_at_utc,
           imageSha256: input.capture.image_sha256,
+          schemaVersion: input.capture.schema_version,
+          zoneGeometry: input.capture.zone_geometry,
+          zoneConfigSha256: input.capture.zone_config_sha256,
+          imageDimensions: input.capture.image_dimensions,
         });
         if (metadata.capturedAt.getTime() > Date.now() + 5 * 60 * 1_000) {
           throw new Error("Invalid handoff image timestamp");
@@ -968,13 +1003,22 @@ export const appRouter = router({
         reviewNotes: z.string().max(2_000).optional().default(""),
       }))
       .mutation(async ({ ctx, input }) => {
-        const event = await reviewHandoffVisualEvent({
-          id: input.id,
-          storeId: ctx.user.storeId,
-          reviewedByUserId: ctx.user.id,
-          decision: input.decision,
-          reviewNotes: input.reviewNotes,
-        });
+        let event;
+        try {
+          event = await reviewHandoffVisualEvent({
+            id: input.id,
+            storeId: ctx.user.storeId,
+            reviewedByUserId: ctx.user.id,
+            decision: input.decision,
+            reviewNotes: input.reviewNotes,
+          });
+        } catch (error) {
+          // Do not reveal whether an ID belongs to another tenant.
+          if (error instanceof Error && error.message === "Handoff visual event was not found in this store") {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Handoff visual event was not found" });
+          }
+          throw error;
+        }
         return { success: true, event } as const;
       }),
     updateSubmissionGelato: adminProcedure

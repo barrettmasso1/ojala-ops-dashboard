@@ -30,6 +30,7 @@ const dbMocks = vi.hoisted(() => ({
   reserveHandoffVisualEvent: vi.fn(),
   bindHandoffVisualEventZone: vi.fn(),
   queueHandoffVisualForZoneConfiguration: vi.fn(),
+  queueHandoffVisualForZoneMismatch: vi.fn(),
   reviewHandoffVisualEvent: vi.fn(),
   saveChecklistQuestion: vi.fn(),
   saveInventoryItem: vi.fn(),
@@ -98,6 +99,13 @@ const visualCapture = (cupEventId: string, capturedAt = "2026-07-18T22:03:00.000
   captured_at_utc: capturedAt,
   image_sha256: visualImageSha256,
 });
+const visualCaptureV3 = (cupEventId: string, zoneGeometry = JSON.parse(visualZone.polygonJson)) => ({
+  ...visualCapture(cupEventId),
+  schema_version: 3 as const,
+  zone_geometry: zoneGeometry,
+  zone_config_sha256: createHash("sha256").update(JSON.stringify(zoneGeometry)).digest("hex"),
+  image_dimensions: { width: 1920, height: 1080 },
+});
 
 function createContext(role: Role | null, storeId = 1): TrpcContext {
   const user: AuthenticatedUser | null = role
@@ -156,6 +164,7 @@ describe("operations router", () => {
     dbMocks.claimHandoffVisualAnalysis.mockResolvedValue("fixture-lease-token");
     dbMocks.finalizeHandoffVisualAnalysis.mockResolvedValue({ id: 610, analysisStatus: "approved_by_ai" });
     dbMocks.deferHandoffVisualAnalysis.mockResolvedValue({ id: 610, analysisStatus: "pending_review" });
+    dbMocks.queueHandoffVisualForZoneMismatch.mockResolvedValue({ id: 610, analysisStatus: "pending_review" });
     storageMocks.storagePut.mockResolvedValue({ key: "frigate-handoff-verified/fixture.jpg", url: "/manus-storage/frigate-handoff-verified/fixture.jpg" });
     storageMocks.storageGetSignedUrl.mockResolvedValue("https://signed.example/frigate-handoff-verified/fixture.jpg");
     handoffVisualMocks.analyzeHandoffVisualImage.mockResolvedValue({
@@ -381,6 +390,26 @@ describe("operations router", () => {
     expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();
   });
 
+  it("replays a fractional +00:00 capture using preserved sidecar identity instead of database timestamp precision", async () => {
+    const originalTimestamp = "2026-07-18T22:03:00.230890+00:00";
+    dbMocks.reserveHandoffVisualEvent.mockResolvedValueOnce({
+      event: {
+        id: 610, analysisStatus: "pending_review", imageKey: "frigate-handoff-verified/fixture.jpg", analysisAttempts: 0,
+        imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
+        captureMetadataJson: JSON.stringify({ captured_at_utc: originalTimestamp }),
+        zoneId: visualZone.id, zoneGeometryVersion: visualZone.geometryVersion, zoneGeometryJson: visualZone.polygonJson,
+      },
+      created: false,
+    });
+    const caller = appRouter.createCaller(createContext(null));
+
+    await expect(caller.frigate.submitHandoffVisual({
+      apiKey: "test-frigate-key",
+      capture: visualCapture("cup-event-fractional-retry", originalTimestamp),
+      imageDataUrl: visualImageDataUrl,
+    })).resolves.toMatchObject({ success: true, eventId: 610 });
+  });
+
   it("retains evidence pending when real store-camera geometry has not been configured", async () => {
     dbMocks.getActiveHandoffCameraZone.mockResolvedValueOnce(null);
     dbMocks.reserveHandoffVisualEvent.mockResolvedValueOnce({
@@ -408,6 +437,19 @@ describe("operations router", () => {
     expect(handoffVisualMocks.analyzeHandoffVisualImage).not.toHaveBeenCalled();
   });
 
+  it("never authorizes a v3 capture from client geometry that disagrees with the server-configured zone", async () => {
+    const caller = appRouter.createCaller(createContext(null));
+    const result = await caller.frigate.submitHandoffVisual({
+      apiKey: "test-frigate-key",
+      capture: visualCaptureV3("cup-event-zone-mismatch", [{ x: 0.01, y: 0.01 }, { x: 0.2, y: 0.01 }, { x: 0.01, y: 0.2 }]),
+      imageDataUrl: visualImageDataUrl,
+    });
+
+    expect(result).toEqual({ success: true, eventId: 610, status: "pending_review", disposition: "zone_metadata_mismatch", retryable: false });
+    expect(dbMocks.queueHandoffVisualForZoneMismatch).toHaveBeenCalledWith({ id: 610, storeId: 1 });
+    expect(handoffVisualMocks.analyzeHandoffVisualImage).not.toHaveBeenCalled();
+  });
+
   it("rejects a capture whose sidecar checksum does not match the submitted image", async () => {
     const caller = appRouter.createCaller(createContext(null));
     await expect(caller.frigate.submitHandoffVisual({
@@ -432,6 +474,17 @@ describe("operations router", () => {
       storeId: 2,
       reviewedByUserId: 99,
     }));
+  });
+
+  it("returns a non-disclosing not-found error for a forged cross-store visual record ID", async () => {
+    dbMocks.reviewHandoffVisualEvent.mockRejectedValueOnce(new Error("Handoff visual event was not found in this store"));
+    const caller = appRouter.createCaller(createContext("admin", 2));
+
+    await expect(caller.dashboard.reviewHandoffVisualEvent({
+      id: 610,
+      decision: "discarded_by_manager",
+      reviewNotes: "forged cross-store attempt",
+    })).rejects.toMatchObject({ code: "NOT_FOUND", message: "Handoff visual event was not found" });
   });
 
   it("records a staff clock-in through the shared portal timeclock procedure", async () => {

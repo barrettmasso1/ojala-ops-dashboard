@@ -34,8 +34,14 @@ It rejects a symlink/path outside that directory, non-image files, corrupt image
 | `capture.cup_event_id` | Stable source event identifier used for scoped deduplication. |
 | `capture.captured_at_utc` | Original UTC ISO-8601 capture time; server derives the business date from this time and the authenticated store time zone. |
 | `capture.image_sha256` | Lowercase checksum of the exact image bytes; server recomputes and compares it before storing. |
+| `capture.schema_version: 3` | Production capture format for geometry-bound evidence. |
+| `capture.zone_geometry` | Capture worker's normalized polygon snapshot; never authorizes a zone by itself. |
+| `capture.zone_config_sha256` | SHA-256 of the canonical normalized geometry JSON. It must match both the sidecar and the active server zone. |
+| `capture.image_dimensions` | Positive pixel dimensions recorded by the capture worker. |
 
 The response includes a `retryable` boolean. `pending_review` with `retryable: false` is an ambiguous human-review case and must not be sent repeatedly. `retryable: true` means either a retryable analysis outage or an absent store/camera geometry; the sender safely retries the same immutable event ID.
+
+The receiver retains compatibility with validated schema-v2 sidecars during the migration, but **new Beelink captures must emit schema version 3**. A v3 sidecar whose zone hash or polygon differs from the server's active zone is retained for manager review and is never sent to AI as automatically approvable evidence. The immutable sidecar timestamp—not the database timestamp precision—is used to identify a retry, so `+00:00` timestamps with microseconds survive MySQL/MariaDB/TiDB precision differences.
 
 ## Real handoff geometry
 

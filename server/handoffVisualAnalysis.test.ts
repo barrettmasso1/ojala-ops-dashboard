@@ -106,4 +106,15 @@ describe("handoff image and capture metadata", () => {
     expect(() => parseHandoffCaptureMetadata({ ...capture, cupZone: "other" })).toThrow("cup_zone");
     expect(() => parseHandoffCaptureMetadata({ ...capture, capturedAtUtc: "2026-09-26T20:15:30-07:00" })).toThrow("UTC");
   });
+
+  it("accepts a +00:00 UTC sidecar and preserves its microsecond timestamp text", () => {
+    const parsed = parseHandoffCaptureMetadata({
+      ...capture,
+      cupEventId: "verified-cup-event-offset-001",
+      capturedAtUtc: "2026-09-26T21:58:33.230890+00:00",
+    });
+
+    expect(parsed.capturedAtUtc).toBe("2026-09-26T21:58:33.230890+00:00");
+    expect(parsed.capturedAt.toISOString()).toBe("2026-09-26T21:58:33.230Z");
+  });
 });

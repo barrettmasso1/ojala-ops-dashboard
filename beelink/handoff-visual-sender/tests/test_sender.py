@@ -78,6 +78,36 @@ class VerifiedSnapshotSenderTests(unittest.TestCase):
         self.assertEqual(row["business_date"], "2026-09-25")
         connection.close()
 
+    def test_validates_and_forwards_schema_v3_zone_evidence(self) -> None:
+        zone = [{"x": 0.2, "y": 0.2}, {"x": 0.8, "y": 0.2}, {"x": 0.8, "y": 0.8}, {"x": 0.2, "y": 0.8}]
+        zone_hash = hashlib.sha256(sender.canonical_zone_geometry(zone).encode("utf-8")).hexdigest()
+        self.write_sidecar(
+            self.image,
+            schema_version=3,
+            zone_geometry=zone,
+            zone_config_sha256=zone_hash,
+            image_dimensions={"width": 1920, "height": 1080},
+        )
+        connection = sender.open_queue(self.queue_path)
+        self.assertTrue(sender.enqueue_verified_snapshot(connection, self.image))
+        row = connection.execute("SELECT * FROM verified_snapshot_queue").fetchone()
+        capture = sender.build_payload(row, "test-key")["capture"]
+        self.assertEqual(capture["schema_version"], 3)
+        self.assertEqual(capture["zone_config_sha256"], zone_hash)
+        self.assertEqual(capture["image_dimensions"], {"width": 1920, "height": 1080})
+        connection.close()
+
+    def test_rejects_schema_v3_geometry_hash_mismatch(self) -> None:
+        self.write_sidecar(
+            self.image,
+            schema_version=3,
+            zone_geometry=[{"x": 0.2, "y": 0.2}, {"x": 0.8, "y": 0.2}, {"x": 0.2, "y": 0.8}],
+            zone_config_sha256="0" * 64,
+            image_dimensions={"width": 1920, "height": 1080},
+        )
+        with self.assertRaisesRegex(sender.SenderError, "zone_config_sha256"):
+            sender.event_metadata(self.image)
+
     def test_rejects_naive_non_utc_or_malformed_timestamps(self) -> None:
         for value in ["2026-09-26T21:58:33.230890", "2026-09-26T14:58:33-07:00",
                       "2026-09-26 21:58:33+00:00", "2026-09-99T21:58:33Z"]:

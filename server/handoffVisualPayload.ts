@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { parseHandoffZoneGeometry, serializeHandoffZoneGeometry, type HandoffZoneGeometry } from "./handoffZoneGeometry";
 
 const ACCEPTED_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_HANDOFF_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -18,6 +19,10 @@ export type HandoffCaptureMetadata = {
   capturedAt: Date;
   capturedAtUtc: string;
   imageSha256: string;
+  schemaVersion: 2 | 3;
+  capturedZoneGeometry?: HandoffZoneGeometry;
+  capturedZoneConfigSha256?: string;
+  imageDimensions?: { width: number; height: number };
 };
 
 function hasExpectedImageSignature(buffer: Buffer, mimeType: DecodedHandoffImage["mimeType"]) {
@@ -56,16 +61,40 @@ export function parseHandoffCaptureMetadata(input: {
   cupEventId: string;
   capturedAtUtc: string;
   imageSha256: string;
+  schemaVersion?: number;
+  zoneGeometry?: unknown;
+  zoneConfigSha256?: string;
+  imageDimensions?: unknown;
 }): HandoffCaptureMetadata {
   if (input.camera !== "handoff") throw new Error("Capture metadata camera must be handoff");
   if (input.cupZone !== "handoff_zone") throw new Error("Capture metadata cup_zone must be handoff_zone");
   if (!EVENT_ID_PATTERN.test(input.cupEventId)) throw new Error("Capture metadata cup_event_id is invalid");
   if (!SHA256_PATTERN.test(input.imageSha256)) throw new Error("Capture metadata image_sha256 is invalid");
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(input.capturedAtUtc)) {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)$/.test(input.capturedAtUtc)) {
     throw new Error("Capture metadata captured_at_utc must be an ISO-8601 UTC timestamp");
   }
   const capturedAt = new Date(input.capturedAtUtc);
   if (!Number.isFinite(capturedAt.getTime())) throw new Error("Capture metadata captured_at_utc is invalid");
+
+  const schemaVersion = input.schemaVersion ?? 2;
+  if (schemaVersion !== 2 && schemaVersion !== 3) throw new Error("Capture metadata schema_version is invalid");
+  let capturedZoneGeometry: HandoffZoneGeometry | undefined;
+  let capturedZoneConfigSha256: string | undefined;
+  let imageDimensions: { width: number; height: number } | undefined;
+  if (schemaVersion === 3) {
+    capturedZoneGeometry = parseHandoffZoneGeometry(input.zoneGeometry);
+    if (!SHA256_PATTERN.test(input.zoneConfigSha256 ?? "")) {
+      throw new Error("Capture metadata zone_config_sha256 is invalid");
+    }
+    capturedZoneConfigSha256 = input.zoneConfigSha256;
+    const candidate = input.imageDimensions as { width?: unknown; height?: unknown } | undefined;
+    const width = candidate?.width;
+    const height = candidate?.height;
+    if (typeof width !== "number" || typeof height !== "number" || !Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width > 16_384 || height > 16_384) {
+      throw new Error("Capture metadata image_dimensions is invalid");
+    }
+    imageDimensions = { width, height };
+  }
 
   return {
     camera: "handoff",
@@ -74,16 +103,24 @@ export function parseHandoffCaptureMetadata(input: {
     capturedAt,
     capturedAtUtc: input.capturedAtUtc,
     imageSha256: input.imageSha256,
+    schemaVersion,
+    capturedZoneGeometry,
+    capturedZoneConfigSha256,
+    imageDimensions,
   };
 }
 
 export function handoffCaptureMetadataJson(metadata: HandoffCaptureMetadata) {
   return JSON.stringify({
+    schema_version: metadata.schemaVersion,
     camera: metadata.camera,
     cup_zone: metadata.cupZone,
     cup_event_id: metadata.cupEventId,
     captured_at_utc: metadata.capturedAtUtc,
     image_sha256: metadata.imageSha256,
+    ...(metadata.capturedZoneGeometry ? { zone_geometry: JSON.parse(serializeHandoffZoneGeometry(metadata.capturedZoneGeometry)) } : {}),
+    ...(metadata.capturedZoneConfigSha256 ? { zone_config_sha256: metadata.capturedZoneConfigSha256 } : {}),
+    ...(metadata.imageDimensions ? { image_dimensions: metadata.imageDimensions } : {}),
   });
 }
 
