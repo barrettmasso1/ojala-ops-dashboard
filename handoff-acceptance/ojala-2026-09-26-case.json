@@ -28,18 +28,50 @@
     "must_be_labeled": "recording_extracted_frame",
     "must_not_be_labeled": "automatic Frigate success"
   },
-  "known_result_at_manifest_creation": {
-    "ai_reviews_executed_against_original_evidence": 0,
-    "visible_cups_validated_from_original_image_or_video": null,
-    "boxes_or_confidences_from_original_evidence": [],
-    "root_cause_of_omission": "unconfirmed_pending_original_zip"
+  "isolated_real_evaluation": {
+    "archive_sha256": "ecd1783b153c514813a706f88b2b7866f301032b2b1426f2793f5d3fedaee239",
+    "source_recording_sha256": "7f73aa3481abe959f8ff0af6ed2be28867a1d0704e366aa546bd60eda3104b85",
+    "database": "local-only MariaDB; not a production or preview connection",
+    "vision_model": "gemini-3.1-pro-preview",
+    "source_images_committed_or_published": false,
+    "recording_scene": {
+      "origin": "recording_extracted_frame",
+      "replay_frame_sha256": "12db915d447fdcfd6301e36010e75d60fc3ae85c614859dbd87f5787f4b48ff0",
+      "supplied_control_frame_sha256": "4f69bf54fffc4d4056a154897f23e4c6a6de0563910cd622887b1c4b05d4d2e8",
+      "ai_person_present": true,
+      "ai_gelato_cup_present": true,
+      "ai_cup_in_handoff_zone": true,
+      "ai_visible_cup_count": 1,
+      "ai_confidence": "high",
+      "ai_ambiguous": false,
+      "ai_person_box_count": 4,
+      "ai_gelato_cup_box_count": 1,
+      "persisted_status_in_rehearsal": "pending_review",
+      "ai_suggested_status_in_rehearsal": "approved_by_ai"
+    },
+    "automatic_capture": {
+      "origin": "automatic_frigate_capture",
+      "image_sha256": "cf966ba9717edbe26f11e829cd1ab4ddc296226e0522a8638a5b8afb42aadf4a",
+      "ai_visible_cup_count": 4,
+      "ai_confidence": "high",
+      "ai_person_box_count": 4,
+      "ai_gelato_cup_box_count": 4
+    },
+    "operational_side_effects": {
+      "frigate_cup_counts_created": 0,
+      "sales_created": 0,
+      "deliveries_created": 0,
+      "inventory_records_created": 0,
+      "revenue_records_created": 0
+    },
+    "root_cause_of_omission": "not_attributed: no detector trace or box log exists for the 17:02:38 scene in the supplied evidence"
   },
   "acceptance_assertions": [
     "Keep tracks, automatic captures, extracted frames, visual observations, and human sales reference as separate measures.",
     "The source recovery proposal may create manager-review evidence only; it must not create sales, deliveries, Frigate cup counts, inventory movements, or revenue.",
     "One or more recording-extracted frames from the 17:02:38 scene must remain distinct from the one automatic capture at 17:04:57.764.",
-    "The original evidence ZIP is required before determining detector discard cause, frame boxes, model confidence, or visible-cup count.",
-    "A candidate is eligible for AI review only when the extracted frame is retained with its source timestamp, checksum, configured handoff-zone version, and isolated provenance."
+    "A candidate is eligible for AI review only when the extracted frame is retained with its source timestamp, checksum, configured handoff-zone version, and isolated provenance.",
+    "A high-confidence AI suggestion for a recording-extracted frame must remain pending manager review and must not be labeled an automatic Frigate success."
   ],
   "measurement_plan": {
     "candidate_recall": "manually confirmed person+gelato-cup+handoff-zone scenes offered to review / all manually confirmed scenes in the original recording window",

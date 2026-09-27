@@ -2810,6 +2810,7 @@ export async function finalizeHandoffVisualAnalysis(input: {
       confidence: input.analysis.confidence,
       analysisModel: input.analysis.model ?? "platform-default-vision",
       analysisReason: input.analysis.reason,
+      analysisEvidenceJson: JSON.stringify(input.analysis.evidence),
       analysisLeaseUntil: null,
       analysisLeaseToken: null,
       nextRetryAt: null,
