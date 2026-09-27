@@ -2689,6 +2689,29 @@ export async function queueHandoffVisualForZoneConfiguration(input: { id: number
   return getHandoffVisualEventById(input);
 }
 
+/**
+ * A capture's v3 sidecar may record geometry for auditing, but that geometry
+ * cannot override the authenticated store/camera configuration. Keep a
+ * mismatch reviewable and terminal to automatic retries until a manager
+ * resolves it.
+ */
+export async function queueHandoffVisualForZoneMismatch(input: { id: number; storeId: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .update(frigateHandoffVisualEvents)
+    .set({
+      nextRetryAt: null,
+      lastAnalysisError: "Capture-side zone metadata does not match the configured store/camera handoff zone. The verified capture requires manager review.",
+    })
+    .where(and(
+      eq(frigateHandoffVisualEvents.id, input.id),
+      eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
+      eq(frigateHandoffVisualEvents.analysisStatus, "pending_review"),
+    ));
+  return getHandoffVisualEventById(input);
+}
+
 export async function attachHandoffVisualImage(input: {
   id: number;
   storeId: number;
@@ -2771,6 +2794,7 @@ export async function finalizeHandoffVisualAnalysis(input: {
       cupInHandoffZone: input.analysis.cupInHandoffZone ? 1 : 0,
       visibleCupCount: input.analysis.visibleCupCount,
       confidence: input.analysis.confidence,
+      analysisModel: input.analysis.model ?? "platform-default-vision",
       analysisReason: input.analysis.reason,
       analysisLeaseUntil: null,
       analysisLeaseToken: null,

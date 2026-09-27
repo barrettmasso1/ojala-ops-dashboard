@@ -30,6 +30,7 @@ export type NormalizedHandoffVisualAnalysis = {
   confidence: HandoffVisualConfidence;
   status: Extract<HandoffVisualStatus, "pending_review" | "approved_by_ai" | "discarded">;
   reason: string;
+  model?: string;
 };
 
 const MAX_VISIBLE_CUPS = 8;
@@ -195,5 +196,10 @@ export async function analyzeHandoffVisualImage(input: {
     throw new Error("Handoff image analysis returned an unexpected response");
   }
 
-  return classifyHandoffVisualResult(JSON.parse(content) as HandoffVisualModelResult);
+  return {
+    ...classifyHandoffVisualResult(JSON.parse(content) as HandoffVisualModelResult),
+    // Persist the provider-returned model identifier for later audit; model
+    // selection remains centralized in the project's existing LLM helper.
+    model: response.model || "platform-default-vision",
+  };
 }
