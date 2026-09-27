@@ -269,6 +269,7 @@ export const frigateHandoffVisualEvents = mysqlTable("frigateHandoffVisualEvents
   visibleCupCount: int("visibleCupCount").notNull().default(0),
   confidence: mysqlEnum("confidence", ["high", "medium", "low"]).notNull().default("low"),
   analysisReason: text("analysisReason"),
+  analysisEvidenceJson: text("analysisEvidenceJson"),
   analysisAttempts: int("analysisAttempts").notNull().default(0),
   nextRetryAt: timestamp("nextRetryAt"),
   analysisLeaseUntil: timestamp("analysisLeaseUntil"),

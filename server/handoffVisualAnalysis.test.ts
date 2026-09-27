@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  analyzeHandoffVisualImage,
   classifyHandoffVisualResult,
   getHandoffVisualRetryDelayMs,
+  HANDOFF_VISUAL_MODEL,
   withHandoffVisualAnalysisTimeout,
 } from "./handoffVisualAnalysis";
 import {
@@ -11,6 +13,55 @@ import {
 } from "./handoffVisualPayload";
 
 describe("handoff visual classifier", () => {
+  it("uses the scoped Gemini Pro model instead of changing the application default", () => {
+    expect(HANDOFF_VISUAL_MODEL).toBe("gemini-3.1-pro-preview");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.BUILT_IN_FORGE_API_KEY;
+    delete process.env.BUILT_IN_FORGE_API_URL;
+  });
+
+  it("sends only this filter through Gemini Pro with strict structured visual evidence", async () => {
+    process.env.BUILT_IN_FORGE_API_KEY = "test-only-key";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        model: HANDOFF_VISUAL_MODEL,
+        choices: [{ message: { content: JSON.stringify({
+          person_present: true,
+          gelato_cup_present: true,
+          cup_in_handoff_zone: true,
+          visible_cup_count: 1,
+          confidence: "high",
+          ambiguous: false,
+          discard_reason: "",
+          review_reason: "",
+          person_boxes: [],
+          gelato_cup_boxes: [],
+        }) } }],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await analyzeHandoffVisualImage({
+      imageUrl: "https://storage.example.test/private.jpg",
+      cameraName: "handoff",
+      handoffZonePolygon: [{ x: 0.45, y: 0.55 }, { x: 0.6, y: 0.55 }, { x: 0.6, y: 0.7 }],
+      handoffZoneGeometryVersion: 1,
+    });
+
+    expect(result.model).toBe(HANDOFF_VISUAL_MODEL);
+    const [url, request] = fetchMock.mock.calls[0] as [string, { body: string }];
+    expect(url).toMatch(/\/v1\/chat\/completions$/);
+    expect(JSON.parse(request.body)).toMatchObject({
+      model: HANDOFF_VISUAL_MODEL,
+      max_tokens: 16_384,
+      response_format: { type: "json_schema" },
+    });
+  });
+
   it("approves only a confident person-plus-cup observation inside the configured handoff zone", () => {
     expect(classifyHandoffVisualResult({
       person_present: true,

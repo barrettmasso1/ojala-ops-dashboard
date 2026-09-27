@@ -309,3 +309,7 @@
 - [x] Add offline-only ZIP replay tooling that produces private evidence manifests without network, AI, database, count, sales, delivery, inventory, or revenue writes.
 - [x] Add post-hoc recording-frame provenance, AI suggestion preservation, manager-review-only policy, and a separate non-destructive 0016 migration without altering prior migrations.
 - [x] Validate the proposal with TypeScript, production build, 185 Vitest tests, verified-snapshot sender tests, and offline replay tests; original Ojala ZIP replay remains blocked until the evidence archive is available locally.
+
+- [x] Replay the private Ojala 2026-09-26 handoff case in an isolated workspace; preserve automatic capture and recording-extracted evidence as distinct origins and record hashes, timings, detector metadata, Gemini Pro results, and the unconfirmed omission cause without creating operational records.
+- [x] Add persisted Gemini Pro box-audit evidence through additive migration 0017 and scope Gemini 3.1 Pro to the handoff visual filter without changing the application-wide LLM default.
+- [x] Add a review-only person-in-zone recovery-candidate selector with scene deduplication; require the existing person + gelato cup + configured-zone visual gate and manager review before any interpretation.

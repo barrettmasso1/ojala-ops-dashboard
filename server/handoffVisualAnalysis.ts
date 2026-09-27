@@ -1,4 +1,4 @@
-import { invokeLLM } from "./_core/llm";
+import { ENV } from "./_core/env";
 
 export const HANDOFF_VISUAL_STATUSES = [
   "pending_review",
@@ -11,6 +11,14 @@ export const HANDOFF_VISUAL_STATUSES = [
 export type HandoffVisualStatus = (typeof HANDOFF_VISUAL_STATUSES)[number];
 export type HandoffVisualConfidence = "high" | "medium" | "low";
 
+export type HandoffVisualBox = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  confidence: HandoffVisualConfidence;
+};
+
 export type HandoffVisualModelResult = {
   person_present: boolean;
   gelato_cup_present: boolean;
@@ -20,6 +28,8 @@ export type HandoffVisualModelResult = {
   ambiguous: boolean;
   discard_reason: string;
   review_reason: string;
+  person_boxes?: HandoffVisualBox[];
+  gelato_cup_boxes?: HandoffVisualBox[];
 };
 
 export type NormalizedHandoffVisualAnalysis = {
@@ -30,11 +40,46 @@ export type NormalizedHandoffVisualAnalysis = {
   confidence: HandoffVisualConfidence;
   status: Extract<HandoffVisualStatus, "pending_review" | "approved_by_ai" | "discarded">;
   reason: string;
+  evidence: {
+    personBoxes: HandoffVisualBox[];
+    gelatoCupBoxes: HandoffVisualBox[];
+  };
   model?: string;
 };
 
 const MAX_VISIBLE_CUPS = 8;
 export const HANDOFF_VISUAL_ANALYSIS_TIMEOUT_MS = 45_000;
+export const HANDOFF_VISUAL_MODEL = "gemini-3.1-pro-preview";
+
+type HandoffVisualModelResponse = {
+  model?: string;
+  choices?: Array<{ message?: { content?: unknown } }>;
+};
+
+/**
+ * A narrowly scoped Gemini Pro call so this safety filter can use high-detail
+ * vision without changing model selection for other application workflows.
+ */
+async function invokeHandoffVisualModel(payload: Record<string, unknown>): Promise<HandoffVisualModelResponse> {
+  const forgeApiKey = ENV.forgeApiKey || process.env.BUILT_IN_FORGE_API_KEY || "";
+  const forgeApiUrl = ENV.forgeApiUrl || process.env.BUILT_IN_FORGE_API_URL || "";
+  if (!forgeApiKey) throw new Error("Vision model credentials are not configured");
+  const baseUrl = (forgeApiUrl || "https://forge.manus.im").replace(/\/$/, "");
+  const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${forgeApiKey}`,
+    },
+    body: JSON.stringify({
+      model: HANDOFF_VISUAL_MODEL,
+      max_tokens: 16_384,
+      ...payload,
+    }),
+  });
+  if (!response.ok) throw new Error(`Handoff image analysis failed with ${response.status}`);
+  return await response.json() as HandoffVisualModelResponse;
+}
 
 /**
  * The underlying request may finish after this timeout, but callers use a
@@ -68,6 +113,28 @@ function normalizeCount(value: unknown) {
   return Math.min(MAX_VISIBLE_CUPS, Math.max(0, numeric));
 }
 
+function normalizeCoordinate(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
+}
+
+function normalizeBoxes(value: unknown): HandoffVisualBox[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, MAX_VISIBLE_CUPS).flatMap(item => {
+    if (!item || typeof item !== "object") return [];
+    const box = item as Record<string, unknown>;
+    const width = normalizeCoordinate(box.width);
+    const height = normalizeCoordinate(box.height);
+    if (width === 0 || height === 0) return [];
+    return [{
+      x: normalizeCoordinate(box.x),
+      y: normalizeCoordinate(box.y),
+      width,
+      height,
+      confidence: normalizeConfidence(box.confidence),
+    }];
+  });
+}
+
 /**
  * Converts a strict vision-model response to a conservative workflow state.
  * A photo is never an order, sale, delivery, or inventory mutation.
@@ -81,6 +148,10 @@ export function classifyHandoffVisualResult(result: HandoffVisualModelResult): N
   const ambiguous = Boolean(result.ambiguous);
   const discardReason = normalizeText(result.discard_reason);
   const reviewReason = normalizeText(result.review_reason);
+  const evidence = {
+    personBoxes: normalizeBoxes(result.person_boxes),
+    gelatoCupBoxes: normalizeBoxes(result.gelato_cup_boxes),
+  };
 
   if (
     ambiguous ||
@@ -96,6 +167,7 @@ export function classifyHandoffVisualResult(result: HandoffVisualModelResult): N
       confidence,
       status: "pending_review",
       reason: reviewReason || "The visual evidence is ambiguous and requires manager review.",
+      evidence,
     };
   }
 
@@ -108,6 +180,7 @@ export function classifyHandoffVisualResult(result: HandoffVisualModelResult): N
       confidence,
       status: "approved_by_ai",
       reason: "Person, gelato cup, and handoff zone were all confirmed in the same image.",
+      evidence,
     };
   }
 
@@ -119,6 +192,7 @@ export function classifyHandoffVisualResult(result: HandoffVisualModelResult): N
     confidence,
     status: "discarded",
     reason: discardReason || "The image does not meet the handoff visual criteria.",
+    evidence,
   };
 }
 
@@ -134,7 +208,7 @@ export async function analyzeHandoffVisualImage(input: {
   handoffZonePolygon: Array<{ x: number; y: number }>;
   handoffZoneGeometryVersion: number;
 }): Promise<NormalizedHandoffVisualAnalysis> {
-  const response = await withHandoffVisualAnalysisTimeout(invokeLLM({
+  const response = await withHandoffVisualAnalysisTimeout(invokeHandoffVisualModel({
     messages: [
       {
         role: "system",
@@ -146,7 +220,7 @@ export async function analyzeHandoffVisualImage(input: {
         content: [
           {
             type: "text",
-            text: `Camera: ${input.cameraName}. The active handoff_zone is a normalized-image polygon (x,y in 0..1), version ${input.handoffZoneGeometryVersion}: ${JSON.stringify(input.handoffZonePolygon)}. Inspect this verified handoff snapshot. Report only visible evidence: whether a person is present, whether a gelato cup is present, whether the cup is inside that exact configured polygon, and the number of visible gelato cups. Do not count lamps, arms, hands, reflections, or other objects as cups. If the polygon cannot be related to the visible image, mark the result ambiguous.`,
+            text: `Camera: ${input.cameraName}. The active handoff_zone is a normalized-image polygon (x,y in 0..1), version ${input.handoffZoneGeometryVersion}: ${JSON.stringify(input.handoffZonePolygon)}. Inspect this verified handoff snapshot. Report only visible evidence: whether a person is present, whether a gelato cup is present, whether the cup is inside that exact configured polygon, and the number of visible gelato cups. Return normalized x/y/width/height boxes for every person and cup you relied on (origin at the upper-left); boxes are audit evidence only, not a sale or delivery. Do not count lamps, arms, hands, reflections, or other objects as cups. If the polygon cannot be related to the visible image, mark the result ambiguous.`,
           },
           {
             type: "image_url",
@@ -174,6 +248,38 @@ export async function analyzeHandoffVisualImage(input: {
             ambiguous: { type: "boolean" },
             discard_reason: { type: "string" },
             review_reason: { type: "string" },
+            person_boxes: {
+              type: "array",
+              maxItems: MAX_VISIBLE_CUPS,
+              items: {
+                type: "object",
+                properties: {
+                  x: { type: "number", minimum: 0, maximum: 1 },
+                  y: { type: "number", minimum: 0, maximum: 1 },
+                  width: { type: "number", minimum: 0, maximum: 1 },
+                  height: { type: "number", minimum: 0, maximum: 1 },
+                  confidence: { type: "string", enum: ["high", "medium", "low"] },
+                },
+                required: ["x", "y", "width", "height", "confidence"],
+                additionalProperties: false,
+              },
+            },
+            gelato_cup_boxes: {
+              type: "array",
+              maxItems: MAX_VISIBLE_CUPS,
+              items: {
+                type: "object",
+                properties: {
+                  x: { type: "number", minimum: 0, maximum: 1 },
+                  y: { type: "number", minimum: 0, maximum: 1 },
+                  width: { type: "number", minimum: 0, maximum: 1 },
+                  height: { type: "number", minimum: 0, maximum: 1 },
+                  confidence: { type: "string", enum: ["high", "medium", "low"] },
+                },
+                required: ["x", "y", "width", "height", "confidence"],
+                additionalProperties: false,
+              },
+            },
           },
           required: [
             "person_present",
@@ -184,6 +290,8 @@ export async function analyzeHandoffVisualImage(input: {
             "ambiguous",
             "discard_reason",
             "review_reason",
+            "person_boxes",
+            "gelato_cup_boxes",
           ],
           additionalProperties: false,
         },
@@ -191,15 +299,15 @@ export async function analyzeHandoffVisualImage(input: {
     },
   }));
 
-  const content = response.choices[0]?.message.content;
+  const content = response.choices?.[0]?.message?.content;
   if (typeof content !== "string") {
     throw new Error("Handoff image analysis returned an unexpected response");
   }
 
   return {
     ...classifyHandoffVisualResult(JSON.parse(content) as HandoffVisualModelResult),
-    // Persist the provider-returned model identifier for later audit; model
-    // selection remains centralized in the project's existing LLM helper.
-    model: response.model || "platform-default-vision",
+    // Persist the returned model identifier for later audit; this scoped
+    // safety filter deliberately uses Gemini Pro rather than the app default.
+    model: response.model || HANDOFF_VISUAL_MODEL,
   };
 }
