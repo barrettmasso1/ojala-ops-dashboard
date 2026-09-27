@@ -1,0 +1,51 @@
+{
+  "case_id": "ojala-2026-09-26-165652-170652",
+  "store": "Ojala Gelato",
+  "camera": "handoff",
+  "timezone": "America/Mazatlan",
+  "window_local": {
+    "start": "2026-09-26T16:56:52",
+    "end": "2026-09-26T17:06:52"
+  },
+  "human_reference": {
+    "operator_reported_medium_gelato_cups_sold": 2,
+    "is_automatically_validated_size": false,
+    "note": "Cup size is an operator-provided reference only; neither Frigate nor the visual filter has validated medium size."
+  },
+  "automatic_frigate_observations": {
+    "cup_tracks": 1,
+    "cup_event_ids": ["1790467493.946143-9rdbpk"],
+    "automatic_capture_pairs": 1,
+    "automatic_capture_local_time": "2026-09-26T17:04:57.764",
+    "sender_queue_records": 1,
+    "sender_successful_sends": 0
+  },
+  "recording_only_scene": {
+    "approximate_local_time": "2026-09-26T17:02:38",
+    "operator_observation": "A scene with an apparent cup is visible in the recording, but there is no independent Frigate cup_event or automatic capture pair.",
+    "automatic_event_or_capture": false,
+    "requires_original_sequence": true,
+    "must_be_labeled": "recording_extracted_frame",
+    "must_not_be_labeled": "automatic Frigate success"
+  },
+  "known_result_at_manifest_creation": {
+    "ai_reviews_executed_against_original_evidence": 0,
+    "visible_cups_validated_from_original_image_or_video": null,
+    "boxes_or_confidences_from_original_evidence": [],
+    "root_cause_of_omission": "unconfirmed_pending_original_zip"
+  },
+  "acceptance_assertions": [
+    "Keep tracks, automatic captures, extracted frames, visual observations, and human sales reference as separate measures.",
+    "The source recovery proposal may create manager-review evidence only; it must not create sales, deliveries, Frigate cup counts, inventory movements, or revenue.",
+    "One or more recording-extracted frames from the 17:02:38 scene must remain distinct from the one automatic capture at 17:04:57.764.",
+    "The original evidence ZIP is required before determining detector discard cause, frame boxes, model confidence, or visible-cup count.",
+    "A candidate is eligible for AI review only when the extracted frame is retained with its source timestamp, checksum, configured handoff-zone version, and isolated provenance."
+  ],
+  "measurement_plan": {
+    "candidate_recall": "manually confirmed person+gelato-cup+handoff-zone scenes offered to review / all manually confirmed scenes in the original recording window",
+    "review_precision": "manager-approved recovery candidates / all recovery candidates presented to the manager",
+    "false_candidate_rate": "recovery candidates discarded by a manager / minutes of reviewed source video",
+    "operational_side_effects": "must equal zero for Frigate cup counts, sales, deliveries, inventory, and revenue",
+    "deduplication_key": "storeId + cameraName + cupEventId; an extracted frame receives a recovery-scene identifier and cannot reuse the automatic event identifier"
+  }
+}
