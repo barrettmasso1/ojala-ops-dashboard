@@ -304,3 +304,8 @@
 - [x] Require a manager-configured per-store, per-camera handoff polygon; retain captures without geometry as pending evidence instead of approving them
 - [x] Require a verified image plus JSON sidecar with camera, cup_zone, event ID, original UTC capture time, and image SHA-256; reject corrupt or mismatched pairs
 - [x] Add analysis timeout, lease-token finalization, expired-lease recovery, and manager-review race guards; add an isolated no-network real-image trial preparer
+
+- [x] Add the Ojala 2026-09-26 handoff case as a false-negative-by-scene acceptance manifest, keeping human sales reference, Frigate tracks, automatic capture, and later recording frames separate.
+- [x] Add offline-only ZIP replay tooling that produces private evidence manifests without network, AI, database, count, sales, delivery, inventory, or revenue writes.
+- [x] Add post-hoc recording-frame provenance, AI suggestion preservation, manager-review-only policy, and a separate non-destructive 0016 migration without altering prior migrations.
+- [x] Validate the proposal with TypeScript, production build, 185 Vitest tests, verified-snapshot sender tests, and offline replay tests; original Ojala ZIP replay remains blocked until the evidence archive is available locally.

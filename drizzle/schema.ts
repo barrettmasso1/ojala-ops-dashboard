@@ -258,8 +258,10 @@ export const frigateHandoffVisualEvents = mysqlTable("frigateHandoffVisualEvents
   zoneId: int("zoneId").references(() => frigateCameraZones.id, { onDelete: "restrict", onUpdate: "cascade" }),
   zoneGeometryVersion: int("zoneGeometryVersion"),
   zoneGeometryJson: text("zoneGeometryJson"),
+  evidenceOrigin: mysqlEnum("evidenceOrigin", ["verified_snapshot", "recording_extracted_frame"]).notNull().default("verified_snapshot"),
   sourceDetail: text("sourceDetail"),
   analysisStatus: mysqlEnum("analysisStatus", ["pending_review", "approved_by_ai", "discarded", "approved_by_manager", "discarded_by_manager"]).notNull().default("pending_review"),
+  aiSuggestedStatus: mysqlEnum("aiSuggestedStatus", ["pending_review", "approved_by_ai", "discarded"]),
   analysisModel: varchar("analysisModel", { length: 96 }).notNull().default("platform-default-vision"),
   personPresent: int("personPresent").notNull().default(0),
   gelatoCupPresent: int("gelatoCupPresent").notNull().default(0),
@@ -283,6 +285,7 @@ export const frigateHandoffVisualEvents = mysqlTable("frigateHandoffVisualEvents
   storeCameraEventUnique: uniqueIndex("frigateHandoffVisualEvents_store_camera_event_unique").on(table.storeId, table.cameraName, table.cupEventId),
   reviewQueueIndex: index("idx_frigateHandoffVisualEvents_review_queue").on(table.storeId, table.analysisStatus, table.nextRetryAt),
   capturedAtIndex: index("idx_frigateHandoffVisualEvents_capturedAt").on(table.storeId, table.capturedAt),
+  originIndex: index("idx_frigateHandoffVisualEvents_origin").on(table.storeId, table.evidenceOrigin, table.capturedAt),
 }));
 
 export const recipes = mysqlTable("recipes", {

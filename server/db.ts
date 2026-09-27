@@ -2602,6 +2602,7 @@ export async function reserveHandoffVisualEvent(input: {
   zoneId?: number;
   zoneGeometryVersion?: number;
   zoneGeometryJson?: string;
+  evidenceOrigin?: "verified_snapshot" | "recording_extracted_frame";
   sourceDetail?: string;
 }) {
   const db = await getDb();
@@ -2614,7 +2615,12 @@ export async function reserveHandoffVisualEvent(input: {
     eq(frigateHandoffVisualEvents.cupEventId, input.cupEventId),
   );
   const existing = await db.select().from(frigateHandoffVisualEvents).where(where).limit(1);
-  if (existing[0]) return { event: existing[0], created: false };
+  if (existing[0]) {
+    if (existing[0].evidenceOrigin !== (input.evidenceOrigin ?? "verified_snapshot")) {
+      throw new Error("cup_event_id is already reserved for a different evidence origin");
+    }
+    return { event: existing[0], created: false };
+  }
 
   try {
     await db.insert(frigateHandoffVisualEvents).values({
@@ -2628,6 +2634,7 @@ export async function reserveHandoffVisualEvent(input: {
       zoneId: input.zoneId ?? null,
       zoneGeometryVersion: input.zoneGeometryVersion ?? null,
       zoneGeometryJson: input.zoneGeometryJson ?? null,
+      evidenceOrigin: input.evidenceOrigin ?? "verified_snapshot",
       sourceDetail: input.sourceDetail ?? "",
       analysisStatus: "pending_review",
       imageMimeType: "application/octet-stream",
@@ -2635,7 +2642,12 @@ export async function reserveHandoffVisualEvent(input: {
   } catch (error) {
     // The unique key is the concurrency boundary when two sender retries race.
     const concurrent = await db.select().from(frigateHandoffVisualEvents).where(where).limit(1);
-    if (concurrent[0]) return { event: concurrent[0], created: false };
+    if (concurrent[0]) {
+      if (concurrent[0].evidenceOrigin !== (input.evidenceOrigin ?? "verified_snapshot")) {
+        throw new Error("cup_event_id is already reserved for a different evidence origin");
+      }
+      return { event: concurrent[0], created: false };
+    }
     throw error;
   }
 
@@ -2781,6 +2793,7 @@ export async function finalizeHandoffVisualAnalysis(input: {
   storeId: number;
   analysisLeaseToken: string;
   analysis: NormalizedHandoffVisualAnalysis;
+  aiSuggestedStatus?: "pending_review" | "approved_by_ai" | "discarded";
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -2789,6 +2802,7 @@ export async function finalizeHandoffVisualAnalysis(input: {
     .update(frigateHandoffVisualEvents)
     .set({
       analysisStatus: input.analysis.status,
+      aiSuggestedStatus: input.aiSuggestedStatus ?? input.analysis.status,
       personPresent: input.analysis.personPresent ? 1 : 0,
       gelatoCupPresent: input.analysis.gelatoCupPresent ? 1 : 0,
       cupInHandoffZone: input.analysis.cupInHandoffZone ? 1 : 0,
