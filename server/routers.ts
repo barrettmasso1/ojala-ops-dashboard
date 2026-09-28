@@ -830,7 +830,7 @@ export const appRouter = router({
         const store = await resolveFrigateStore(input.apiKey);
         if (!store) {
           recordCredentialFailure("frigate", clientKey);
-          throw new Error("Unauthorized");
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Unauthorized" });
         }
         clearCredentialFailures("frigate", clientKey);
 

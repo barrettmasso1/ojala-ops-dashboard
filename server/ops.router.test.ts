@@ -377,6 +377,19 @@ describe("operations router", () => {
     expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();
   });
 
+  it("returns an unauthorized tRPC error for an invalid visual Frigate credential", async () => {
+    const caller = appRouter.createCaller(createContext(null));
+
+    await expect(caller.frigate.submitHandoffVisual({
+      apiKey: "not-a-valid-frigate-key",
+      capture: visualCapture("cup-event-invalid-key"),
+      imageDataUrl: visualImageDataUrl,
+    })).rejects.toMatchObject({ code: "UNAUTHORIZED", message: "Unauthorized" });
+
+    expect(dbMocks.reserveHandoffVisualEvent).not.toHaveBeenCalled();
+    expect(storageMocks.storagePut).not.toHaveBeenCalled();
+  });
+
   it("keeps a recording-extracted recovery frame separate from an automatic Frigate success", async () => {
     dbMocks.reserveHandoffVisualEvent.mockResolvedValueOnce({
       event: {
