@@ -313,3 +313,7 @@
 - [x] Replay the private Ojala 2026-09-26 handoff case in an isolated workspace; preserve automatic capture and recording-extracted evidence as distinct origins and record hashes, timings, detector metadata, Gemini Pro results, and the unconfirmed omission cause without creating operational records.
 - [x] Add persisted Gemini Pro box-audit evidence through additive migration 0017 and scope Gemini 3.1 Pro to the handoff visual filter without changing the application-wide LLM default.
 - [x] Add a review-only person-in-zone recovery-candidate selector with scene deduplication; require the existing person + gelato cup + configured-zone visual gate and manager review before any interpretation.
+
+- [x] Verify the private five-image archive and run the supplied neutral-image vision evaluation without publishing media
+- [x] Perform an isolated HTTPS sender-to-receiver rehearsal with a managed Store 1 credential, retry, deduplication, human correction, and Store 2 containment checks
+- [x] Add the visual invalid-credential regression and publish sanitized five-image acceptance evidence to the review stack
