@@ -60,6 +60,7 @@ import { clearCredentialFailures, getCredentialRetryAfterMs, recordCredentialFai
 import { normalizeFrigateEventAt } from "./frigateEventOrder";
 import { storeAdminRouter } from "./storeAdminRouter";
 import { analyzeHandoffVisualImage, getHandoffVisualRetryDelayMs } from "./handoffVisualAnalysis";
+import { applyEvidenceOriginPolicy, type HandoffEvidenceOrigin } from "./handoffEvidenceOrigin";
 import { decodeHandoffImageDataUrl, handoffCaptureMetadataJson, handoffImageExtension, parseHandoffCaptureMetadata } from "./handoffVisualPayload";
 import { storageGetSignedUrl, storagePut } from "./storage";
 import { getBusinessDate } from "../shared/businessDate";
@@ -375,6 +376,7 @@ async function processHandoffVisualEvent(input: {
   storeTimeZone: string;
   metadata: ReturnType<typeof parseHandoffCaptureMetadata>;
   sourceDetail: string;
+  evidenceOrigin: HandoffEvidenceOrigin;
   imageDataUrl: string;
 }) {
   const decoded = decodeHandoffImageDataUrl(input.imageDataUrl);
@@ -394,15 +396,20 @@ async function processHandoffVisualEvent(input: {
     zoneId: activeZone?.id,
     zoneGeometryVersion: activeZone?.geometryVersion,
     zoneGeometryJson: activeZone?.polygonJson,
+    evidenceOrigin: input.evidenceOrigin,
     sourceDetail: input.sourceDetail,
   });
   let event = reserved.event;
 
   // The store/camera/event tuple identifies a capture. A retry must preserve
-  // its original identity; reusing that ID with different image bytes is not a
-  // correction and is rejected before it can mutate the durable evidence.
-  if (event.imageSha256 !== input.metadata.imageSha256 || storedCaptureTimestamp(event) !== input.metadata.capturedAtUtc) {
-    throw new Error("cup_event_id is already reserved for a different verified capture");
+  // its original identity and provenance; reusing an ID across capture origins
+  // could make a recovered frame look like an automatic Frigate success.
+  if (
+    event.imageSha256 !== input.metadata.imageSha256 ||
+    storedCaptureTimestamp(event) !== input.metadata.capturedAtUtc ||
+    event.evidenceOrigin !== input.evidenceOrigin
+  ) {
+    throw new Error("cup_event_id is already reserved for a different visual evidence record");
   }
 
   // Terminal reviews are immutable to sender retries. A photo cannot alter a
@@ -412,8 +419,11 @@ async function processHandoffVisualEvent(input: {
   }
 
   if (!event.imageKey) {
+    const storagePrefix = event.evidenceOrigin === "recording_extracted_frame"
+      ? "frigate-handoff-recovery"
+      : "frigate-handoff-verified";
     const uploaded = await storagePut(
-      `frigate-handoff-verified/store-${input.storeId}/${input.metadata.camera}/${input.metadata.cupEventId}-${decoded.checksum.slice(0, 16)}.${handoffImageExtension(decoded.mimeType)}`,
+      `${storagePrefix}/store-${input.storeId}/${input.metadata.camera}/${input.metadata.cupEventId}-${decoded.checksum.slice(0, 16)}.${handoffImageExtension(decoded.mimeType)}`,
       decoded.buffer,
       decoded.mimeType,
     );
@@ -475,7 +485,14 @@ async function processHandoffVisualEvent(input: {
       handoffZonePolygon: geometry.points,
       handoffZoneGeometryVersion: event.zoneGeometryVersion!,
     });
-    const completed = await finalizeHandoffVisualAnalysis({ id: event.id, storeId: input.storeId, analysisLeaseToken, analysis });
+    const originPolicy = applyEvidenceOriginPolicy({ origin: event.evidenceOrigin, analysis });
+    const completed = await finalizeHandoffVisualAnalysis({
+      id: event.id,
+      storeId: input.storeId,
+      analysisLeaseToken,
+      analysis: originPolicy.analysis,
+      aiSuggestedStatus: originPolicy.aiSuggestedStatus,
+    });
     return { eventId: completed.id, status: completed.analysisStatus, disposition: "analyzed" as const, retryable: false };
   } catch {
     const deferred = await deferHandoffVisualAnalysis({
@@ -813,7 +830,7 @@ export const appRouter = router({
         const store = await resolveFrigateStore(input.apiKey);
         if (!store) {
           recordCredentialFailure("frigate", clientKey);
-          throw new Error("Unauthorized");
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Unauthorized" });
         }
         clearCredentialFailures("frigate", clientKey);
 
@@ -837,6 +854,7 @@ export const appRouter = router({
           storeTimeZone: store.timezone,
           metadata,
           imageDataUrl: input.imageDataUrl,
+          evidenceOrigin: "verified_snapshot",
           sourceDetail: input.sourceDetail,
         });
 
@@ -984,6 +1002,54 @@ export const appRouter = router({
         }).optional()
       )
       .query(async ({ ctx, input }) => listSubmissionHistoryEntries(input?.businessDate, ctx.user.storeId)),
+    importRecordingExtractedHandoffFrame: adminProcedure
+      .input(z.object({
+        caseReference: z.string().regex(/^[A-Za-z0-9._-]{8,128}$/),
+        imageDataUrl: z.string().min(32).max(12 * 1024 * 1024),
+        capture: z.object({
+          schema_version: z.literal(3),
+          camera: z.literal("handoff"),
+          cup_zone: z.literal("handoff_zone"),
+          cup_event_id: z.string().min(8).max(128),
+          captured_at_utc: z.string().min(20).max(40),
+          image_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+          zone_geometry: z.array(z.object({ x: z.number(), y: z.number() })).min(3).max(16),
+          zone_config_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+          image_dimensions: z.object({ width: z.number().int(), height: z.number().int() }),
+        }),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const store = await getActiveStoreById(ctx.user.storeId);
+        if (!store) throw new TRPCError({ code: "FORBIDDEN", message: "The current store is not active" });
+
+        let metadata: ReturnType<typeof parseHandoffCaptureMetadata>;
+        try {
+          metadata = parseHandoffCaptureMetadata({
+            camera: input.capture.camera,
+            cupZone: input.capture.cup_zone,
+            cupEventId: input.capture.cup_event_id,
+            capturedAtUtc: input.capture.captured_at_utc,
+            imageSha256: input.capture.image_sha256,
+            schemaVersion: input.capture.schema_version,
+            zoneGeometry: input.capture.zone_geometry,
+            zoneConfigSha256: input.capture.zone_config_sha256,
+            imageDimensions: input.capture.image_dimensions,
+          });
+        } catch (error) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Invalid recovered scene metadata" });
+        }
+
+        const result = await processHandoffVisualEvent({
+          storeId: store.id,
+          storeTimeZone: store.timezone,
+          metadata,
+          imageDataUrl: input.imageDataUrl,
+          evidenceOrigin: "recording_extracted_frame",
+          sourceDetail: `recording_extracted_case:${input.caseReference}`,
+        });
+
+        return { success: true, ...result } as const;
+      }),
     handoffVisualEvents: adminProcedure
       .input(z.object({
         businessDate: optionalBusinessDateSchema,

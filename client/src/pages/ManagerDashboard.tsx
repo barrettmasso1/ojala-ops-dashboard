@@ -106,6 +106,12 @@ function handoffVisualStatusClass(status: HandoffVisualStatus) {
   return "border-[#ead4d4] bg-[#fff5f5] text-[#8a4343]";
 }
 
+function handoffEvidenceOriginLabel(origin: string | null | undefined) {
+  return origin === "recording_extracted_frame"
+    ? "Recording-extracted frame · manager review required"
+    : "Automatic verified snapshot";
+}
+
 type DailyStaffActivityRowInput = {
   staffName: string;
   totalHoursToday: number;
@@ -3158,7 +3164,7 @@ export default function ManagerDashboard() {
               <div>
                 <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Verified handoff snapshots</p>
                 <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Visual review for {selectedDate}</h2>
-                <p className="mt-3 max-w-3xl text-sm leading-7 text-[#66706a]">This queue only contains images submitted through the authenticated verified-snapshot sender. It does not show legacy automatic captures. Reviewing an image changes its evidence label only.</p>
+                <p className="mt-3 max-w-3xl text-sm leading-7 text-[#66706a]">This queue separates automatic verified snapshots from any later recording-extracted recovery frames. A recovered frame is never presented as an automatic Frigate success and remains manager-review evidence only. Reviewing an image changes its evidence label only.</p>
               </div>
               <div className="rounded-[1.3rem] border border-[#e4dccf] bg-[#fbf7f0] px-4 py-3 text-sm leading-6 text-[#68716c]">
                 <div className="flex items-center gap-2"><Camera className="h-4 w-4 text-[#52665f]" /> No sales, deliveries, or inventory updates</div>
@@ -3191,6 +3197,7 @@ export default function ManagerDashboard() {
                             <div>
                               <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">{event.cameraName} · {event.businessDate}</p>
                               <p className="mt-2 text-sm text-[#66706a]">Captured {formatDateTime(event.capturedAt)} · Event {event.cupEventId}</p>
+                              <p className="mt-1 text-xs font-medium uppercase tracking-[0.12em] text-[#68716c]">{handoffEvidenceOriginLabel(event.evidenceOrigin)}</p>
                             </div>
                             <span className={`w-max rounded-full border px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] ${handoffVisualStatusClass(status)}`}>{handoffVisualStatusLabel(status)}</span>
                           </div>
@@ -3203,6 +3210,11 @@ export default function ManagerDashboard() {
                           </div>
 
                           <p className="mt-4 rounded-2xl border border-[#e5ddd0] bg-white/75 px-4 py-3 text-sm leading-6 text-[#56635d]">{event.analysisReason || "Awaiting analysis."}</p>
+                          {event.evidenceOrigin === "recording_extracted_frame" && event.aiSuggestedStatus ? (
+                            <p className="mt-3 rounded-2xl border border-[#eadcb6] bg-[#fff9e9] px-4 py-3 text-sm leading-6 text-[#86672a]">
+                              AI suggestion: {handoffVisualStatusLabel(event.aiSuggestedStatus as HandoffVisualStatus)}. This recovered frame remains manager-review evidence and is not an automatic Frigate success.
+                            </p>
+                          ) : null}
                           {event.lastAnalysisError ? <p className="mt-3 rounded-2xl border border-[#eadcb6] bg-[#fff9e9] px-4 py-3 text-sm leading-6 text-[#86672a]">{event.lastAnalysisError}</p> : null}
                           {event.reviewNotes ? <p className="mt-3 text-sm leading-6 text-[#66706a]">Manager note: {event.reviewNotes}</p> : null}
 

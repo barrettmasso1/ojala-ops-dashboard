@@ -149,6 +149,7 @@ describe("operations router", () => {
       event: {
         id: 610, analysisStatus: "pending_review", imageKey: null, analysisAttempts: 0,
         imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
+        evidenceOrigin: "verified_snapshot",
         zoneId: visualZone.id, zoneGeometryVersion: visualZone.geometryVersion, zoneGeometryJson: visualZone.polygonJson,
       },
       created: true,
@@ -159,6 +160,7 @@ describe("operations router", () => {
       imageKey: "frigate-handoff-verified/fixture.jpg",
       analysisAttempts: 0,
       imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
+      evidenceOrigin: "verified_snapshot",
       zoneId: visualZone.id, zoneGeometryVersion: visualZone.geometryVersion, zoneGeometryJson: visualZone.polygonJson,
     });
     dbMocks.claimHandoffVisualAnalysis.mockResolvedValue("fixture-lease-token");
@@ -375,6 +377,116 @@ describe("operations router", () => {
     expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();
   });
 
+  it("returns an unauthorized tRPC error for an invalid visual Frigate credential", async () => {
+    const caller = appRouter.createCaller(createContext(null));
+
+    await expect(caller.frigate.submitHandoffVisual({
+      apiKey: "not-a-valid-frigate-key",
+      capture: visualCapture("cup-event-invalid-key"),
+      imageDataUrl: visualImageDataUrl,
+    })).rejects.toMatchObject({ code: "UNAUTHORIZED", message: "Unauthorized" });
+
+    expect(dbMocks.reserveHandoffVisualEvent).not.toHaveBeenCalled();
+    expect(storageMocks.storagePut).not.toHaveBeenCalled();
+  });
+
+  it("keeps a recording-extracted recovery frame separate from an automatic Frigate success", async () => {
+    dbMocks.reserveHandoffVisualEvent.mockResolvedValueOnce({
+      event: {
+        id: 610, analysisStatus: "pending_review", imageKey: null, analysisAttempts: 0,
+        imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
+        evidenceOrigin: "recording_extracted_frame",
+        zoneId: visualZone.id, zoneGeometryVersion: visualZone.geometryVersion, zoneGeometryJson: visualZone.polygonJson,
+      },
+      created: true,
+    });
+    dbMocks.attachHandoffVisualImage.mockResolvedValueOnce({
+      id: 610, analysisStatus: "pending_review", imageKey: "frigate-handoff-recovery/fixture.jpg", analysisAttempts: 0,
+      imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
+      evidenceOrigin: "recording_extracted_frame",
+      zoneId: visualZone.id, zoneGeometryVersion: visualZone.geometryVersion, zoneGeometryJson: visualZone.polygonJson,
+    });
+    dbMocks.finalizeHandoffVisualAnalysis.mockResolvedValueOnce({ id: 610, analysisStatus: "pending_review" });
+    const caller = appRouter.createCaller(createContext("admin", 1));
+
+    const result = await caller.dashboard.importRecordingExtractedHandoffFrame({
+      caseReference: "ojala-2026-09-26-165652-170652",
+      capture: visualCaptureV3("recovered-scene-170238"),
+      imageDataUrl: visualImageDataUrl,
+    });
+
+    expect(result).toEqual({ success: true, eventId: 610, status: "pending_review", disposition: "analyzed", retryable: false });
+    expect(dbMocks.reserveHandoffVisualEvent).toHaveBeenCalledWith(expect.objectContaining({
+      storeId: 1,
+      evidenceOrigin: "recording_extracted_frame",
+      sourceDetail: "recording_extracted_case:ojala-2026-09-26-165652-170652",
+    }));
+    expect(dbMocks.finalizeHandoffVisualAnalysis).toHaveBeenCalledWith(expect.objectContaining({
+      storeId: 1,
+      analysis: expect.objectContaining({ status: "pending_review" }),
+      aiSuggestedStatus: "approved_by_ai",
+    }));
+    expect(storageMocks.storagePut).toHaveBeenCalledWith(
+      expect.stringContaining("frigate-handoff-recovery/store-1/handoff/recovered-scene-170238-"),
+      expect.any(Buffer),
+      "image/jpeg",
+    );
+    expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();
+  });
+
+  it("does not allow a non-admin session to import a recovered recording frame", async () => {
+    const caller = appRouter.createCaller(createContext("user", 1));
+
+    await expect(caller.dashboard.importRecordingExtractedHandoffFrame({
+      caseReference: "ojala-2026-09-26-165652-170652",
+      capture: visualCaptureV3("recovered-scene-non-admin"),
+      imageDataUrl: visualImageDataUrl,
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMocks.reserveHandoffVisualEvent).not.toHaveBeenCalled();
+  });
+
+  it("binds a recovered recording frame to the authenticated manager store", async () => {
+    dbMocks.getActiveStoreById.mockResolvedValueOnce(storeTwo);
+    dbMocks.reserveHandoffVisualEvent.mockResolvedValueOnce({
+      event: {
+        id: 612, analysisStatus: "pending_review", imageKey: null, analysisAttempts: 0,
+        imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
+        evidenceOrigin: "recording_extracted_frame",
+        zoneId: visualZone.id, zoneGeometryVersion: visualZone.geometryVersion, zoneGeometryJson: visualZone.polygonJson,
+      },
+      created: true,
+    });
+    dbMocks.attachHandoffVisualImage.mockResolvedValueOnce({
+      id: 612, analysisStatus: "pending_review", imageKey: "frigate-handoff-recovery/store-2.jpg", analysisAttempts: 0,
+      imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
+      evidenceOrigin: "recording_extracted_frame",
+      zoneId: visualZone.id, zoneGeometryVersion: visualZone.geometryVersion, zoneGeometryJson: visualZone.polygonJson,
+    });
+    dbMocks.finalizeHandoffVisualAnalysis.mockResolvedValueOnce({ id: 612, analysisStatus: "pending_review" });
+    const caller = appRouter.createCaller(createContext("admin", 2));
+
+    await caller.dashboard.importRecordingExtractedHandoffFrame({
+      caseReference: "ojala-2026-09-26-165652-170652",
+      capture: visualCaptureV3("recovered-scene-store-two"),
+      imageDataUrl: visualImageDataUrl,
+    });
+
+    expect(dbMocks.reserveHandoffVisualEvent).toHaveBeenCalledWith(expect.objectContaining({ storeId: 2, evidenceOrigin: "recording_extracted_frame" }));
+  });
+
+  it("rejects a cross-origin cup-event collision before it can change a visual label", async () => {
+    dbMocks.reserveHandoffVisualEvent.mockRejectedValueOnce(new Error("cup_event_id is already reserved for a different evidence origin"));
+    const caller = appRouter.createCaller(createContext("admin", 1));
+
+    await expect(caller.dashboard.importRecordingExtractedHandoffFrame({
+      caseReference: "ojala-2026-09-26-165652-170652",
+      capture: visualCaptureV3("reused-automatic-event"),
+      imageDataUrl: visualImageDataUrl,
+    })).rejects.toThrow("different evidence origin");
+    expect(handoffVisualMocks.analyzeHandoffVisualImage).not.toHaveBeenCalled();
+    expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();
+  });
+
   it("keeps an AI outage queued for retry without treating the image as a count", async () => {
     handoffVisualMocks.analyzeHandoffVisualImage.mockRejectedValueOnce(new Error("temporary model outage"));
     const caller = appRouter.createCaller(createContext(null));
@@ -397,6 +509,7 @@ describe("operations router", () => {
         id: 610, analysisStatus: "pending_review", imageKey: "frigate-handoff-verified/fixture.jpg", analysisAttempts: 0,
         imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
         captureMetadataJson: JSON.stringify({ captured_at_utc: originalTimestamp }),
+        evidenceOrigin: "verified_snapshot",
         zoneId: visualZone.id, zoneGeometryVersion: visualZone.geometryVersion, zoneGeometryJson: visualZone.polygonJson,
       },
       created: false,
@@ -416,6 +529,7 @@ describe("operations router", () => {
       event: {
         id: 611, analysisStatus: "pending_review", imageKey: null, analysisAttempts: 0,
         imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
+        evidenceOrigin: "verified_snapshot",
         zoneId: null, zoneGeometryVersion: null, zoneGeometryJson: null,
       },
       created: true,
@@ -423,6 +537,7 @@ describe("operations router", () => {
     dbMocks.attachHandoffVisualImage.mockResolvedValueOnce({
       id: 611, analysisStatus: "pending_review", imageKey: "frigate-handoff-verified/unconfigured.jpg", analysisAttempts: 0,
       imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
+      evidenceOrigin: "verified_snapshot",
       zoneId: null, zoneGeometryVersion: null, zoneGeometryJson: null,
     });
     dbMocks.queueHandoffVisualForZoneConfiguration.mockResolvedValueOnce({ id: 611, analysisStatus: "pending_review" });

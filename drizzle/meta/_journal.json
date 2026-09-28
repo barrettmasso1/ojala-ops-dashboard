@@ -113,6 +113,20 @@
       "when": 1790463683992,
       "tag": "0015_frigate_handoff_visual_filter",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "5",
+      "when": 1790474608608,
+      "tag": "0016_handoff_scene_recovery_evidence",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1790480649723,
+      "tag": "0017_visual_analysis_evidence",
+      "breakpoints": true
     }
   ]
 }
