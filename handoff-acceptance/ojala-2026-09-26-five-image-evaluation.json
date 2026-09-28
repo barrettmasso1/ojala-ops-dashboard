@@ -1,0 +1,106 @@
+{
+  "reportType": "Ojala 2026-09-26 five-image visual acceptance evaluation (sanitized)",
+  "scope": "Private archive replay and isolated transport rehearsal; no customer media is included in this repository artifact.",
+  "archive": {
+    "sha256": "ecd1783b153c514813a706f88b2b7866f301032b2b1426f2793f5d3fedaee239",
+    "verification": "matched before private extraction",
+    "window": "2026-09-26 16:56:52–17:06:52 America/Mazatlan"
+  },
+  "knownOriginalEvidence": {
+    "operatorReportedMediumCups": 2,
+    "operatorCupSizeAutomaticallyValidated": false,
+    "frigateTracks": 1,
+    "automaticCapturePairs": 1,
+    "automaticCaptureEventId": "1790467493.946143-9rdbpk",
+    "automaticCaptureTime": "2026-09-26T17:04:57.764098-07:00",
+    "recordingExtractedCandidates": 1,
+    "recordingExtractedCandidateTime": "2026-09-26T17:02:38-07:00",
+    "recordingExtractedCandidateIsAutomaticSuccess": false
+  },
+  "modelEvaluation": {
+    "model": "gemini-3.1-pro-preview",
+    "inputPolicy": "Each request received one image, a supplied normalized polygon, and a neutral case ID. It received no descriptive filename and no visual-review label.",
+    "historicalZoneConfigurationVerified": false,
+    "outcomes": [
+      {
+        "case": "case-001",
+        "origin": "automatic_capture",
+        "modelCupBoxes": 2,
+        "modelCupBoxesInsideSuppliedPolygon": 2,
+        "modelPersonPresent": true,
+        "modelConfidence": "high",
+        "modelStatus": "approved_by_ai",
+        "operationalStatus": "pending_review",
+        "reason": "Original capture sidecar was not supplied; the historical store-camera-zone binding cannot be verified."
+      },
+      {
+        "case": "case-002",
+        "origin": "recording_extracted_frame",
+        "modelCupBoxes": 4,
+        "modelCupBoxesInsideSuppliedPolygon": 1,
+        "modelPersonPresent": true,
+        "modelConfidence": "high",
+        "modelStatus": "approved_by_ai",
+        "operationalStatus": "pending_review",
+        "reason": "Recovered recording evidence is never an automatic Frigate success."
+      },
+      {
+        "case": "case-003",
+        "origin": "historical_fixture",
+        "modelCupBoxes": 0,
+        "modelCupBoxesInsideSuppliedPolygon": 0,
+        "modelPersonPresent": true,
+        "modelConfidence": "high",
+        "modelStatus": "discarded",
+        "operationalStatus": "pending_review",
+        "reason": "No original capture sidecar or review label was supplied."
+      },
+      {
+        "case": "case-004",
+        "origin": "historical_fixture",
+        "modelCupBoxes": 0,
+        "modelCupBoxesInsideSuppliedPolygon": 0,
+        "modelPersonPresent": false,
+        "modelConfidence": "high",
+        "modelStatus": "pending_review",
+        "operationalStatus": "pending_review",
+        "reason": "Model marked the supplied image ambiguous."
+      },
+      {
+        "case": "case-005",
+        "origin": "historical_fixture",
+        "modelCupBoxes": 0,
+        "modelCupBoxesInsideSuppliedPolygon": 0,
+        "modelPersonPresent": true,
+        "modelConfidence": "low",
+        "modelStatus": "pending_review",
+        "operationalStatus": "pending_review",
+        "reason": "Model detected a multi-frame grid rather than one reviewable still."
+      }
+    ]
+  },
+  "isolatedTransportRehearsal": {
+    "database": "fresh local MariaDB on loopback only",
+    "migrations": "normal Drizzle migration sequence applied; production was not contacted",
+    "transport": "TLS local gateway, managed Frigate credential hash, configured Store 1 handoff geometry, sender SQLite queue",
+    "interruption": "first receiver attempt returned a simulated 503; sender persisted one retry and no visual row was written before recovery",
+    "recovery": "retry delivered exactly one event; isolated vision stub persisted an analysis result",
+    "humanReview": "Store 1 manager changed the isolated event to discarded_by_manager; a later replay returned already_processed and did not overwrite that decision",
+    "tenantIsolation": "a forged payload storeId still resolved to Store 1; Store 2 manager review received NOT_FOUND",
+    "invalidCredential": "returned tRPC UNAUTHORIZED / HTTP 401 and did not create a row",
+    "operationalSideEffects": {
+      "sales": 0,
+      "deliveries": 0,
+      "inventory": 0,
+      "frigateCupCounts": 0,
+      "endOfDayReports": 0
+    }
+  },
+  "unverifiedAndBlocked": {
+    "captureWorkerJsonSidecars": "not available in the supplied archive or currently mounted verified snapshot directory",
+    "firstStageFalseNegativeCause": "not attributed; detector trace, candidate boxes/confidences, discard reason, and source capture JSON were not supplied",
+    "historicalGroundTruthLabels": "not supplied",
+    "production": "not accessed, migrated, or deployed"
+  },
+  "acceptanceRequirement": "The real capture worker must emit an image plus schema-v3 JSON sidecar with camera, cup_zone, cup_event_id, captured_at_utc, image_sha256, zone geometry, and zone configuration hash. Recovered recording frames remain manager-review evidence and never become sales, deliveries, inventory changes, or automatic capture successes."
+}
