@@ -18,8 +18,21 @@ from zoneinfo import ZoneInfo
 
 ZONE = ZoneInfo('America/Mazatlan')
 ENDPOINT = 'https://ojaladarsh-m6piugsr.manus.space/api/trpc/frigate.submitCounts'
-VERSION = '2026-09-29.1'
+VERSION = '2026-09-29.3'
 TRACKING_START = dt.date(2026, 9, 27)
+
+
+def retired_dates(root):
+    path = root / 'push_state' / 'retired_dates.json'
+    if not path.exists():
+        return set()
+    entries = json.loads(path.read_text())
+    if not isinstance(entries, dict):
+        raise ValueError('invalid_retirement_policy')
+    for day, reason in entries.items():
+        if dt.date.fromisoformat(day).isoformat() != day or not isinstance(reason, str) or not reason.strip():
+            raise ValueError('invalid_retirement_policy')
+    return set(entries)
 
 
 def pending_dates(root, now):
@@ -33,7 +46,7 @@ def pending_dates(root, now):
             days.add(start.isoformat())
         start += dt.timedelta(days=1)
     days.update(p.name.removesuffix('.latest.json') for p in (root/'push_state').glob('*.latest.json'))
-    return sorted(days)
+    return sorted(days - retired_dates(root))
 
 
 def atomic_json(path, value):
@@ -81,6 +94,17 @@ def validate_record(record, day):
     return None
 
 
+def approval_timestamp(record):
+    # Timestamp of the reviewed aggregate's approval, not an invented cup event.
+    value = record.get('approvedAt')
+    if not isinstance(value, str):
+        raise ValueError('approval_timestamp_missing')
+    stamp = dt.datetime.fromisoformat(value.replace('Z', '+00:00'))
+    if stamp.tzinfo is None or stamp > dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=5):
+        raise ValueError('invalid_approval_timestamp')
+    return stamp.astimezone(dt.timezone.utc).isoformat(timespec='microseconds').replace('+00:00','Z')
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -102,6 +126,8 @@ def process_day(root, day, dry_run=False, send=post):
     result = {'version': VERSION, 'checkedAt': dt.datetime.now(ZONE).isoformat(),
               'businessDate': day, 'cameraName': 'handoff', 'posted': False,
               'dashboardVerified': False}
+    if day in retired_dates(root):
+        return dict(result, status='retired', blockers=[])
     blockers = []
     record_path = root / 'approved_counts' / (day + '.json')
     config_path = root / 'push_config.json'
@@ -127,12 +153,20 @@ def process_day(root, day, dry_run=False, send=post):
             blockers.append('endpoint_or_store_not_confirmed')
         if config.get('productionContractVerified') is not True:
             blockers.append('production_contract_not_verified')
+        if config.get('protocol') not in ('legacy_v1', 'tenant_event_v1'):
+            blockers.append('production_protocol_not_confirmed')
         if not isinstance(config.get('apiKey'), str) or not config['apiKey'].strip():
             blockers.append('api_key_missing')
     except FileNotFoundError:
         blockers.append('push_config_missing')
     except (ValueError, TypeError):
         blockers.append('invalid_push_config')
+    source_at = None
+    if config and config.get('protocol') == 'tenant_event_v1' and record:
+        try:
+            source_at = approval_timestamp(record)
+        except (ValueError, TypeError, OverflowError):
+            blockers.append('valid_approval_timestamp_required')
     if blockers:
         return dict(result, status='blocked', blockers=blockers)
     digest = hashlib.sha256(json.dumps(record, sort_keys=True).encode()).hexdigest()
@@ -152,6 +186,8 @@ def process_day(root, day, dry_run=False, send=post):
     payload = {'apiKey': config['apiKey'], 'businessDate': day,
                'cameraName': 'handoff', 'cupsDetected': record['cupsDetected'],
                'peopleEntries': 0, 'sourceDetail': detail}
+    if config['protocol'] == 'tenant_event_v1':
+        payload.update(sourceEventId='daily-reviewed-'+day+'-'+digest[:32], sourceEventAt=source_at)
     try:
         code, body = send(payload)
         result['httpStatus'] = code
@@ -159,6 +195,13 @@ def process_day(root, day, dry_run=False, send=post):
                    body.get('result', {}).get('data', {}).get('json', {}).get('success') is True)
         if not success:
             return dict(result, status='retry_pending', error='server_did_not_acknowledge')
+        if config['protocol'] == 'tenant_event_v1':
+            disposition = body['result']['data']['json'].get('disposition')
+            if disposition == 'stale':
+                return dict(result, status='blocked', blockers=['server_has_newer_record'], serverDisposition='stale')
+            if disposition not in ('apply', 'replay'):
+                return dict(result, status='retry_pending', error='unknown_server_disposition')
+            result['serverDisposition'] = disposition
         result.update(status='acknowledged', posted=True)
         atomic_json(receipt, result)
         return result
@@ -189,8 +232,12 @@ def main():
         except BlockingIOError:
             print(json.dumps({'status': 'already_running'}))
             return 0
-        days = (pending_dates(root, now)
-                if args.pending else [args.date or (now.date() - dt.timedelta(days=1)).isoformat()])
+        try:
+            days = (pending_dates(root, now)
+                    if args.pending else [args.date or (now.date() - dt.timedelta(days=1)).isoformat()])
+        except (OSError, ValueError, TypeError):
+            print(json.dumps({'status': 'blocked', 'error': 'invalid_retirement_policy'}))
+            return 2
         failed = False
         for day in days:
             try:

@@ -14,7 +14,7 @@ import time
 from urllib.request import urlopen
 from zoneinfo import ZoneInfo
 
-VERSION = '2026-09-27.1'
+VERSION = '2026-09-29.2'
 TZ = ZoneInfo('America/Mazatlan')
 BASE = Path('/home/ojala/frigate')
 
@@ -246,11 +246,21 @@ def audit(business_date, root=BASE):
     model = config/'model_cache/ojala_cups_v4_640.onnx'
     result['model_file_sha256'] = hashlib.sha256(model.read_bytes()).hexdigest() if model.exists() else None
     cron = subprocess.run(['crontab', '-l'], capture_output=True, text=True, timeout=5)
+    active_jobs = [line for line in cron.stdout.splitlines() if line.strip() and not line.lstrip().startswith('#')]
     result['cron'] = {'readable': cron.returncode == 0,
                       'verified_visual_sender_queue_only': any('--queue-only' in line and
                             'handoff_visual_sender.py' in line for line in cron.stdout.splitlines()
                             if not line.lstrip().startswith('#')),
-                      'count_push_script_verified': False}
+                      'count_push_script_present': (root/'scripts/frigate_push_counts.py').is_file(),
+                      'count_push_scheduled': any('frigate_push_counts.py --pending' in line for line in active_jobs),
+                      'forward_archive_scheduled': any('archive_recordings.py' in line for line in active_jobs)}
+    result['count_push'] = {'production_config_present': (root/'scripts/push_config.json').is_file(),
+                           'latest_for_day': json_read(root/'scripts/push_state'/(business_date+'.latest.json')),
+                           'production_dashboard_verified': False}
+    archive_health = json_read(root/'pilot-archive/forward-20260929/status.json', {})
+    result['forward_archive'] = archive_health
+    if archive_health.get('status') in ('error', 'incomplete', 'paused_storage_limit'):
+        result['blockers'].append('forward_archive_'+archive_health['status'])
     result['rescue'] = {'running_process_ids': rescue_running(),
                         'legacy_script_exists': (root/'rescue_layer/ojala_rescue.py').exists(),
                         'production_delivery_counter_validated': False}
@@ -279,7 +289,14 @@ def audit(business_date, root=BASE):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--date', default=dt.datetime.now(TZ).date().isoformat())
+    ap.add_argument('--if-running', action='store_true', help='Skip periodic collection while Frigate is off')
     args = ap.parse_args()
+    if args.if_running:
+        running = subprocess.run(['docker','inspect','frigate','--format','{{.State.Running}}'],
+                                 capture_output=True, text=True, timeout=5)
+        if running.returncode or running.stdout.strip() != 'true':
+            print(json.dumps({'status': 'frigate_not_running'}))
+            return
     lock = open('/tmp/ojala_pilot_audit.lock', 'w')
     try:
         fcntl.flock(lock, fcntl.LOCK_EX|fcntl.LOCK_NB)

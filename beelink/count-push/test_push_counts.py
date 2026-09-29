@@ -21,7 +21,7 @@ class PushTests(unittest.TestCase):
             'reviewedBy': 'test fixture', 'evidenceReferences': ['synthetic-test-only'],
             'coverage': 'complete'}
         self.config = {'endpoint': ENDPOINT, 'storeId': 1, 'apiKey': 'test-secret',
-                       'productionContractVerified': True}
+                       'productionContractVerified': True, 'protocol': 'legacy_v1'}
         self.write()
 
     def tearDown(self):
@@ -121,6 +121,64 @@ class PushTests(unittest.TestCase):
         self.assertNotIn('2026-10-02', dates)
         dates=pending_dates(self.root, dt.datetime(2026,10,2,21,tzinfo=ZONE))
         self.assertIn('2026-10-02', dates)
+
+    def test_retired_date_never_reappears_from_outbox_or_history(self):
+        (self.root/'push_state'/'retired_dates.json').write_text(json.dumps({DAY:'user retired reconstruction'}))
+        (self.root/'push_state'/(DAY+'.latest.json')).write_text('{}')
+        dates=pending_dates(self.root, dt.datetime(2026,10,2,21,tzinfo=ZONE))
+        self.assertNotIn(DAY, dates)
+        self.assertIn('2026-10-02', dates)
+        result=process_day(self.root,DAY,send=lambda x:self.fail('retired record sent'))
+        self.assertEqual(result['status'],'retired')
+        self.assertTrue((self.root/'approved_counts'/(DAY+'.json')).exists())
+
+    def test_corrupt_retirement_policy_cannot_enable_send(self):
+        (self.root/'push_state'/'retired_dates.json').write_text('[]')
+        with self.assertRaises(ValueError):
+            process_day(self.root,DAY,send=lambda x:self.fail('unexpected send'))
+
+    def tenant_config(self):
+        self.config['protocol']='tenant_event_v1'
+        self.record['approvedAt']='2026-09-28T12:34:56-07:00'
+        self.write()
+
+    def test_tenant_contract_uses_stable_aggregate_identity_and_utc(self):
+        self.tenant_config()
+        calls=[]
+        def transient(payload):
+            calls.append(payload)
+            return 503, {}
+        process_day(self.root,DAY,send=transient)
+        process_day(self.root,DAY,send=transient)
+        self.assertEqual(calls[0]['sourceEventId'],calls[1]['sourceEventId'])
+        self.assertTrue(calls[0]['sourceEventId'].startswith('daily-reviewed-'))
+        self.assertEqual(calls[0]['sourceEventAt'],'2026-09-28T19:34:56.000000Z')
+        self.assertNotIn('storeId',calls[0])
+
+    def test_stale_server_response_cannot_be_claimed_as_delivery(self):
+        self.tenant_config()
+        r=process_day(self.root,DAY,send=lambda x:(200,{'result':{'data':{'json':{'success':True,'disposition':'stale'}}}}))
+        self.assertEqual(r['status'],'blocked')
+        self.assertFalse(r['posted'])
+        self.assertFalse((self.root/'push_state'/(DAY+'.receipt.json')).exists())
+
+    def test_missing_naive_or_future_approval_is_blocked(self):
+        self.tenant_config()
+        for value in [None,'2026-09-28T12:00:00','2999-01-01T00:00:00Z']:
+            self.record['approvedAt']=value;self.write()
+            r=process_day(self.root,DAY,send=lambda x:self.fail('invalid timestamp sent'))
+            self.assertIn('valid_approval_timestamp_required',r['blockers'])
+
+    def test_tenant_replay_ack_is_explicit(self):
+        self.tenant_config()
+        r=process_day(self.root,DAY,send=lambda x:(200,{'result':{'data':{'json':{'success':True,'disposition':'replay'}}}}))
+        self.assertEqual(r['status'],'acknowledged')
+        self.assertEqual(r['serverDisposition'],'replay')
+
+    def test_protocol_must_be_confirmed(self):
+        self.config.pop('protocol');self.write()
+        r=process_day(self.root,DAY,send=lambda x:self.fail('unconfirmed protocol sent'))
+        self.assertIn('production_protocol_not_confirmed',r['blockers'])
 
 
 if __name__ == '__main__':

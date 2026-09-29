@@ -28,7 +28,8 @@ def main():
     starts=[s for s in state.get('starts',[]) if 0<=now-s<900]
     result={'checked_at':local.isoformat(),'starts':starts,'action':'none'}
     if not (ROOT/'enabled.json').exists():result['status']='disabled';write(result);return
-    if local.weekday() not in (4,5,6) or not 12<=local.hour<21:result['status']='outside_existing_schedule';write(result);return
+    # Follow an already running Frigate for manual test sessions on any day.
+    # This supervisor never starts the container or changes opening hours.
     container=call(['docker','inspect','frigate','--format','{{.State.Running}}'])
     if container.returncode or container.stdout.strip()!='true':result['status']='frigate_not_running';write(result);return
     # Read exact container command lines. Only this worker can be signalled.
