@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 ZONE = ZoneInfo('America/Mazatlan')
 ENDPOINT = 'https://ojaladarsh-m6piugsr.manus.space/api/trpc/frigate.submitCounts'
-VERSION = '2026-09-29.3'
+VERSION = '2026-09-30.1'
 TRACKING_START = dt.date(2026, 9, 27)
 
 
@@ -62,6 +62,39 @@ def atomic_json(path, value):
         os.fsync(fd)
     finally:
         os.close(fd)
+
+
+def configuration_binding(config):
+    # Private receipt binding, never returned in console output. A receipt for an
+    # old credential must not verify a subsequently replaced credential.
+    fields = {k: config.get(k) for k in ('endpoint', 'storeId', 'protocol', 'apiKey')}
+    return hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()
+
+
+def mark_configuration_verified(path, config, receipt):
+    if (receipt.get('status') != 'acknowledged' or receipt.get('posted') is not True
+            or receipt.get('configurationBinding') != configuration_binding(config)):
+        return False
+    try:
+        current = json.loads(path.read_text())
+        if (not isinstance(current, dict) or path.stat().st_mode & 0o077
+                or configuration_binding(current) != configuration_binding(config)):
+            return False
+        current.update(productionContractVerified=True,
+                       productionVerification={
+                           'verifiedAt': receipt['checkedAt'],
+                           'businessDate': receipt['businessDate'],
+                           'recordSha256': receipt['recordSha256'],
+                           'evidence': 'accepted_approved_payload',
+                           'dashboardVerified': False})
+        current['verificationNote'] = ('The public endpoint accepted the approved payload '
+            'identified in productionVerification. Dashboard and tenant isolation '
+            'still require independent verification.')
+        atomic_json(path, current)
+        return True
+    except (OSError, ValueError, TypeError, KeyError):
+        # Receipt was saved first, so a config write failure must not resend it.
+        return False
 
 
 def validate_record(record, day):
@@ -151,7 +184,9 @@ def process_day(root, day, dry_run=False, send=post):
             blockers.append('config_permissions_must_be_600')
         if config.get('endpoint') != ENDPOINT or config.get('storeId') != 1:
             blockers.append('endpoint_or_store_not_confirmed')
-        if config.get('productionContractVerified') is not True:
+        if (config.get('productionContractVerified') is not True
+                and not (config.get('productionContractVerified') is False
+                         and config.get('verificationMode') == 'first_approved_payload')):
             blockers.append('production_contract_not_verified')
         if config.get('protocol') not in ('legacy_v1', 'tenant_event_v1'):
             blockers.append('production_protocol_not_confirmed')
@@ -169,10 +204,13 @@ def process_day(root, day, dry_run=False, send=post):
             blockers.append('valid_approval_timestamp_required')
     if blockers:
         return dict(result, status='blocked', blockers=blockers)
+    result['productionContractVerified'] = config['productionContractVerified']
     digest = hashlib.sha256(json.dumps(record, sort_keys=True).encode()).hexdigest()
     receipt = root / 'push_state' / (day + '.receipt.json')
     if receipt.exists():
         prior = json.loads(receipt.read_text())
+        if prior.get('recordSha256') == digest and not config['productionContractVerified']:
+            result['productionContractVerified'] = mark_configuration_verified(config_path, config, prior)
         return dict(result, status='already_acknowledged' if prior.get('recordSha256') == digest
                     else 'blocked', blockers=[] if prior.get('recordSha256') == digest
                     else ['changed_record_requires_reconciliation'])
@@ -203,7 +241,10 @@ def process_day(root, day, dry_run=False, send=post):
                 return dict(result, status='retry_pending', error='unknown_server_disposition')
             result['serverDisposition'] = disposition
         result.update(status='acknowledged', posted=True)
-        atomic_json(receipt, result)
+        proof = dict(result, configurationBinding=configuration_binding(config))
+        atomic_json(receipt, proof)
+        if not config['productionContractVerified']:
+            result['productionContractVerified'] = mark_configuration_verified(config_path, config, proof)
         return result
     except urllib.error.HTTPError as exc:
         return dict(result, status='retry_pending', httpStatus=exc.code, error='http_error')

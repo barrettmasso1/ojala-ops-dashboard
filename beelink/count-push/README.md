@@ -6,7 +6,7 @@ object counter. It never converts ounces, tracks, photos, or POS into camera cup
 Installed paths on Beelink:
 - `/home/ojala/frigate/scripts/frigate_push_counts.py`
 - `approved_counts/YYYY-MM-DD.json`: persistent outbox records, pending or approved.
-- `push_config.json`: private production configuration (not supplied).
+- `push_config.json`: private production configuration, never committed here.
 - `push_state`: durable result and acknowledgment records.
 - `/home/ojala/frigate/push_log.txt`: actual execution output.
 
@@ -24,10 +24,19 @@ matches the installed opening schedule; change schedule logic if opening changes
 Future dates fail. Current-day pending runs wait until 21:00 local time.
 
 Production config must have mode 600 and contain the exact endpoint below,
-`storeId: 1`, a valid server-issued `apiKey`, `productionContractVerified: true`,
-and an explicitly checked `protocol` (`legacy_v1` or `tenant_event_v1`).
-That flag must only be set after the deployed runtime's contract and store binding
-are checked; repository main does not prove deployment state.
+`storeId: 1`, a valid server-issued `apiKey`, and an explicitly checked `protocol`
+(`legacy_v1` or `tenant_event_v1`). Repository main does not prove deployment state.
+Use `productionContractVerified: true` only after an accepted real payload.
+For a newly supplied private credential, keep that flag false and explicitly set
+`verificationMode: "first_approved_payload"` after confirming the deployed contract.
+This permits only the same reviewed real records as normal operation; it does not
+create a test count or bypass any count validation. Dry runs and failures leave the
+flag false. A successful acknowledgment saves a receipt, then atomically records
+verification in the mode-600 config. If that final write fails, the matching private
+receipt can complete it on retry without sending the record again. Receipts are
+bound to endpoint, store context, protocol and credential; old credentials cannot
+verify new ones. When replacing a credential, reset the flag to false.
+This acknowledgment does not verify the dashboard or multi-tenant isolation.
 
 For `tenant_event_v1` (the reviewed PR stack), records also require a real
 offset-aware `approvedAt`. The sender normalizes it to UTC Z and emits a stable
@@ -71,10 +80,14 @@ No unattended total generation is implemented; missing daily records are reporte
 as blocked and revisited. Logging/cron readiness does not mean the data reached
 production. The sender must be connected to a validated physical-cup counter.
 
-Validation: 21 local unittest cases; network responses are mocked in
+Validation: 28 local unittest cases; network responses are mocked in
 tests. The forward-only run returns `no_pending_records` after the user retired
 the old reconstruction. No cloud database, deployment, or dashboard was changed.
-Future dates still need actual approved counts and verified private configuration.
+Future dates still need actual approved counts. On 2026-09-30 the user supplied
+the private JSON from Manus; its verification note explicitly requires the first
+real approved payload to succeed before setting the verification flag. Manus also
+reported the published legacy contract and absence of store isolation; the first
+payload mode addresses that bootstrap without claiming a prior successful send.
 
 Repository main on 2026-09-29 stores an integer and displays it directly; it does
 not convert camera cups to ounces or deduplicate physical units. Its legacy

@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from urllib.error import URLError
+from unittest.mock import patch
 from frigate_push_counts import process_day, validate_record, pending_dates, ENDPOINT, ZONE
 import datetime as dt
 
@@ -179,6 +180,73 @@ class PushTests(unittest.TestCase):
         self.config.pop('protocol');self.write()
         r=process_day(self.root,DAY,send=lambda x:self.fail('unconfirmed protocol sent'))
         self.assertIn('production_protocol_not_confirmed',r['blockers'])
+
+    def first_payload_config(self):
+        self.config.update(productionContractVerified=False,
+                           verificationMode='first_approved_payload')
+        self.write()
+
+    def test_unverified_config_requires_explicit_first_payload_mode(self):
+        self.config['productionContractVerified']=False;self.write()
+        r=process_day(self.root,DAY,send=lambda x:self.fail('unverified configuration sent'))
+        self.assertIn('production_contract_not_verified',r['blockers'])
+
+    def test_first_payload_dry_run_does_not_claim_verification(self):
+        self.first_payload_config()
+        r=process_day(self.root,DAY,dry_run=True,send=lambda x:self.fail('dry run sent'))
+        self.assertEqual(r['status'],'ready_dry_run')
+        self.assertFalse(r['productionContractVerified'])
+        self.assertFalse(json.loads((self.root/'push_config.json').read_text())['productionContractVerified'])
+        self.assertFalse((self.root/'push_state'/(DAY+'.receipt.json')).exists())
+
+    def test_first_payload_still_requires_approved_unique_cups_and_protocol(self):
+        self.first_payload_config()
+        self.record['status']='pending';self.config.pop('protocol');self.write()
+        r=process_day(self.root,DAY,send=lambda x:self.fail('invalid real payload sent'))
+        self.assertIn('unique_cup_count_not_approved',r['blockers'])
+        self.assertIn('production_protocol_not_confirmed',r['blockers'])
+
+    def test_first_real_ack_verifies_private_config_without_claiming_dashboard(self):
+        self.first_payload_config()
+        r=process_day(self.root,DAY,send=lambda x:(200,{'result':{'data':{'json':{'success':True}}}}))
+        self.assertEqual(r['status'],'acknowledged')
+        self.assertTrue(r['productionContractVerified'])
+        self.assertFalse(r['dashboardVerified'])
+        config=json.loads((self.root/'push_config.json').read_text())
+        self.assertTrue(config['productionContractVerified'])
+        self.assertEqual(config['productionVerification']['businessDate'],DAY)
+        self.assertEqual(config['apiKey'],'test-secret')
+        self.assertEqual((self.root/'push_config.json').stat().st_mode & 0o777,0o600)
+        self.assertNotIn('test-secret',json.dumps(r))
+        self.assertNotIn('configurationBinding',r)
+
+    def test_failed_first_payload_never_verifies_or_creates_receipt(self):
+        self.first_payload_config()
+        for response in [(401,{}),(503,{}),(200,{})]:
+            r=process_day(self.root,DAY,send=lambda x:response)
+            self.assertEqual(r['status'],'retry_pending')
+            self.assertFalse(r['productionContractVerified'])
+            self.assertFalse(json.loads((self.root/'push_config.json').read_text())['productionContractVerified'])
+            self.assertFalse((self.root/'push_state'/(DAY+'.receipt.json')).exists())
+
+    def test_receipt_recovers_config_write_failure_without_resending(self):
+        self.first_payload_config()
+        with patch('frigate_push_counts.mark_configuration_verified',return_value=False):
+            first=process_day(self.root,DAY,send=lambda x:(200,{'result':{'data':{'json':{'success':True}}}}))
+        self.assertEqual(first['status'],'acknowledged')
+        self.assertFalse(first['productionContractVerified'])
+        second=process_day(self.root,DAY,send=lambda x:self.fail('duplicate send'))
+        self.assertEqual(second['status'],'already_acknowledged')
+        self.assertTrue(second['productionContractVerified'])
+
+    def test_receipt_for_old_credential_cannot_verify_new_credential(self):
+        self.first_payload_config()
+        process_day(self.root,DAY,send=lambda x:(200,{'result':{'data':{'json':{'success':True}}}}))
+        self.config['apiKey']='different-key';self.write()
+        r=process_day(self.root,DAY,send=lambda x:self.fail('duplicate send'))
+        self.assertEqual(r['status'],'already_acknowledged')
+        self.assertFalse(r['productionContractVerified'])
+        self.assertFalse(json.loads((self.root/'push_config.json').read_text())['productionContractVerified'])
 
 
 if __name__ == '__main__':
