@@ -117,16 +117,16 @@ class PushTests(unittest.TestCase):
         dates=pending_dates(self.root, dt.datetime(2026,9,29,12,tzinfo=ZONE))
         self.assertEqual(dates, ['2026-09-27'])
 
-    def test_pending_does_not_close_today_before_21(self):
-        dates=pending_dates(self.root, dt.datetime(2026,10,2,20,tzinfo=ZONE))
+    def test_pending_does_not_close_today_before_22(self):
+        dates=pending_dates(self.root, dt.datetime(2026,10,2,21,59,tzinfo=ZONE))
         self.assertNotIn('2026-10-02', dates)
-        dates=pending_dates(self.root, dt.datetime(2026,10,2,21,tzinfo=ZONE))
+        dates=pending_dates(self.root, dt.datetime(2026,10,2,22,tzinfo=ZONE))
         self.assertIn('2026-10-02', dates)
 
     def test_retired_date_never_reappears_from_outbox_or_history(self):
         (self.root/'push_state'/'retired_dates.json').write_text(json.dumps({DAY:'user retired reconstruction'}))
         (self.root/'push_state'/(DAY+'.latest.json')).write_text('{}')
-        dates=pending_dates(self.root, dt.datetime(2026,10,2,21,tzinfo=ZONE))
+        dates=pending_dates(self.root, dt.datetime(2026,10,2,22,tzinfo=ZONE))
         self.assertNotIn(DAY, dates)
         self.assertIn('2026-10-02', dates)
         result=process_day(self.root,DAY,send=lambda x:self.fail('retired record sent'))

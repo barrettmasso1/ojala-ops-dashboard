@@ -21,7 +21,8 @@ No date defaults to the previous local calendar day. `--pending` retries the
 outbox, known failed days, and elapsed Fri-Sun business dates for up to 30 days
 since 2026-09-27. Known outbox/failed days remain eligible beyond 30 days. This
 matches the installed opening schedule; change schedule logic if opening changes.
-Future dates fail. Current-day pending runs wait until 21:00 local time.
+Future dates fail. Current-day pending runs wait until 22:00 local time, as
+requested by Barrett on 2026-10-02. Earlier retries cannot send today's count.
 
 Production config must have mode 600 and contain the exact endpoint below,
 `storeId: 1`, a valid server-issued `apiKey`, and an explicitly checked `protocol`
@@ -72,7 +73,7 @@ verification: `dashboardVerified` remains false until checked independently.
 
 Cron additions (existing jobs preserved, original crontab backed up):
 ```cron
-10 21 * * * /usr/bin/python3 /home/ojala/frigate/scripts/frigate_push_counts.py --pending >> /home/ojala/frigate/push_log.txt 2>&1
+0 22 * * * /usr/bin/python3 /home/ojala/frigate/scripts/frigate_push_counts.py --pending >> /home/ojala/frigate/push_log.txt 2>&1
 15,45 * * * * /usr/bin/python3 /home/ojala/frigate/scripts/frigate_push_counts.py --pending >> /home/ojala/frigate/push_log.txt 2>&1
 @reboot /usr/bin/python3 /home/ojala/frigate/scripts/frigate_push_counts.py --pending >> /home/ojala/frigate/push_log.txt 2>&1
 ```

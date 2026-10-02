@@ -18,7 +18,8 @@ from zoneinfo import ZoneInfo
 
 ZONE = ZoneInfo('America/Mazatlan')
 ENDPOINT = 'https://ojaladarsh-m6piugsr.manus.space/api/trpc/frigate.submitCounts'
-VERSION = '2026-09-30.1'
+VERSION = '2026-10-02.1'
+PUSH_HOUR = 22
 TRACKING_START = dt.date(2026, 9, 27)
 
 
@@ -40,7 +41,7 @@ def pending_dates(root, now):
     # computer was off at close; this records a missing count rather than zero.
     days = {p.stem for p in (root / 'approved_counts').glob('*.json')}
     start = max(TRACKING_START, now.date() - dt.timedelta(days=30))
-    end = now.date() if now.hour >= 21 else now.date() - dt.timedelta(days=1)
+    end = now.date() if now.hour >= PUSH_HOUR else now.date() - dt.timedelta(days=1)
     while start <= end:
         if start.weekday() in (4, 5, 6):
             days.add(start.isoformat())
@@ -293,7 +294,7 @@ def main():
                 print(json.dumps({'businessDate':day, 'status':'blocked', 'error':'future_business_date'}))
                 failed = True
                 continue
-            if args.pending and parsed == now.date() and now.hour < 21:
+            if args.pending and parsed == now.date() and now.hour < PUSH_HOUR:
                 continue
             try:
                 result = process_day(root, day, args.dry_run)

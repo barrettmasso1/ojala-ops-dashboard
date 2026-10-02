@@ -1,0 +1,87 @@
+{
+  "checkedAt": "2026-10-02T14:09:59.677572-07:00",
+  "date": "2026-10-02",
+  "scheduledDays": "Friday Saturday Sunday",
+  "actualOpeningTimeConfirmed": false,
+  "senderVersion": "2026-10-02.1",
+  "sendHour": 22,
+  "todayEligibleBefore22": false,
+  "sendReadiness": {
+    "version": "2026-10-02.1",
+    "checkedAt": "2026-10-02T14:09:59.677594-07:00",
+    "businessDate": "2026-10-02",
+    "cameraName": "handoff",
+    "posted": false,
+    "dashboardVerified": false,
+    "status": "blocked",
+    "blockers": [
+      "approved_count_file_missing"
+    ]
+  },
+  "cron": [
+    "0 22 * * * /usr/bin/python3 /home/ojala/frigate/scripts/frigate_push_counts.py --pending >> /home/ojala/frigate/push_log.txt 2>&1",
+    "15,45 * * * * /usr/bin/python3 /home/ojala/frigate/scripts/frigate_push_counts.py --pending >> /home/ojala/frigate/push_log.txt 2>&1",
+    "@reboot /usr/bin/python3 /home/ojala/frigate/scripts/frigate_push_counts.py --pending >> /home/ojala/frigate/push_log.txt 2>&1"
+  ],
+  "frigate": {
+    "camera_fps": 5,
+    "process_fps": 1.2,
+    "skipped_fps": 3.9,
+    "detection_fps": 6.9,
+    "detection_enabled": true,
+    "pid": 614,
+    "capture_pid": 677,
+    "ffmpeg_pid": 705,
+    "audio_rms": 0,
+    "audio_dBFS": 0
+  },
+  "manual": null,
+  "pos": null,
+  "approvedCameraCups": null,
+  "candidateTracks": {
+    "all_cup": 2,
+    "in_handoff_zone": 2,
+    "marked_false_positive": 0,
+    "unfinished": 0
+  },
+  "recording": {
+    "window_start": "2026-10-02T12:00:00-07:00",
+    "window_end": "2026-10-02T14:05:02.536472-07:00",
+    "elapsed_seconds": 7502.536,
+    "recorded_seconds": 7446.633,
+    "missing_seconds": 55.903,
+    "recorded_percent": 99.255,
+    "gaps_over_10_seconds": [
+      {
+        "start": "2026-10-02T12:00:00-07:00",
+        "end": "2026-10-02T12:00:12-07:00",
+        "seconds": 12
+      }
+    ],
+    "segments_in_db": 748,
+    "missing_files": 0,
+    "files_exist_checked": true,
+    "decode_integrity_checked": false
+  },
+  "temperatureC": null,
+  "githubMerge": "blocked_403_resource_not_accessible_by_integration",
+  "manusBrowser": "not_connected",
+  "productionChanged": false,
+  "productionIsolationVerified": false,
+  "historicalProductionDataVerified": false,
+  "previousIsolatedMigration": {
+    "date": "2026-09-24",
+    "rowsPreserved": 2439,
+    "isolationChecksPassed": 8
+  },
+  "notes": [
+    "No approved count producer has been validated; cron alone cannot create a count.",
+    "Manual and POS missing means pending, never zero.",
+    "Daily report at20 and next-morning sender check were scheduled in ChatGPT."
+  ],
+  "temperatureObservedC": 88,
+  "temperatureObservationTime": "2026-10-02T13:58:25-07:00",
+  "dailyReportEnabled": true,
+  "nextMorningCheckScheduled": true,
+  "unitTestsPassed": 28
+}
