@@ -105,6 +105,20 @@ class PushTests(unittest.TestCase):
         self.record.update(cupsDetected=0, uniqueCupIds=[], coverage='partial', gapsDescription='offline')
         self.assertEqual(validate_record(self.record, DAY), 'zero_with_incomplete_coverage')
 
+    def test_positive_partial_cannot_be_published_as_daily_total(self):
+        self.record.update(coverage='partial', gapsDescription='Only candidate windows reviewed')
+        self.write()
+        result=process_day(self.root, DAY, send=lambda x:self.fail('partial count sent'))
+        self.assertEqual(result['blockers'], ['partial_count_not_displayable'])
+        self.assertFalse((self.root/'push_state'/(DAY+'.receipt.json')).exists())
+
+    def test_tenant_protocol_does_not_imply_partial_display_support(self):
+        self.tenant_config()
+        self.record.update(coverage='partial', gapsDescription='Camera offline')
+        self.write()
+        result=process_day(self.root, DAY, dry_run=True, send=lambda x:self.fail('network'))
+        self.assertEqual(result['blockers'], ['partial_count_not_displayable'])
+
     def test_changed_approved_total_cannot_silently_overwrite(self):
         process_day(self.root, DAY, send=lambda x: (200, {'result':{'data':{'json':{'success':True}}}}))
         self.record.update(cupsDetected=1, uniqueCupIds=['fixture-A'])

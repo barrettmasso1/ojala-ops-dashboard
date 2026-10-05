@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 ZONE = ZoneInfo('America/Mazatlan')
 ENDPOINT = 'https://ojaladarsh-m6piugsr.manus.space/api/trpc/frigate.submitCounts'
-VERSION = '2026-10-02.1'
+VERSION = '2026-10-05.1'
 PUSH_HOUR = 22
 TRACKING_START = dt.date(2026, 9, 27)
 
@@ -205,6 +205,11 @@ def process_day(root, day, dry_run=False, send=post):
             blockers.append('valid_approval_timestamp_required')
     if blockers:
         return dict(result, status='blocked', blockers=blockers)
+    # The published daily tile does not display sourceDetail/coverage. A partial
+    # total would be presented as an ordinary daily count and compared with POS.
+    # Retain the evidence locally until that production contract is upgraded.
+    if record['coverage'] != 'complete':
+        return dict(result, status='blocked', blockers=['partial_count_not_displayable'])
     result['productionContractVerified'] = config['productionContractVerified']
     digest = hashlib.sha256(json.dumps(record, sort_keys=True).encode()).hexdigest()
     receipt = root / 'push_state' / (day + '.receipt.json')
