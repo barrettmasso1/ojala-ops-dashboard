@@ -4,7 +4,7 @@ Estado verificado el 05/10/2026:
 - PR #3 YA fue fusionado en multi-tenant-v1: 67e875a3b6f9fc5cd84788fdd8e389e5c7bfed5a. No vuelvas a tratar el antiguo 403 del conector como falta de autorización.
 - PR #2 sigue abierto y draft, con ese HEAD; main sigue f6b78b63fe65e08c5be6a6d9590dd1bf0a77e37f. No hay workflows de GitHub Actions. Merge en la rama no acredita deploy ni migración.
 - Beelink tiene emisor 2026-10-05.1, contrato legacy_v1, cron 22:00 America/Mazatlan y reintentos. 30 pruebas del emisor y 12 del validador de revisión pasan.
-- Domingo 04/10: 36 candidatos revisados, 13 vasos distintos confirmados en evidencia parcial, dos casos pendientes. NO es el total del día; NO usar 13, 24 tracks ni 21 fotos para llenar el tile. No existen archivos approved_counts reales ni recibos de envío.
+- Domingo 04/10: 36 candidatos revisados, 13 vasos distintos confirmados en evidencia parcial, dos casos pendientes. NO es el total del día; NO usar 13, 24 tracks ni 21 fotos para llenar el tile. Para 02–04/10 no hay archivos approved_counts ni recibos de envío. El 27/09 sigue retirado y no debe reabrirse.
 - Los cron de 02, 03 y 04/10 sí se ejecutaron a las 22:00; no enviaron por approved_count_file_missing. No diagnosticar erróneamente el cron como ausente.
 
 Ejecuta ahora lo disponible en tu sesión administrativa:
