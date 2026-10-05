@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { ENV } from "./_core/env";
@@ -33,6 +34,8 @@ import {
   saveInventoryItem,
   saveReadyMadeGelatoWeights,
   STAFF_ATTENDANCE_NAMES,
+  getActiveStoreById,
+  resolveActiveStoreCredential,
   updateInventoryCount,
   updateSubmissionHistoryForm,
  updateSubmissionHistoryGelato,
@@ -41,6 +44,9 @@ import {
 } from "./db";
 import { extractGelatoPhotos } from "./gelatoPhotoPilot";
 import { formatPacificDateTime, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "../shared/businessDate";
+import { legacyCredentialsMatch } from "./storeCredentials";
+import { clearCredentialFailures, getCredentialRetryAfterMs, recordCredentialFailure } from "./credentialRateLimit";
+import { normalizeFrigateEventAt } from "./frigateEventOrder";
 
 const PHASE1_OJALA_STORE_ID = 1;
 
@@ -306,27 +312,80 @@ function buildDashboardUrl(
   return host ? `${protocol}://${host}/dashboard` : "/dashboard";
 }
 
+async function resolveStaffPortalStore(password: string) {
+  const managedCredential = await resolveActiveStoreCredential({
+    credentialType: "staff_portal",
+    secret: password,
+  });
+  if (managedCredential) return managedCredential.store;
+
+  // Explicit, limited compatibility for Ojala's existing staff password. It
+  // cannot be used to select another store and is rejected if Store 1 is off.
+  if (legacyCredentialsMatch(password, ENV.staffPortalPassword)) {
+    return getActiveStoreById(PHASE1_OJALA_STORE_ID);
+  }
+
+  return null;
+}
+
+async function resolveFrigateStore(apiKey: string) {
+  const managedCredential = await resolveActiveStoreCredential({
+    credentialType: "frigate",
+    secret: apiKey,
+  });
+  if (managedCredential) return managedCredential.store;
+
+  // Explicit, limited compatibility for the existing Ojala Frigate sender.
+  // A client never supplies a store ID, so this path is irrevocably Store 1.
+  if (legacyCredentialsMatch(apiKey, ENV.FRIGATE_API_KEY)) {
+    return getActiveStoreById(PHASE1_OJALA_STORE_ID);
+  }
+
+  return null;
+}
+
+function credentialClientKey(req: { headers: Record<string, string | string[] | undefined> }) {
+  const forwardedFor = req.headers["x-forwarded-for"];
+  const value = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
+  return value?.split(",")[0]?.trim() || "unknown";
+}
+
+function enforceCredentialRateLimit(channel: "staff_portal" | "frigate", clientKey: string) {
+  const retryAfterMs = getCredentialRetryAfterMs(channel, clientKey);
+  if (retryAfterMs > 0) {
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: "Too many credential failures. Try again later.",
+    });
+  }
+}
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     staffPortalLogin: publicProcedure.input(z.object({ password: z.string().min(1) })).mutation(async ({ ctx, input }) => {
-      if (!ENV.staffPortalPassword || input.password !== ENV.staffPortalPassword) {
+      const clientKey = credentialClientKey(ctx.req);
+      enforceCredentialRateLimit("staff_portal", clientKey);
+      const store = await resolveStaffPortalStore(input.password);
+      if (!store) {
+        recordCredentialFailure("staff_portal", clientKey);
         throw new Error("Invalid staff portal password");
       }
+      clearCredentialFailures("staff_portal", clientKey);
 
-      const sharedStaffOpenId = `store-${PHASE1_OJALA_STORE_ID}-shared-staff-portal`;
+      const sharedStaffOpenId = `store-${store.id}-shared-staff-portal`;
       await upsertUser({
         openId: sharedStaffOpenId,
-        storeId: PHASE1_OJALA_STORE_ID,
-        name: "Ojala Staff",
+        storeId: store.id,
+        name: `${store.nombre} Staff`,
         loginMethod: "shared-password",
         role: "user",
         lastSignedIn: new Date(),
       });
 
       const sessionToken = await sdk.createSessionToken(sharedStaffOpenId, {
-        name: "Ojala Staff",
+        name: `${store.nombre} Staff`,
         expiresInMs: ONE_YEAR_MS,
       });
       const cookieOptions = getSessionCookieOptions(ctx.req);
@@ -562,21 +621,33 @@ export const appRouter = router({
         cupsDetected: z.number().int().min(0),
         peopleEntries: z.number().int().min(0).default(0),
         sourceDetail: z.string().optional().default(""),
+        sourceEventId: z.string().min(8).max(128),
+        sourceEventAt: z.string().datetime({ offset: false }),
       }))
-      .mutation(async ({ input }) => {
-        const expected = ENV.FRIGATE_API_KEY;
-        if (!expected || input.apiKey !== expected) {
+      .mutation(async ({ ctx, input }) => {
+        const clientKey = credentialClientKey(ctx.req);
+        enforceCredentialRateLimit("frigate", clientKey);
+        const store = await resolveFrigateStore(input.apiKey);
+        if (!store) {
+          recordCredentialFailure("frigate", clientKey);
           throw new Error("Unauthorized");
         }
-        await upsertFrigateCupCount({
-          storeId: PHASE1_OJALA_STORE_ID,
+        clearCredentialFailures("frigate", clientKey);
+        const sourceEventAt = normalizeFrigateEventAt(input.sourceEventAt);
+        if (!sourceEventAt || sourceEventAt.getTime() > Date.now() + 5 * 60 * 1_000) {
+          throw new Error("Invalid Frigate source event timestamp");
+        }
+        const result = await upsertFrigateCupCount({
+          storeId: store.id,
           businessDate: input.businessDate,
           cameraName: input.cameraName,
           cupsDetected: input.cupsDetected,
           peopleEntries: input.peopleEntries,
           sourceDetail: input.sourceDetail,
+          sourceEventId: input.sourceEventId,
+          sourceEventAt,
         });
-        return { success: true } as const;
+        return { success: true, disposition: result.disposition } as const;
       }),
   }),
   timeclock: router({

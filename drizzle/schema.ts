@@ -6,12 +6,33 @@ export const stores = mysqlTable("stores", {
   id: int("id").autoincrement().primaryKey(),
   nombre: varchar("nombre", { length: 160 }).notNull(),
   timezone: varchar("timezone", { length: 64 }).notNull(),
+  isActive: int("isActive").notNull().default(1),
   horarioApertura: varchar("horario_apertura", { length: 8 }),
   horarioCierre: varchar("horario_cierre", { length: 8 }),
   duenoEmail: varchar("dueno_email", { length: 320 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
+
+/**
+ * Server-resolved credentials for non-OAuth staff and machine integrations.
+ * Human staff passwords use scrypt verifiers; Frigate machine keys use a
+ * SHA-256 lookup hash. Plain credentials are never persisted.
+ */
+export const storeCredentials = mysqlTable("storeCredentials", {
+  id: int("id").autoincrement().primaryKey(),
+  storeId: int("storeId").notNull().references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
+  credentialType: mysqlEnum("storeCredentialType", ["staff_portal", "frigate"]).notNull(),
+  verifierFormat: mysqlEnum("storeCredentialVerifierFormat", ["scrypt_v1", "sha256_v1"]).notNull(),
+  credentialVerifier: varchar("credentialVerifier", { length: 512 }).notNull(),
+  label: varchar("label", { length: 160 }).notNull().default(""),
+  revokedAt: timestamp("revokedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  storeIndex: index("idx_storeCredentials_storeId").on(table.storeId),
+  credentialLookup: uniqueIndex("storeCredentials_type_verifier_unique").on(table.credentialType, table.credentialVerifier),
+}));
 
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
@@ -188,6 +209,8 @@ export const frigateCupCounts = mysqlTable("frigateCupCounts", {
   cupsDetected: int("cupsDetected").notNull().default(0),
   peopleEntries: int("peopleEntries").notNull().default(0),
   sourceDetail: text("sourceDetail"),
+  sourceEventId: varchar("sourceEventId", { length: 128 }).notNull(),
+  sourceEventAt: timestamp("sourceEventAt").notNull(),
   receivedAt: timestamp("receivedAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => ({
@@ -229,6 +252,8 @@ export const recipeIngredients = mysqlTable("recipeIngredients", {
 
 export type Store = typeof stores.$inferSelect;
 export type InsertStore = typeof stores.$inferInsert;
+export type StoreCredential = typeof storeCredentials.$inferSelect;
+export type InsertStoreCredential = typeof storeCredentials.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type ChecklistQuestion = typeof checklistQuestions.$inferSelect;
