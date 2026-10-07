@@ -294,3 +294,6 @@
 - [x] Query all stored Frigate count rows, send the requested 999-cup handoff sentinel payload for the current Baja California Sur date, and verify the saved row
 - [x] Trace and fix why the manager dashboard Camera cup count tile does not show the stored Frigate handoff count for 2026-08-21
 - [x] Ensure getDailyOperationsSnapshot returns the requested handoff camera count as frigateCounts for the manager dashboard tile
+
+- [x] Publish the first unified daily operations view: keeps closing-entered sales, camera evidence, coverage state, and review-only differences distinct without creating sales or camera counts
+- [ ] Integrate the existing visual evidence queue only after confirming the published database target, a recoverable backup, and the ordered 0012–0017 migration chain
