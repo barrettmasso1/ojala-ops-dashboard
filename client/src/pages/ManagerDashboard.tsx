@@ -1,5 +1,7 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
+import DailyOperationsPanel from "@/components/DailyOperationsPanel";
+import { buildDailyOperations } from "@/lib/dailyOperations";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getLoginUrl } from "@/const";
 import { normalizeGelatoFlavorName } from "@/lib/gelatoFlavorAliases";
@@ -1128,6 +1130,7 @@ export default function ManagerDashboard() {
   }
 
   const daily = dailyQuery.data;
+  const dailyOperations = daily ? buildDailyOperations(daily, selectedDate) : null;
   const reconciliationSnapshot = buildManagerReconciliationSnapshot(daily);
   const shopifyVarianceSnapshot = useMemo(() => {
     if (!reconciliationSnapshot.gelato || !shopifyImportSummary) return null;
@@ -1282,14 +1285,7 @@ export default function ManagerDashboard() {
               { label: "Total ounces distributed", value: formatWholeOunces(reconciliationSnapshot.gelato?.distributedVolumeOunces), helper: "Morning gelato ounces minus closing gelato ounces." },
               { label: "Samples given (oz)", value: formatWholeOunces((daily as any)?.sampleOuncesTotal ?? 0), helper: "Reported samples given to customers, factored into variance." },
               { label: "Waste (oz)", value: formatWholeOunces((daily as any)?.wasteOuncesTotal ?? 0), helper: "Reported waste (spills, quality pulls), factored into variance." },
-              { label: "Camera cup count", value: ((daily as any)?.frigateCounts?.cupsDetected ?? "—").toString(), helper: (() => {
-                const camCups = (daily as any)?.frigateCounts?.cupsDetected;
-                const posCups = totalForHereCups + totalToGoCups;
-                if (camCups == null) return "Awaiting Frigate push for this date.";
-                const diff = Math.abs(camCups - posCups);
-                if (diff <= 5) return `Aligned with POS (${posCups} sold).`;
-                return `Variance vs POS: ${camCups > posCups ? "+" : "−"}${diff} vs ${posCups} sold.`;
-              })() },
+              { label: "Camera cup count", value: dailyOperations?.cameraValue ?? "—", helper: dailyOperations?.cameraMessage ?? "Awaiting camera data for the selected date." },
               { label: "For-here cups sold", value: formatCount(totalForHereCups), helper: "All dine-in cups sold across sizes." },
               { label: "To-go cups sold", value: formatCount(totalToGoCups), helper: "All to-go cups sold across sizes." },
               { label: "Total to-go cups used", value: formatCount(totalToGoCupsUsed), helper: "Morning to-go cup count minus closing to-go cup count." },
@@ -1392,6 +1388,7 @@ export default function ManagerDashboard() {
                       <div key={card.label} className="min-w-0 rounded-2xl bg-white/80 px-5 py-4 shadow-sm md:px-6 md:py-5">
                         <p className="text-[0.95rem] leading-snug text-[#6f776f] md:text-base" title={card.label}>{card.label}</p>
                         <p className={getSnapshotValueClassName(card.value)} title={"valueTitle" in card ? card.valueTitle : card.value}>{card.value}</p>
+                        {card.label === "Camera cup count" && <p className="mt-3 text-sm leading-6 text-[#65716b]">{card.helper}</p>}
                       </div>
                     ))}
                   </div>
@@ -1403,6 +1400,7 @@ export default function ManagerDashboard() {
 
         {isOverviewRoute ? (
           <>
+            {!dailyQuery.isLoading && !dailyQuery.error && dailyOperations && <DailyOperationsPanel view={dailyOperations} />}
             <SurfaceCard>
               <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                 <div>

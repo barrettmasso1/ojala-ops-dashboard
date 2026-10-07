@@ -1,0 +1,35 @@
+{
+  "date": "2026-10-07",
+  "device": "ojala-MINI-S",
+  "baseCommit": "f6b78b63fe65e08c5be6a6d9590dd1bf0a77e37f",
+  "branch": "feat/unified-daily-operations",
+  "checks": {
+    "vitest": {
+      "files": 22,
+      "passed": 134,
+      "failed": 0,
+      "newEvidenceBoundaryTests": 13
+    },
+    "typescript": "PASS",
+    "frontendBuild": "PASS",
+    "serverBuild": "PASS"
+  },
+  "testEnvironment": "Isolated worktree; mocked database tests, no DATABASE_URL; test-only credentials. Existing staff login test requires its repository fixture.",
+  "buildWarnings": [
+    "Analytics variables absent in isolated build",
+    "ManagerDashboard bundle over 500 kB"
+  ],
+  "production": {
+    "deploymentPerformed": false,
+    "migrationsApplied": false,
+    "syntheticCountsSent": false,
+    "cameraConfigurationChanged": false,
+    "visualBrowserVerification": false
+  },
+  "limitations": [
+    "Presentation-only first increment",
+    "Manual tally and visual evidence review not yet wired into this view",
+    "Sender partial-count guard remains unchanged",
+    "Source metadata is displayed, not independently certified"
+  ]
+}

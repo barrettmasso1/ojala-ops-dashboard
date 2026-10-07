@@ -1,0 +1,13 @@
+Continúa Ojala como una sola web de operación asistida sobre el dashboard existente. Repositorio barrettmasso1/ojala-ops-dashboard. No construir una segunda app ni esperar a precisión perfecta para mostrar evidencia útil.
+
+Revisa la rama feat/unified-daily-operations contra main. Lee notes/unified-operations-2026-10-07.md. La primera mejora reúne ventas del cierre, conteo recibido, cobertura y diferencia revisable; muestra parciales y datos faltantes explícitamente. No contiene migración ni toca el emisor.
+
+1. Revisa el diff, ejecuta las pruebas y valida la UI con estados sin datos, cero real, parcial, método desconocido y conteo revisado completo. Usa fixtures de preview separados; jamás escribas conteos sintéticos en producción.
+2. Integra y publica por el flujo autorizado del proyecto. Confirma commit, dominio y screenshot autenticado. No declares publicado solo porque el PR exista.
+3. Continúa con la bandeja visual existente: revisa PR7 y dependencias actuales. Reutiliza recepción autenticada, cola persistente y revisiones; aplica aislamiento real por tienda. Antes de migrar confirma la base del runtime publicado, respaldo y SQL exacto.
+4. La IA selecciona evidencia útil de persona+vaso en handoff_zone. Su aprobación no crea venta ni entrega. Deduplicar reenvíos por evento y vincular múltiples eventos del mismo vaso son tareas distintas.
+5. Añade registro manual independiente por fecha/intervalo y estado de conexión real de la Beelink, con hora de última señal. Mantén pendientes cuando falte información.
+6. Mantén ventas capturadas en el cierre como fuente actual. No iniciar ahora nuevas integraciones CSV/API POS. No convertir vasos de cámara en onzas ni sumar fotos como unidades.
+7. Mantén bloqueado el envío de parciales del emisor hasta verificar que la publicación y todos los consumidores muestran su cobertura. Mostrar una rama local no basta para levantarlo.
+
+Entrega qué quedó publicado, qué sigue en rama y evidencia de pruebas. Nunca rellenes conteos faltantes con POS, tracks o las13 unidades parciales del4/10. La meta es utilidad operativa con revisión y trazabilidad, no prometer exactitud inexistente.
