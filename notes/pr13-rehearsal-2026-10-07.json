@@ -1,0 +1,212 @@
+{
+  "checkedAt": "2026-10-07T14:28:26.211479-07:00",
+  "basePr": 13,
+  "baseCommit": "e37c9aec762bfba320918f95b348eecb2c7c47fb",
+  "scope": "isolated TiDB rehearsal and sender compatibility; no production change",
+  "historicalBackup": {
+    "date": "2026-09-18",
+    "sha256": "764c2cef4654730b35562b0ace7e0bc159f6375c298a65ab7b8d7e0874ab6a96",
+    "freshProductionBackup": false
+  },
+  "restore": {
+    "restored": true,
+    "target": {
+      "host": "127.0.0.1",
+      "port": 4000,
+      "database": "ojala_phase1_rehearsal"
+    },
+    "schemaFiles": 13,
+    "dataFiles": 13,
+    "restoredTableCount": 13,
+    "backupLayoutDigest": "9e294d0cb99797c2a5f37091c5d017c8a7652a938e67512372a9d78682570ea9"
+  },
+  "migrations": {
+    "migrated": true,
+    "target": {
+      "host": "127.0.0.1",
+      "port": 4000,
+      "user": "root",
+      "database": "ojala_phase1_rehearsal"
+    },
+    "migrationLedgerBefore": 12,
+    "migrationLedgerAfter": 18,
+    "appliedMigrationCount": 6
+  },
+  "migrationManifest": [
+    {
+      "idx": 12,
+      "tag": "0012_multi_tenant_v1",
+      "when": 1789855639689,
+      "sha256": "658a8dc517269864998efbdc0784cdb8254db9f40bef66b8fc617436734235b6"
+    },
+    {
+      "idx": 13,
+      "tag": "0013_tenant_credential_and_frigate_event_boundaries",
+      "when": 1790111774186,
+      "sha256": "e642d2e1a2ad658ba389ebe5df007ea440a01445dbbdcc0c5633bf177d0e4433"
+    },
+    {
+      "idx": 14,
+      "tag": "0014_glossy_silvermane",
+      "when": 1790287569631,
+      "sha256": "a1909861c3750e53c99a3506a06c798758b8283dba61b6a781bda038ee71d603"
+    },
+    {
+      "idx": 15,
+      "tag": "0015_frigate_handoff_visual_filter",
+      "when": 1790463683992,
+      "sha256": "e49d1aa65b6be3ef0008de1f381e15645e94002fbb411c1b438d85db6889db2c"
+    },
+    {
+      "idx": 16,
+      "tag": "0016_handoff_scene_recovery_evidence",
+      "when": 1790474608608,
+      "sha256": "f06594cecfea38ba89b1c0545954322043a28cbd11228f6d89bd458fdd528a00"
+    },
+    {
+      "idx": 17,
+      "tag": "0017_visual_analysis_evidence",
+      "when": 1790480649723,
+      "sha256": "5423638635bb0163a179329eb99b2e0b9e8a4758973ace7d167d37c72c749ddf"
+    }
+  ],
+  "ledgerAndCleanup": {
+    "migrationHashesAndOrderExact": true,
+    "appliedSequence": [
+      "0012_multi_tenant_v1",
+      "0013_tenant_credential_and_frigate_event_boundaries",
+      "0014_glossy_silvermane",
+      "0015_frigate_handoff_visual_filter",
+      "0016_handoff_scene_recovery_evidence",
+      "0017_visual_analysis_evidence"
+    ],
+    "fixtureRowsRemaining": 0
+  },
+  "migrationReplay": {
+    "migrated": true,
+    "target": {
+      "host": "127.0.0.1",
+      "port": 4000,
+      "user": "root",
+      "database": "ojala_phase1_rehearsal"
+    },
+    "migrationLedgerBefore": 18,
+    "migrationLedgerAfter": 18,
+    "appliedMigrationCount": 0
+  },
+  "rowPreservation": {
+    "tables": 12,
+    "originalRows": 2439,
+    "rowLevelPreservationPassed": true,
+    "failures": []
+  },
+  "tenantTests": {
+    "target": {
+      "host": "127.0.0.1",
+      "port": 4000,
+      "user": "root",
+      "database": "ojala_phase1_rehearsal"
+    },
+    "executed": true,
+    "tests": {
+      "credentialResolution": true,
+      "preprovisionedUser": true,
+      "staffLoginSession": true,
+      "crossStoreRead": true,
+      "crossStoreWriteDenied": true,
+      "frigateOrdering": true,
+      "revokedCredentialsRejected": true,
+      "revokedStaffLoginDenied": true
+    },
+    "cleanup": true,
+    "fixtureStoreId": 2,
+    "fixtureIdentifierFingerprint": "c529a7d498e65c835ecebb0203be2f824bfb3c27924f7d152802a13735097d78"
+  },
+  "store1VisualTests": {
+    "isolatedOnly": true,
+    "checks": {
+      "managedCredentialResolvesStore1": true,
+      "credentialStoredHashed": true,
+      "configuredActualGeometry": true,
+      "geometryHashMatchesAdaptedCapture": true,
+      "otherStoreCannotReadZone": true,
+      "realAdaptedMetadataAccepted": true,
+      "captureMatchesServerZone": true,
+      "countEventApplyAndReplay": true,
+      "olderSameSecondRejected": true,
+      "countOrderingFieldsPersisted": true,
+      "visualEventDeduplicated": true,
+      "visualRowsScoped": true,
+      "crossStoreVisualReviewDenied": true,
+      "reviewDoesNotAlterCameraOrSales": true
+    },
+    "cleanup": true,
+    "liveAiInvoked": false,
+    "productionTouched": false
+  },
+  "realPairCompatibility": {
+    "imagePairsExamined": 59,
+    "beforeAccepted": 5,
+    "afterAccepted": 59,
+    "beforeRejected": {
+      "verified snapshot metadata zone_geometry is invalid": 54
+    },
+    "afterRejected": {},
+    "sourcePairsUnchanged": true,
+    "networkAttempted": false,
+    "firstQueueInsertions": 59,
+    "secondQueueInsertions": 0,
+    "queued": 59,
+    "wireGeometryHashes": [
+      "0c5239aac1c6d946af3a6f07319c91afcb1565acf58cb0433e18680c86e8d772"
+    ],
+    "liveAiInvoked": false
+  },
+  "validation": {
+    "vitestFiles": 34,
+    "vitestPassed": 206,
+    "visualSenderPassed": 22,
+    "installedCountSenderPassed": 30,
+    "typescript": "PASS",
+    "frontendBuild": "PASS",
+    "serverBuild": "PASS"
+  },
+  "production": {
+    "databaseBindingVerified": false,
+    "freshBackupCreated": false,
+    "migrationsApplied": false,
+    "visualPrMerged": false,
+    "visualSenderEnabled": false,
+    "liveAiInvoked": false,
+    "countPayloadSent": false,
+    "activeCountProtocol": "legacy_v1",
+    "tenantCountConfigStagedPrivately": true,
+    "dashboardVerified": false,
+    "blockingCapability": "Opera Browser Connector disconnected; no administrative Manus runtime access"
+  },
+  "sourceConfig": {
+    "camera": "handoff",
+    "referenceWidth": 2304,
+    "referenceHeight": 1296,
+    "polygon": [
+      [
+        0.45,
+        0.55
+      ],
+      [
+        0.609,
+        0.564
+      ],
+      [
+        0.605,
+        0.685
+      ],
+      [
+        0.453,
+        0.675
+      ]
+    ],
+    "sourceGeometryHash": "3f9c98b00a0fc36f1a3009fcaf3340910ff157f774d7531e6ac4353a12bce0e1",
+    "wireGeometryHash": "0c5239aac1c6d946af3a6f07319c91afcb1565acf58cb0433e18680c86e8d772"
+  }
+}

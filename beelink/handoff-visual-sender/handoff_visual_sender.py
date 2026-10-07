@@ -150,7 +150,7 @@ def canonical_zone_geometry(points: Any) -> str:
         raise SenderError("verified snapshot metadata zone_geometry is invalid")
     normalized: list[tuple[float, float]] = []
     for point in points:
-        if not isinstance(point, dict) or not isinstance(point.get("x"), (int, float)) or not isinstance(point.get("y"), (int, float)):
+        if not isinstance(point, dict) or type(point.get("x")) not in (int, float) or type(point.get("y")) not in (int, float):
             raise SenderError("verified snapshot metadata zone_geometry is invalid")
         x, y = float(point["x"]), float(point["y"])
         if not (0 <= x <= 1 and 0 <= y <= 1):
@@ -165,9 +165,47 @@ def canonical_zone_geometry(points: Any) -> str:
     return "[" + ",".join("{\"x\":%s,\"y\":%s}" % (js_number(x), js_number(y)) for x, y in normalized) + "]"
 
 
+def normalize_capture_zone(geometry: Any, zone_hash: Any,
+                           dimensions: dict[str, int]) -> tuple[str, str | None]:
+    """Validate original capture geometry before translating the wire representation.
+
+    The installed Beelink producer signs a descriptive object; the receiver signs
+    an array of {x,y}. Both describe the same normalized polygon. Never rewrite
+    the original sidecar or substitute the server's current geometry.
+    """
+    if not isinstance(zone_hash, str) or not SHA256_PATTERN.fullmatch(zone_hash):
+        raise SenderError("verified snapshot metadata zone_config_sha256 is invalid")
+    if not isinstance(geometry, dict):
+        canonical = canonical_zone_geometry(geometry)
+        if hashlib.sha256(canonical.encode("utf-8")).hexdigest() != zone_hash:
+            raise SenderError("verified snapshot metadata zone_config_sha256 is invalid")
+        return canonical, None
+
+    required = {"name", "coordinate_system", "polygon", "reference_width",
+                "reference_height", "membership_rule"}
+    if (set(geometry) != required or geometry["name"] != "handoff_zone"
+            or geometry["coordinate_system"] != "normalized"
+            or geometry["membership_rule"] != "box_bottom_center"):
+        raise SenderError("unsupported capture-worker zone_geometry contract")
+    for axis in ("width", "height"):
+        reference = geometry["reference_" + axis]
+        if type(reference) is not int or reference != dimensions[axis]:
+            raise SenderError("capture-worker zone reference dimensions do not match image")
+    polygon = geometry["polygon"]
+    if not isinstance(polygon, list) or any(
+            not isinstance(point, list) or len(point) != 2 for point in polygon):
+        raise SenderError("capture-worker polygon is invalid")
+    canonical = canonical_zone_geometry([{"x": point[0], "y": point[1]} for point in polygon])
+    original = json.dumps(geometry, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    if hashlib.sha256(original.encode("utf-8")).hexdigest() != zone_hash:
+        raise SenderError("verified snapshot metadata zone_config_sha256 is invalid")
+    return canonical, zone_hash
+
+
 def parse_sidecar_metadata(image_path: Path, image_digest: str) -> dict[str, Any]:
     try:
-        parsed = json.loads(sidecar_path(image_path).read_text(encoding="utf-8"))
+        sidecar_bytes = sidecar_path(image_path).read_bytes()
+        parsed = json.loads(sidecar_bytes)
     except (OSError, json.JSONDecodeError) as error:
         raise SenderError("verified snapshot metadata is unreadable") from error
     if not isinstance(parsed, dict):
@@ -205,16 +243,18 @@ def parse_sidecar_metadata(image_path: Path, image_digest: str) -> dict[str, Any
     if metadata["schema_version"] not in {2, 3}:
         raise SenderError("verified snapshot metadata schema_version is invalid")
     if metadata["schema_version"] == 3:
-        canonical_zone = canonical_zone_geometry(parsed.get("zone_geometry"))
-        zone_hash = parsed.get("zone_config_sha256")
         dimensions = parsed.get("image_dimensions")
-        if not isinstance(zone_hash, str) or not SHA256_PATTERN.fullmatch(zone_hash) or hashlib.sha256(canonical_zone.encode("utf-8")).hexdigest() != zone_hash:
-            raise SenderError("verified snapshot metadata zone_config_sha256 is invalid")
-        if not isinstance(dimensions, dict) or not isinstance(dimensions.get("width"), int) or not isinstance(dimensions.get("height"), int) or not (1 <= dimensions["width"] <= 16384 and 1 <= dimensions["height"] <= 16384):
+        if not isinstance(dimensions, dict) or type(dimensions.get("width")) is not int or type(dimensions.get("height")) is not int or not (1 <= dimensions["width"] <= 16384 and 1 <= dimensions["height"] <= 16384):
             raise SenderError("verified snapshot metadata image_dimensions is invalid")
+        canonical_zone, original_hash = normalize_capture_zone(
+            parsed.get("zone_geometry"), parsed.get("zone_config_sha256"), dimensions)
         metadata["zone_geometry"] = json.loads(canonical_zone)
-        metadata["zone_config_sha256"] = zone_hash
+        metadata["zone_config_sha256"] = hashlib.sha256(canonical_zone.encode("utf-8")).hexdigest()
         metadata["image_dimensions"] = {"width": dimensions["width"], "height": dimensions["height"]}
+        if original_hash:
+            # Queue-only provenance, removed from capture before network encoding.
+            metadata["_source_zone_config_sha256"] = original_hash
+            metadata["_source_sidecar_sha256"] = hashlib.sha256(sidecar_bytes).hexdigest()
     return metadata
 
 
@@ -279,13 +319,23 @@ def build_payload(row: sqlite3.Row, api_key: str) -> dict[str, Any]:
         raise SenderError("queued capture metadata is invalid") from error
     if not isinstance(capture, dict) or capture.get("image_sha256") != image_sha256:
         raise SenderError("queued capture metadata no longer matches the image")
+    source_detail = "verified_snapshot_sender"
+    original_hash = capture.pop("_source_zone_config_sha256", None)
+    sidecar_hash = capture.pop("_source_sidecar_sha256", None)
+    if original_hash is not None or sidecar_hash is not None:
+        if (not isinstance(original_hash, str) or not SHA256_PATTERN.fullmatch(original_hash)
+                or not isinstance(sidecar_hash, str) or not SHA256_PATTERN.fullmatch(sidecar_hash)
+                or hashlib.sha256(sidecar_path(image_path).read_bytes()).hexdigest() != sidecar_hash):
+            raise SenderError("verified sidecar changed after queueing")
+        source_detail += (";adapter=beelink_object_v3;sidecar_sha256=" + sidecar_hash
+                          + ";source_zone_sha256=" + original_hash)
     suffix = image_path.suffix.lower()
     image_data_url = f"data:{MIME_BY_SUFFIX[suffix]};base64," + base64.b64encode(image_bytes).decode("ascii")
     return {
         "apiKey": api_key,
         "imageDataUrl": image_data_url,
         "capture": capture,
-        "sourceDetail": "verified_snapshot_sender",
+        "sourceDetail": source_detail,
     }
 
 

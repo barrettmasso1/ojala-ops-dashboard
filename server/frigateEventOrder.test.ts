@@ -30,4 +30,14 @@ describe("Frigate source event ordering", () => {
     expect(normalizeFrigateEventAt("2026-09-22T19:00:00-07:00")).toBeNull();
     expect(normalizeFrigateEventAt("not-a-time")).toBeNull();
   });
+  it("normalizes fractional seconds to the existing SQL timestamp precision", () => {
+    expect(normalizeFrigateEventAt("2026-09-22T19:00:00.987654Z")?.toISOString()).toBe("2026-09-22T19:00:00.000Z");
+  });
+
+  it("does not overwrite a stored snapshot with an older event from the same second", () => {
+    const at = normalizeFrigateEventAt("2026-09-22T19:00:00.800Z")!;
+    expect(compareFrigateEventOrder(stored, {sourceEventId: "older-same-second", sourceEventAt: at})).toBe("stale");
+    expect(compareFrigateEventOrder(stored, {sourceEventId: stored.sourceEventId, sourceEventAt: at})).toBe("replay");
+  });
+
 });

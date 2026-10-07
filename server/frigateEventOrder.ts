@@ -23,5 +23,9 @@ export function compareFrigateEventOrder(
 
 export function normalizeFrigateEventAt(value: string): Date | null {
   const parsed = new Date(value);
-  return Number.isFinite(parsed.getTime()) && value.endsWith("Z") ? parsed : null;
+  if (!Number.isFinite(parsed.getTime()) || !value.endsWith("Z")) return null;
+  // sourceEventAt is TIMESTAMP(0). Compare and persist at the same precision:
+  // otherwise an older event within the stored second can appear newer.
+  parsed.setUTCMilliseconds(0);
+  return parsed;
 }
