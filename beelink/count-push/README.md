@@ -54,8 +54,37 @@ Approved records require the matching date, `cameraName: handoff`, `storeId: 1`,
 `evidenceReferences`, and coverage `complete` or `partial` (with gaps description).
 Unique cup IDs are reviewed physical units, not raw Frigate event IDs. A schema
 check cannot certify a review: an actual reviewer/counter must supply the evidence.
-Partial coverage counts mean detected unique units only, never total deliveries.
+Partial coverage counts mean reviewed unique units only, never total deliveries.
 A partial-coverage zero is rejected. Do not populate from POS or total photos.
+
+### Partial evidence rollout (2026-10-08)
+
+The old exporter required a complete shift review, and the old sender rejected
+every partial count. Cron therefore ran without any approved outbox file.
+The review CLI now has `--export-partial-to DIRECTORY`: it validates the original
+evidence hashes and exports only confirmed physical-unit identities, excluding
+ambiguous links. Original ledgers and pending cases remain unchanged. The output
+is explicitly `coverage: partial`, with `dailyCupCount: null` and listed gaps.
+
+Before enabling partial sends, verify the **published** dashboard uses the PR #12
+coverage-aware card, labels the number `(partial)`, and does not compute a full-day
+POS discrepancy from it. Only then set `dashboardSupportsPartialCounts: true` in
+the private sender configuration. This capability does not assert that a count
+was accepted or that tenant migrations ran. Keep `productionContractVerified`
+false until a real acknowledgment. All partial records require `approvedAt`.
+Do not enable the flag solely because GitHub main contains the UI code.
+
+With `tenant_event_v1`, a reviewed correction can explicitly identify its accepted
+predecessor with `supersedesRecordSha256`. It must use the same configuration and
+a newer approval timestamp at whole-second precision; complete coverage cannot
+be replaced with partial coverage. The prior receipt is retained under
+`push_state/receipts`. Repeated payloads are not sent again. A network failure
+preserves the last accepted receipt. Legacy corrections remain blocked until
+explicit reconciliation; this change does not imply safe server-side ordering
+for the legacy endpoint.
+
+These are offline-verified changes. They do not themselves install the new sender,
+activate its private configuration, submit a count, or certify production.
 
 `push_state/retired_dates.json` maps excluded ISO dates to explicit reasons.
 Retired dates are excluded even if outbox/history files remain. Explicit `--date`

@@ -106,7 +106,8 @@ class PushTests(unittest.TestCase):
         self.assertEqual(validate_record(self.record, DAY), 'zero_with_incomplete_coverage')
 
     def test_positive_partial_cannot_be_published_as_daily_total(self):
-        self.record.update(coverage='partial', gapsDescription='Only candidate windows reviewed')
+        self.record.update(coverage='partial', gapsDescription='Only candidate windows reviewed',
+                           approvedAt='2026-09-28T12:34:56-07:00')
         self.write()
         result=process_day(self.root, DAY, send=lambda x:self.fail('partial count sent'))
         self.assertEqual(result['blockers'], ['partial_count_not_displayable'])
@@ -125,6 +126,93 @@ class PushTests(unittest.TestCase):
         self.write()
         r=process_day(self.root, DAY, send=lambda x: self.fail('network'))
         self.assertEqual(r['blockers'], ['changed_record_requires_reconciliation'])
+
+    def partial_config(self):
+        self.tenant_config()
+        self.config['dashboardSupportsPartialCounts']=True
+        self.record.update(coverage='partial',gapsDescription='Only reviewed windows; 2 cases pending')
+        self.write()
+
+    @staticmethod
+    def tenant_ack(payload):
+        return 200, {'result':{'data':{'json':{'success':True,'disposition':'apply'}}}}
+
+    def test_verified_partial_display_allows_reviewed_nonzero_count(self):
+        self.partial_config()
+        calls=[]
+        def send(payload):
+            calls.append(payload)
+            return self.tenant_ack(payload)
+        result=process_day(self.root,DAY,send=send)
+        self.assertEqual(result['status'],'acknowledged')
+        self.assertEqual(result['coverage'],'partial')
+        self.assertEqual(json.loads(calls[0]['sourceDetail'])['coverage'],'partial')
+        self.assertFalse(result['dashboardVerified'])
+        self.assertNotIn('test-secret',json.dumps(result))
+
+    def test_partial_display_capability_does_not_approve_tracks(self):
+        self.partial_config()
+        self.record['countBasis']='frigate_tracks';self.write()
+        result=process_day(self.root,DAY,send=lambda x:self.fail('tracks sent'))
+        self.assertIn('unverified_count_basis',result['blockers'])
+
+    def test_display_capability_must_be_boolean_true(self):
+        self.partial_config()
+        for value in ['true',1,None,False]:
+            self.config['dashboardSupportsPartialCounts']=value;self.write()
+            result=process_day(self.root,DAY,send=lambda x:self.fail('partial sent'))
+            self.assertEqual(result['blockers'],['partial_count_not_displayable'])
+
+    def first_partial(self):
+        self.partial_config()
+        return process_day(self.root,DAY,send=self.tenant_ack)
+
+    def prepare_revision(self, first):
+        self.record.update(supersedesRecordSha256=first['recordSha256'],coverage='complete',
+                           approvedAt='2026-09-28T12:34:57-07:00',gapsDescription='')
+        self.write()
+
+    def test_explicit_newer_revision_upgrades_partial_and_retains_old_receipt(self):
+        first=self.first_partial();self.prepare_revision(first)
+        second=process_day(self.root,DAY,send=self.tenant_ack)
+        self.assertEqual(second['status'],'acknowledged')
+        self.assertEqual(second['coverage'],'complete')
+        self.assertNotEqual(second['recordSha256'],first['recordSha256'])
+        self.assertTrue((self.root/'push_state'/'receipts'/(DAY+'-'+first['recordSha256']+'.json')).exists())
+        retry=process_day(self.root,DAY,send=lambda x:self.fail('duplicate send'))
+        self.assertEqual(retry['status'],'already_acknowledged')
+
+    def test_revision_requires_explicit_matching_lineage_and_config(self):
+        first=self.first_partial();self.prepare_revision(first)
+        self.record['supersedesRecordSha256']='wrong';self.write()
+        result=process_day(self.root,DAY,send=lambda x:self.fail('unrelated revision'))
+        self.assertEqual(result['blockers'],['changed_record_requires_reconciliation'])
+        self.prepare_revision(first);self.config['apiKey']='new-key';self.write()
+        result=process_day(self.root,DAY,send=lambda x:self.fail('changed binding'))
+        self.assertEqual(result['blockers'],['changed_record_requires_reconciliation'])
+
+    def test_same_second_or_older_revision_is_blocked(self):
+        first=self.first_partial();self.prepare_revision(first)
+        for stamp in ['2026-09-28T12:34:56.999999-07:00','2026-09-28T12:34:55-07:00']:
+            self.record['approvedAt']=stamp;self.write()
+            result=process_day(self.root,DAY,send=lambda x:self.fail('stale revision sent'))
+            self.assertEqual(result['blockers'],['revision_timestamp_not_newer'])
+
+    def test_complete_cannot_regress_to_partial(self):
+        first=self.first_partial();self.prepare_revision(first)
+        second=process_day(self.root,DAY,send=self.tenant_ack)
+        self.record.update(supersedesRecordSha256=second['recordSha256'],coverage='partial',
+                           gapsDescription='downgrade',approvedAt='2026-09-28T12:34:58-07:00')
+        self.write()
+        result=process_day(self.root,DAY,send=lambda x:self.fail('downgrade sent'))
+        self.assertEqual(result['blockers'],['complete_count_cannot_be_replaced_by_partial'])
+
+    def test_failed_revision_preserves_previous_receipt(self):
+        first=self.first_partial();self.prepare_revision(first)
+        result=process_day(self.root,DAY,send=lambda x:(503,{}))
+        self.assertEqual(result['status'],'retry_pending')
+        receipt=json.loads((self.root/'push_state'/(DAY+'.receipt.json')).read_text())
+        self.assertEqual(receipt['recordSha256'],first['recordSha256'])
 
     def test_restart_catches_missed_sunday_without_count_file(self):
         (self.root/'approved_counts'/(DAY+'.json')).unlink()

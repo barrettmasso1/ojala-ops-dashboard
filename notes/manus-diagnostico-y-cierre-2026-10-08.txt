@@ -1,0 +1,32 @@
+Proyecto Ojala Ops Dashboard, dominio publicado https://ojaladarsh-m6piugsr.manus.space.
+El usuario ya tiene rol administrador en Manus. No confundas su permiso con la conexión del navegador de Codex. Necesitamos evidencia del runtime publicado, no inferencias desde preview o un merge.
+
+PRIORIDAD 1 — diagnóstico de solo lectura, sin volver a capturar cierres ni modificar fechas históricas:
+1. Identifica administrativamente el deployment publicado, commit/build y base a la que está ligado. Entrega identificador/fingerprint no secreto y prueba de procedencia. No imprimas DATABASE_URL ni credenciales.
+2. Consulta el ledger de Drizzle, existencia y definición de stores, y las columnas storeId e índices de frigateCupCounts y endOfDayReports. Si stores existe, devuelve únicamente la fila de Ojala y comprueba id=1. Responde explícitamente si las migraciones 0012–0017 están aplicadas a esa misma base.
+3. Para 2026-10-02, 2026-10-03 y 2026-10-04 (America/Mazatlan), consulta los cierres originales: id, businessDate, createdAt/updatedAt si existen, autor y tienda si existen, conteos y estado. Primero inspecciona columnas. Distingue ausencia de fila, fila guardada con ceros y fila excluida por fecha/zona horaria/storeId. No atribuyas el problema al multi-tenant sin probar que está desplegado. Investiga recibos/auditoría de guardado disponibles; un cero en pantalla no prueba que el usuario no llenó el formulario.
+4. Consulta frigateCupCounts para las mismas fechas y comprueba qué datos consume dashboard.daily. Captura el dashboard autenticado de cada fecha, sin mostrar claves ni datos de otras tiendas.
+
+DIAGNÓSTICO BEELINK YA COMPROBADO EL 08/10 A LAS 12:23–12:30:
+- Cron corrió a las 22:00 los días 2, 3 y 4. Los logs muestran posted:false y approved_count_file_missing, antes de cualquier POST. No hay recibos de aceptación.
+- La ruta real del emisor es /home/ojala/frigate/scripts/approved_counts/; tampoco hay archivos para esas tres fechas.
+- SQLite de Frigate leído en modo solo lectura: 34, 0 y 24 tracks cup, respectivamente; dentro de handoff_zone: 34, 0 y 20. NO son vasos únicos ni ventas.
+- El sábado solo hay evidencia de grabación desde las 18:52:10: cobertura archivada 23.632% de la ventana configurada 12–21. No tratar ausencia de detecciones como cero ventas.
+- El domingo la revisión existente documenta 13 unidades físicas distintas y 2 casos pendientes, con 82 archivos de evidencia. Es un parcial revisado por Codex, no ground truth independiente ni total diario.
+- Los timestamps del comando anterior eran de 2025. Rango correcto: after=1790924400&before=1791183600 para 02–04/10/2026 completos en Mazatlán.
+
+PRIORIDAD 2 — visualización de evidencia parcial:
+5. Comprueba que la versión PUBLICADA de PR #12 muestra sourceDetail.coverage=partial como «N (partial)» tanto en Camera cup count como en el panel unificado, sin calcular una discrepancia diaria contra POS. Si no está publicado, termina ese despliegue y verifícalo. No insertes filas de prueba en producción para demostrarlo; usa pruebas/local preview y después una evidencia real.
+6. La corrección del emisor y exportador está en PR #11: permite exportar solo unidades confirmadas de una revisión parcial, sin cerrar casos pendientes; requiere dashboardSupportsPartialCounts:true únicamente tras la comprobación anterior. No actives esa bandera por un merge ni inventes un conteo. El parcial real del domingo puede ser el primer payload cuando el contrato y la credencial estén confirmados. No sustituyas vasos únicos por tracks/fotos.
+
+PRIORIDAD 3 — terminar multi-tenant con la autorización existente:
+7. Continúa el procedimiento notes/manus-pr13-production-prompt-2026-10-07.txt de PR #13: respaldo NUEVO recuperable de la base publicada confirmada, ensayo de esa copia, preservación de datos, migraciones 0012→0017 mediante pnpm drizzle-kit migrate, nunca db:push. El ensayo de septiembre preservó 2,439 filas pero no sustituye al respaldo actual.
+8. Coordina merge y despliegue del servidor, credencial ligada a Store 1, geometría real y actualización del emisor a tenant_event_v1/sourceEventId/sourceEventAt. Respeta el estado real del ledger; no reapliques migraciones ya registradas ni escribas manualmente el ledger.
+9. Verifica un payload REAL aceptado, la fila correspondiente y su presentación en el dashboard. Mantén independientes los conteos de cámara, las imágenes revisadas y las ventas del cierre. Guarda screenshot y estado posterior de los históricos. Un HTTP 200 no basta.
+
+RESULTADO SOLICITADO:
+- Multi-tenant en producción: sí/no, con evidencia; si no se puede verificar, dilo expresamente.
+- Cierre 04/10: fila encontrada/ausente/filtrada, autor y fecha; no inventar lo que el usuario hizo físicamente.
+- Qué se envió exactamente: commit/PR, despliegue, payload o mensaje, identificando cuál.
+- Conteo parcial recibido y visible, o bloqueo exacto restante.
+- Recomendación para la prueba del viernes 09/10: hacerla end-to-end solo tras ver una evidencia real persistida y etiquetada en producción. En otro caso posponer aceptación; la captura local puede continuar.

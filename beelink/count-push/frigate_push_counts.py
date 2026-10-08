@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 ZONE = ZoneInfo('America/Mazatlan')
 ENDPOINT = 'https://ojaladarsh-m6piugsr.manus.space/api/trpc/frigate.submitCounts'
-VERSION = '2026-10-05.1'
+VERSION = '2026-10-08.1'
 PUSH_HOUR = 22
 TRACKING_START = dt.date(2026, 9, 27)
 
@@ -198,30 +198,45 @@ def process_day(root, day, dry_run=False, send=post):
     except (ValueError, TypeError):
         blockers.append('invalid_push_config')
     source_at = None
-    if config and config.get('protocol') == 'tenant_event_v1' and record:
+    if config and record and (config.get('protocol') == 'tenant_event_v1'
+                              or record.get('coverage') == 'partial'):
         try:
             source_at = approval_timestamp(record)
         except (ValueError, TypeError, OverflowError):
             blockers.append('valid_approval_timestamp_required')
     if blockers:
         return dict(result, status='blocked', blockers=blockers)
-    # The published daily tile does not display sourceDetail/coverage. A partial
-    # total would be presented as an ordinary daily count and compared with POS.
-    # Retain the evidence locally until that production contract is upgraded.
-    if record['coverage'] != 'complete':
+    # Enable only after checking the published dashboard labels partial counts
+    # and excludes them from the full-day POS comparison. A repo merge is not proof.
+    if record['coverage'] == 'partial' and config.get('dashboardSupportsPartialCounts') is not True:
         return dict(result, status='blocked', blockers=['partial_count_not_displayable'])
     result['productionContractVerified'] = config['productionContractVerified']
     digest = hashlib.sha256(json.dumps(record, sort_keys=True).encode()).hexdigest()
     receipt = root / 'push_state' / (day + '.receipt.json')
+    prior = None
     if receipt.exists():
         prior = json.loads(receipt.read_text())
         if prior.get('recordSha256') == digest and not config['productionContractVerified']:
             result['productionContractVerified'] = mark_configuration_verified(config_path, config, prior)
-        return dict(result, status='already_acknowledged' if prior.get('recordSha256') == digest
-                    else 'blocked', blockers=[] if prior.get('recordSha256') == digest
-                    else ['changed_record_requires_reconciliation'])
+        if prior.get('recordSha256') == digest:
+            return dict(result, status='already_acknowledged', blockers=[])
+        # An explicit lineage and a newer timestamp let a reviewed partial grow
+        # or become complete without permitting an old retry to replace it.
+        if (config.get('protocol') != 'tenant_event_v1'
+                or record.get('supersedesRecordSha256') != prior.get('recordSha256')
+                or prior.get('configurationBinding') != configuration_binding(config)
+                or not prior.get('sourceEventAt')):
+            return dict(result, status='blocked', blockers=['changed_record_requires_reconciliation'])
+        previous_at = dt.datetime.fromisoformat(prior['sourceEventAt'].replace('Z', '+00:00'))
+        current_at = dt.datetime.fromisoformat(source_at.replace('Z', '+00:00'))
+        if previous_at.tzinfo is None or current_at.replace(microsecond=0) <= previous_at.replace(microsecond=0):
+            return dict(result, status='blocked', blockers=['revision_timestamp_not_newer'])
+        if prior.get('coverage') == 'complete' and record['coverage'] == 'partial':
+            return dict(result, status='blocked', blockers=['complete_count_cannot_be_replaced_by_partial'])
     result.update(cupsDetected=record['cupsDetected'], unit='physical_cups',
                   coverage=record['coverage'], recordSha256=digest)
+    if source_at:
+        result['sourceEventAt'] = source_at
     if dry_run:
         return dict(result, status='ready_dry_run')
     detail = json.dumps({'basis': record['countBasis'], 'recordSha256': digest,
@@ -248,6 +263,10 @@ def process_day(root, day, dry_run=False, send=post):
             result['serverDisposition'] = disposition
         result.update(status='acknowledged', posted=True)
         proof = dict(result, configurationBinding=configuration_binding(config))
+        if prior:
+            history = root / 'push_state' / 'receipts'
+            history.mkdir(exist_ok=True, mode=0o700)
+            atomic_json(history / (day + '-' + prior['recordSha256'] + '.json'), prior)
         atomic_json(receipt, proof)
         if not config['productionContractVerified']:
             result['productionContractVerified'] = mark_configuration_verified(config_path, config, proof)

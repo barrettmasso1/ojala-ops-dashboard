@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate a video review ledger; export only an explicitly completed daily review.
+"""Validate a video review ledger; distinguish partial evidence from daily totals.
 
 This is an evidence validator, not an object detector or an automatic reviewer.
 Candidate windows can establish a lower bound, never full-day recall.
@@ -115,6 +115,38 @@ def export_record(ledger, result):
             'ledgerSha256': hashlib.sha256(json.dumps(ledger, sort_keys=True).encode()).hexdigest()}
 
 
+def export_partial_record(ledger, evidence_root, approved_at):
+    # Revalidate the actual ledger and files; do not trust a supplied summary.
+    result = evaluate(ledger, evidence_root)
+    parsed = dt.datetime.fromisoformat(approved_at)
+    require(parsed.tzinfo is not None and parsed <= dt.datetime.now(dt.timezone.utc),
+            'invalid_approval_timestamp')
+    counted = {uid for case in ledger['cases']
+               if case['disposition'] in {'counted', 'duplicate'} for uid in case.get('unitIds', [])}
+    ambiguous = {uid for case in ledger['cases']
+                 if case['disposition'] not in {'counted', 'duplicate'} for uid in case.get('unitIds', [])}
+    selected = counted - ambiguous
+    require(bool(selected), 'no_confirmed_partial_units')
+    units = [unit for unit in ledger['units'] if unit['id'] in selected]
+    refs = {key for unit in units for key in unit['evidenceIds']}
+    gaps = list(ledger.get('dailyReview', {}).get('gaps') or [])
+    gaps.append('Partial reviewed evidence only; the full-day cup total is unknown.')
+    if result['pendingCases']:
+        gaps.append('Pending cases excluded: ' + ', '.join(result['pendingCases']))
+    if result['reviewedCandidateCount'] < result['candidateCount']:
+        gaps.append('Some detection candidates remain unreviewed.')
+    return {'businessDate': ledger['businessDate'], 'cameraName': 'handoff', 'storeId': 1,
+            'status': 'approved', 'countBasis': ledger['countBasis'],
+            'cupsDetected': len(selected), 'uniqueCupIds': sorted(selected),
+            'reviewedBy': ledger['reviewedBy'], 'approvedAt': approved_at,
+            'coverage': 'partial', 'gapsDescription': ' '.join(gaps),
+            'reviewScope': 'confirmed_units_in_partial_evidence',
+            'dailyCupCount': None, 'pendingCases': result['pendingCases'],
+            'evidenceReferences': [{'path': e['path'], 'sha256': e['sha256']}
+                                   for e in ledger['evidence'] if e['id'] in refs],
+            'ledgerSha256': hashlib.sha256(json.dumps(ledger, sort_keys=True).encode()).hexdigest()}
+
+
 def write_new(path, value):
     # Never replace an approved record or a receipt. Reconciliation is explicit.
     with open(path, 'x', encoding='utf-8') as f:
@@ -129,11 +161,19 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('ledger', type=Path)
     p.add_argument('--evidence-root', type=Path, required=True)
-    p.add_argument('--approve-to', type=Path, help='Existing approved_counts directory; blocked unless complete')
+    exports = p.add_mutually_exclusive_group()
+    exports.add_argument('--approve-to', type=Path, help='Existing approved_counts directory; blocked unless complete')
+    exports.add_argument('--export-partial-to', type=Path,
+                         help='Export confirmed units with partial coverage; never a full-day total')
     a = p.parse_args()
     ledger = json.loads(a.ledger.read_text())
     result = evaluate(ledger, a.evidence_root)
     if a.approve_to:
         record = export_record(ledger, result)
         write_new(a.approve_to/(ledger['businessDate']+'.json'), record)
+    if a.export_partial_to:
+        record = export_partial_record(ledger, a.evidence_root, dt.datetime.now(dt.timezone.utc).isoformat())
+        write_new(a.export_partial_to/(ledger['businessDate']+'.json'), record)
+        result['partialExport'] = {'cupsDetected': record['cupsDetected'], 'coverage': 'partial',
+                                   'dailyCupCount': None, 'posted': False}
     print(json.dumps(result, ensure_ascii=False, indent=2))

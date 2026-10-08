@@ -3,7 +3,7 @@ import hashlib
 import tempfile
 import unittest
 from pathlib import Path
-from review_counts import evaluate, export_record
+from review_counts import evaluate, export_record, export_partial_record
 
 
 class ReviewTests(unittest.TestCase):
@@ -92,3 +92,43 @@ class ReviewTests(unittest.TestCase):
         self.ledger['storeId']=2
         with self.assertRaisesRegex(ValueError,'wrong_camera_or_store'):
             self.evaluate()
+
+    def test_partial_exports_confirmed_units_and_preserves_pending_ledger(self):
+        self.ledger.update(status='pending', coverage='partial')
+        self.ledger['dailyReview']={'scope':'candidate_windows','completed':False,'gaps':['camera gap']}
+        self.ledger['cases'].append({'id':'pending-case','candidateIds':[],
+            'disposition':'pending','unitIds':[],'evidenceIds':['0']})
+        original=copy.deepcopy(self.ledger)
+        record=export_partial_record(self.ledger,self.root,'2026-10-05T00:00:00+00:00')
+        self.assertEqual(record['cupsDetected'],1)
+        self.assertEqual(record['coverage'],'partial')
+        self.assertIsNone(record['dailyCupCount'])
+        self.assertEqual(record['pendingCases'],['pending-case'])
+        self.assertIn('camera gap',record['gapsDescription'])
+        self.assertEqual(self.ledger,original)
+        self.assertFalse(self.evaluate()['readyForDailyPush'])
+
+    def test_partial_does_not_promote_ambiguous_unit(self):
+        self.ledger['cases'][0]['disposition']='pending'
+        with self.assertRaisesRegex(ValueError,'no_confirmed_partial_units'):
+            export_partial_record(self.ledger,self.root,'2026-10-05T00:00:00+00:00')
+
+    def test_partial_zero_is_not_an_invented_daily_zero(self):
+        self.ledger['units']=[]
+        self.ledger['cases'][0].update(disposition='false_positive',unitIds=[])
+        with self.assertRaisesRegex(ValueError,'no_confirmed_partial_units'):
+            export_partial_record(self.ledger,self.root,'2026-10-05T00:00:00+00:00')
+
+    def test_partial_revalidates_evidence_and_approval_timestamp(self):
+        for stamp in ['2026-10-05T00:00:00','2999-01-01T00:00:00+00:00']:
+            with self.assertRaisesRegex(ValueError,'invalid_approval_timestamp'):
+                export_partial_record(self.ledger,self.root,stamp)
+        (self.root/'0').write_bytes(b'changed')
+        with self.assertRaisesRegex(ValueError,'evidence_hash_mismatch'):
+            export_partial_record(self.ledger,self.root,'2026-10-05T00:00:00+00:00')
+
+    def test_partial_accepts_unreviewed_candidates_without_counting_them(self):
+        self.ledger['candidateIds'].append('unknown')
+        record=export_partial_record(self.ledger,self.root,'2026-10-05T00:00:00+00:00')
+        self.assertEqual(record['uniqueCupIds'],['cup-a'])
+        self.assertIn('unreviewed',record['gapsDescription'])
