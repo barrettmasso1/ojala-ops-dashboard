@@ -1,8 +1,9 @@
 import json
+import io
 import tempfile
 import unittest
 from pathlib import Path
-from urllib.error import URLError
+from urllib.error import URLError, HTTPError
 from unittest.mock import patch
 from frigate_push_counts import process_day, validate_record, pending_dates, ENDPOINT, ZONE
 import datetime as dt
@@ -83,6 +84,48 @@ class PushTests(unittest.TestCase):
         self.assertTrue((self.root/'approved_counts'/(DAY+'.json')).exists())
         self.assertFalse((self.root/'push_state'/(DAY+'.receipt.json')).exists())
         self.assertNotIn('test-secret', json.dumps(result))
+
+    def test_cloudflare_block_preserves_outbox_and_stops_following_network_attempts(self):
+        self.config.update(productionContractVerified=False, verificationMode='first_approved_payload')
+        self.write()
+        original=(self.root/'approved_counts'/(DAY+'.json')).read_bytes()
+        def reject(payload):
+            raise HTTPError(ENDPOINT,403,'test-secret',{'Server':'cloudflare'},
+                            io.BytesIO(b'error code: 1010\ntest-secret'))
+        first=process_day(self.root,DAY,send=reject)
+        self.assertEqual(first['blockers'],['cloudflare_1010'])
+        self.assertTrue(first['networkAttempted'])
+        second=process_day(self.root,DAY,send=lambda x:self.fail('blocked endpoint retried'))
+        self.assertFalse(second['networkAttempted'])
+        self.assertEqual(second['blockers'],['cloudflare_1010'])
+        hold=self.root/'push_state/transport-hold.json'
+        self.assertEqual(hold.stat().st_mode & 0o777,0o600)
+        self.assertNotIn('test-secret',hold.read_text()+json.dumps(first)+json.dumps(second))
+        self.assertEqual((self.root/'approved_counts'/(DAY+'.json')).read_bytes(),original)
+        self.assertFalse((self.root/'push_state'/(DAY+'.receipt.json')).exists())
+        self.assertFalse(json.loads((self.root/'push_config.json').read_text())['productionContractVerified'])
+        hold.rename(hold.with_suffix('.resolved.json'))
+        accepted=process_day(self.root,DAY,send=lambda x:(200,{'result':{'data':{'json':{'success':True}}}}))
+        self.assertEqual(accepted['status'],'acknowledged')
+
+    def test_transient_or_unidentified_http_errors_do_not_create_hard_hold(self):
+        for status,headers,body in [(503,{'Server':'cloudflare'},b'error code: 1010'),
+                                    (429,{'Server':'cloudflare'},b'try later'),
+                                    (403,{'Server':'cloudflare'},b'other error'),
+                                    (403,{},b'error code: 1010')]:
+            def reject(payload):
+                raise HTTPError(ENDPOINT,status,'test-secret',headers,io.BytesIO(body))
+            result=process_day(self.root,DAY,send=reject)
+            self.assertEqual(result['status'],'retry_pending')
+            self.assertFalse((self.root/'push_state/transport-hold.json').exists())
+            self.assertNotIn('test-secret',json.dumps(result))
+
+    def test_invalid_transport_hold_fails_closed_without_leaking_content(self):
+        (self.root/'push_state/transport-hold.json').write_text('test-secret')
+        result=process_day(self.root,DAY,send=lambda x:self.fail('network'))
+        self.assertEqual(result['blockers'],['invalid_transport_hold'])
+        self.assertFalse(result['networkAttempted'])
+        self.assertNotIn('test-secret',json.dumps(result))
 
     def test_malformed_success_is_not_acknowledged(self):
         for response in [{}, {'success': True}, {'result': {'data': {'json': {'success': False}}}}, []]:

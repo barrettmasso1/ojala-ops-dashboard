@@ -128,3 +128,25 @@ requests. Do not claim production idempotency from local tests.
 Rollback: remove only the three lines containing this new script and its comment
 from the current crontab. Keep the outbox, logs, and receipts. Do not restore the
 entire backup over unrelated jobs added afterward.
+
+### Explicit client-access block (2026-10-09)
+
+The real October 4 partial was attempted on October 9 at 15:15:52 America/Mazatlan.
+The public POST returned HTTP 403, without acknowledgment. A subsequent read-only
+GET to the same endpoint returned `Server: cloudflare` and `error code: 1010`.
+This is a client-access block, not proof of a bad API key or a rejected cup count.
+
+Sender 2026-10-09.1 detects that bounded 403/Cloudflare/1010 combination without
+logging response bodies and creates `push_state/transport-hold.json` (mode 600).
+Further sends stop locally with `cloudflare_1010`. The cron and outbox remain
+intact; transient network errors, HTTP 429 and HTTP 5xx still retain retry behavior.
+Do not change fingerprints, routes, or security controls to bypass the block.
+The site administrator must resolve the supported authenticated API access path;
+then archive the hold file and retry the same reviewed record. An acknowledgment
+still does not certify dashboard display or tenant isolation.
+
+The partial display capability was enabled from the user's explicit confirmation,
+recorded as `user_attestation`, not independent agent UI verification. The available
+browser still redirected to Manus login. `productionContractVerified` remains
+false after the rejected attempt. No zero/test count, migration, or production
+deployment occurred. Tests: 41 sender cases plus the existing 17 review cases.

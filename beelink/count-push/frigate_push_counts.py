@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -18,7 +19,7 @@ from zoneinfo import ZoneInfo
 
 ZONE = ZoneInfo('America/Mazatlan')
 ENDPOINT = 'https://ojaladarsh-m6piugsr.manus.space/api/trpc/frigate.submitCounts'
-VERSION = '2026-10-08.1'
+VERSION = '2026-10-09.1'
 PUSH_HOUR = 22
 TRACKING_START = dt.date(2026, 9, 27)
 
@@ -156,6 +157,32 @@ def post(payload):
         return status, json.loads(body)
 
 
+def transport_hold(root):
+    path = root / 'push_state' / 'transport-hold.json'
+    if not path.exists():
+        return None
+    try:
+        hold = json.loads(path.read_text())
+        if (not isinstance(hold, dict) or hold.get('endpoint') != ENDPOINT
+                or hold.get('active') is not True
+                or hold.get('reason') != 'cloudflare_1010'):
+            return 'invalid_transport_hold'
+        return 'cloudflare_1010'
+    except (OSError, ValueError, TypeError):
+        return 'invalid_transport_hold'
+
+
+def cloudflare_client_block(error):
+    # Inspect a bounded response only for classification. Never log its content,
+    # exception message, request URL, or reflected credentials.
+    if error.code != 403 or 'cloudflare' not in (error.headers or {}).get('Server', '').lower():
+        return False
+    try:
+        return re.search(rb'\berror code:\s*1010\b', error.read(4096), re.I) is not None
+    except (OSError, ValueError, TypeError):
+        return False
+
+
 def process_day(root, day, dry_run=False, send=post):
     result = {'version': VERSION, 'checkedAt': dt.datetime.now(ZONE).isoformat(),
               'businessDate': day, 'cameraName': 'handoff', 'posted': False,
@@ -237,6 +264,10 @@ def process_day(root, day, dry_run=False, send=post):
                   coverage=record['coverage'], recordSha256=digest)
     if source_at:
         result['sourceEventAt'] = source_at
+    hold_reason = transport_hold(root)
+    if hold_reason:
+        return dict(result, status='blocked', blockers=[hold_reason],
+                    operatorActionRequired=True, networkAttempted=False)
     if dry_run:
         return dict(result, status='ready_dry_run')
     detail = json.dumps({'basis': record['countBasis'], 'recordSha256': digest,
@@ -272,6 +303,19 @@ def process_day(root, day, dry_run=False, send=post):
             result['productionContractVerified'] = mark_configuration_verified(config_path, config, proof)
         return result
     except urllib.error.HTTPError as exc:
+        try:
+            client_blocked = cloudflare_client_block(exc)
+        finally:
+            exc.close()
+        if client_blocked:
+            atomic_json(root / 'push_state' / 'transport-hold.json', {
+                'active': True, 'endpoint': ENDPOINT, 'reason': 'cloudflare_1010',
+                'blockedAt': result['checkedAt'], 'httpStatus': 403,
+                'providerCode': 1010,
+                'resumeCondition': 'Site administrator resolves client access and archives this hold.'})
+            return dict(result, status='blocked', httpStatus=403,
+                        blockers=['cloudflare_1010'], operatorActionRequired=True,
+                        networkAttempted=True)
         return dict(result, status='retry_pending', httpStatus=exc.code, error='http_error')
     except (OSError, ValueError, TypeError, AttributeError):
         # Never print exception text or response bodies: they may contain credentials.

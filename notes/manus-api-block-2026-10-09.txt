@@ -1,0 +1,11 @@
+Continúa Ojala con este diagnóstico real, sin volver a crear conteos ni rotar la clave:
+
+El 09/10/2026 a las 15:15:52 America/Mazatlan, Beelink envió por primera vez el registro revisado del 04/10: 13 vasos físicos únicos, coverage=partial, total diario desconocido. POST a https://ojaladarsh-m6piugsr.manus.space/api/trpc/frigate.submitCounts devolvió HTTP 403 sin acknowledgment. Un GET de diagnóstico al mismo endpoint devolvió Server: cloudflare y texto exacto error code: 1010. No hay receipt ni productionContractVerified=true.
+
+1. Revisa con la administración del deployment/proveedor el bloqueo de acceso del cliente HTTP de Beelink. Confirma una vía soportada para esta API autenticada; no desactives globalmente la seguridad, no emules otro navegador, no cambies rutas para esquivar el bloqueo y no publiques secretos. Si la regla pertenece a Manus, tramita la resolución con su soporte/propietario; no atribuyas el error a la clave sin evidencia.
+2. Verifica que la versión pública muestre 13 (partial) cuando reciba el registro y excluya ese parcial de la diferencia diaria contra POS. Se habilitó el flag por confirmación del usuario, no por una captura verificada por Codex.
+3. Una vez resuelto el bloqueo, archiva /home/ojala/frigate/scripts/push_state/transport-hold.json y ejecuta el script existente con --date 2026-10-04. Conserva la cola y su mismo registro; no uses POS/tracks/fotos como conteo. La clave se utiliza sólo desde el archivo privado local.
+4. Entrega respuesta sanitizada de aceptación, fila real, fecha y screenshot del tile. No marques éxito por HTTP 200 solo. Si el contrato desplegado exige sourceEventId/sourceEventAt, coordina primero el protocolo tenant_event_v1 con la credencial emitida para Store 1.
+5. Mantén separado el rollout multi-tenant: identifica administrativamente dominio → deployment → base exacta, backup nuevo recuperable, migraciones Drizzle 0012–0017, verificación histórica y de aislamiento. PR #13 sigue abierto; el ensayo anterior no prueba producción.
+
+La Beelink mantiene cron, captura y evidencia. El bloqueo no demuestra que el usuario carezca de permisos administrativos: lo que no está autenticado es el navegador accesible a Codex.
