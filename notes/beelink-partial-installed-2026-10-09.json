@@ -1,0 +1,52 @@
+{
+  "installedAt": "2026-10-09T14:11:09.746025-07:00",
+  "sourceCommit": "babe5328efd56d368b00ee7560115b6213410929",
+  "senderVersion": "2026-10-08.1",
+  "files": [
+    {
+      "path": "/home/ojala/frigate/scripts/frigate_push_counts.py",
+      "sha256": "e2249e89a82d4c778ace31f910ab7ecbfedcb1216870cb7372258d1f69d73c1f"
+    },
+    {
+      "path": "/home/ojala/frigate/scripts/test_push_counts.py",
+      "sha256": "a7dab23255fc1770216841e08f7c24015cc390df567da2b62453992c204935e7"
+    },
+    {
+      "path": "/home/ojala/frigate/count-review/review_counts.py",
+      "sha256": "8a741e858e28fd5ca4e7179e854f2f13228f28fd6e1a830af83f4349def02884"
+    },
+    {
+      "path": "/home/ojala/frigate/count-review/test_review_counts.py",
+      "sha256": "84880f52d62aa8726ea29feb6f6e7195c5a6eec920450564ec62e94f1e67f923"
+    }
+  ],
+  "backupDirectory": "/home/ojala/frigate/scripts/backups/count-partial-20261009T141109",
+  "outbox": {
+    "date": "2026-10-04",
+    "cupsDetected": 13,
+    "coverage": "partial",
+    "dailyCupCount": null,
+    "pendingCases": [
+      "1309",
+      "1714-child-cup"
+    ],
+    "mode": "0o600"
+  },
+  "dryRun": {
+    "version": "2026-10-08.1",
+    "checkedAt": "2026-10-09T14:11:09.777521-07:00",
+    "businessDate": "2026-10-04",
+    "cameraName": "handoff",
+    "posted": false,
+    "dashboardVerified": false,
+    "status": "blocked",
+    "blockers": [
+      "partial_count_not_displayable"
+    ]
+  },
+  "configurationUnchanged": true,
+  "cronUnchanged": true,
+  "originalLedgerUnchanged": true,
+  "productionPosted": false,
+  "productionMigrated": false
+}

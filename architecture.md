@@ -53,3 +53,12 @@ Checklist questions must be **editable from the manager side** so the owner can 
 ## Notification model
 
 Every successful form submission will continue to trigger an owner notification summarizing the submission type, date, staff member, and relevant operational context. As checklist questions become more structured, the notification layer can evolve to highlight failed confirmations or unresolved issues with greater precision.
+
+## Deferred POS integration
+
+Barrett's 2026-09-30 direction keeps POS development after real production count
+verification, 5–7 comparable pilot days and production tenant isolation. The
+existing Shopify reconciliation helper and proposed store POS metadata are the
+starting points. See [the deferred POS note](notes/pos-phase3-deferred-2026-09-30.md)
+for scope, reuse, future import boundaries and the current evidence gap. This is
+planning documentation; it does not authorize or implement Phase 3.
