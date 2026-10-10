@@ -1,0 +1,47 @@
+{
+  "checkedAt": "2026-10-09T15:19:25.798506-07:00",
+  "senderVersion": "2026-10-09.1",
+  "backup": "/home/ojala/frigate/scripts/backups/transport-block-20261009T151925",
+  "senderSha256": "ee9cb7293524cbbbbe944fb7f24ef6e2cde0fb3c7292acb9e3cd03ff05a99c21",
+  "tests": {
+    "sender": 41,
+    "reviewPreviouslyPassed": 17
+  },
+  "realSendAttempt": {
+    "date": "2026-10-04",
+    "cups": 13,
+    "coverage": "partial",
+    "httpStatus": 403,
+    "acknowledged": false
+  },
+  "readOnlyEndpointEvidence": {
+    "server": "cloudflare",
+    "providerCode": 1010
+  },
+  "installedHold": {
+    "version": "2026-10-09.1",
+    "checkedAt": "2026-10-09T15:19:25.857339-07:00",
+    "businessDate": "2026-10-04",
+    "cameraName": "handoff",
+    "posted": false,
+    "dashboardVerified": false,
+    "productionContractVerified": false,
+    "cupsDetected": 13,
+    "unit": "physical_cups",
+    "coverage": "partial",
+    "recordSha256": "beef47aba1c2114c62c9d8b30a5fef66efacb63c56bc0dc847f7dc25d0363756",
+    "sourceEventAt": "2026-10-08T19:34:08.959865Z",
+    "status": "blocked",
+    "blockers": [
+      "cloudflare_1010"
+    ],
+    "operatorActionRequired": true,
+    "networkAttempted": false
+  },
+  "privateConfigUnchangedDuringInstall": true,
+  "outboxUnchanged": true,
+  "cronUnchanged": true,
+  "productionMigrationOrDeployment": false,
+  "dashboardIndependentlyVerified": false,
+  "partialDisplayConfirmation": "user_attestation"
+}

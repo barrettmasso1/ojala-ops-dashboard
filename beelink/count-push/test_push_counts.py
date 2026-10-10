@@ -1,0 +1,398 @@
+import json
+import io
+import tempfile
+import unittest
+from pathlib import Path
+from urllib.error import URLError, HTTPError
+from unittest.mock import patch
+from frigate_push_counts import process_day, validate_record, pending_dates, ENDPOINT, ZONE
+import datetime as dt
+
+DAY = '2026-09-27'
+
+
+class PushTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / 'approved_counts').mkdir()
+        (self.root / 'push_state').mkdir()
+        self.record = {'businessDate': DAY, 'cameraName': 'handoff', 'storeId': 1,
+            'status': 'approved', 'countBasis': 'reviewed_unique_physical_cups',
+            'cupsDetected': 2, 'uniqueCupIds': ['fixture-A', 'fixture-B'],
+            'reviewedBy': 'test fixture', 'evidenceReferences': ['synthetic-test-only'],
+            'coverage': 'complete'}
+        self.config = {'endpoint': ENDPOINT, 'storeId': 1, 'apiKey': 'test-secret',
+                       'productionContractVerified': True, 'protocol': 'legacy_v1'}
+        self.write()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self):
+        (self.root / 'approved_counts' / (DAY+'.json')).write_text(json.dumps(self.record))
+        cfg = self.root / 'push_config.json'
+        cfg.write_text(json.dumps(self.config))
+        cfg.chmod(0o600)
+
+    def test_reject_tracks_and_ounces(self):
+        for basis in ['frigate_tracks', 'ounces', 'photos']:
+            self.record['countBasis'] = basis
+            self.assertEqual(validate_record(self.record, DAY), 'unverified_count_basis')
+
+    def test_reject_duplicate_cups(self):
+        self.record['uniqueCupIds'] = ['a', 'a']
+        self.assertEqual(validate_record(self.record, DAY), 'duplicate_or_mismatched_unique_cups')
+
+    def test_reject_date_and_camera_mismatch(self):
+        self.assertEqual(validate_record(self.record, '2026-09-28'), 'date_or_camera_mismatch')
+        self.record['cameraName'] = 'entrance'
+        self.assertEqual(validate_record(self.record, DAY), 'date_or_camera_mismatch')
+
+    def test_reject_weighted_float_or_bool(self):
+        for count in [2.5, True]:
+            self.record['cupsDetected'] = count
+            self.assertEqual(validate_record(self.record, DAY), 'invalid_integer_count')
+
+    def test_unapproved_and_missing_config_never_send(self):
+        self.record['status'] = 'pending'
+        self.write()
+        (self.root / 'push_config.json').unlink()
+        result = process_day(self.root, DAY, send=lambda x: self.fail('unexpected network'))
+        self.assertEqual(result['blockers'], ['unique_cup_count_not_approved', 'push_config_missing'])
+
+    def test_ack_receipt_prevents_duplicate_send(self):
+        calls=[]
+        def send(payload):
+            calls.append(payload)
+            return 200, {'result': {'data': {'json': {'success': True}}}}
+        first=process_day(self.root, DAY, send=send)
+        second=process_day(self.root, DAY, send=send)
+        self.assertEqual(first['status'], 'acknowledged')
+        self.assertFalse(first['dashboardVerified'])
+        self.assertEqual(second['status'], 'already_acknowledged')
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]['cupsDetected'], 2)
+        self.assertEqual(calls[0]['businessDate'], DAY)
+        self.assertNotIn('test-secret', json.dumps(first))
+
+    def test_network_error_keeps_outbox_and_hides_secret(self):
+        def fail(payload):
+            raise URLError('test-secret')
+        result=process_day(self.root, DAY, send=fail)
+        self.assertEqual(result['status'], 'retry_pending')
+        self.assertTrue((self.root/'approved_counts'/(DAY+'.json')).exists())
+        self.assertFalse((self.root/'push_state'/(DAY+'.receipt.json')).exists())
+        self.assertNotIn('test-secret', json.dumps(result))
+
+    def test_cloudflare_block_preserves_outbox_and_stops_following_network_attempts(self):
+        self.config.update(productionContractVerified=False, verificationMode='first_approved_payload')
+        self.write()
+        original=(self.root/'approved_counts'/(DAY+'.json')).read_bytes()
+        def reject(payload):
+            raise HTTPError(ENDPOINT,403,'test-secret',{'Server':'cloudflare'},
+                            io.BytesIO(b'error code: 1010\ntest-secret'))
+        first=process_day(self.root,DAY,send=reject)
+        self.assertEqual(first['blockers'],['cloudflare_1010'])
+        self.assertTrue(first['networkAttempted'])
+        second=process_day(self.root,DAY,send=lambda x:self.fail('blocked endpoint retried'))
+        self.assertFalse(second['networkAttempted'])
+        self.assertEqual(second['blockers'],['cloudflare_1010'])
+        hold=self.root/'push_state/transport-hold.json'
+        self.assertEqual(hold.stat().st_mode & 0o777,0o600)
+        self.assertNotIn('test-secret',hold.read_text()+json.dumps(first)+json.dumps(second))
+        self.assertEqual((self.root/'approved_counts'/(DAY+'.json')).read_bytes(),original)
+        self.assertFalse((self.root/'push_state'/(DAY+'.receipt.json')).exists())
+        self.assertFalse(json.loads((self.root/'push_config.json').read_text())['productionContractVerified'])
+        hold.rename(hold.with_suffix('.resolved.json'))
+        accepted=process_day(self.root,DAY,send=lambda x:(200,{'result':{'data':{'json':{'success':True}}}}))
+        self.assertEqual(accepted['status'],'acknowledged')
+
+    def test_transient_or_unidentified_http_errors_do_not_create_hard_hold(self):
+        for status,headers,body in [(503,{'Server':'cloudflare'},b'error code: 1010'),
+                                    (429,{'Server':'cloudflare'},b'try later'),
+                                    (403,{'Server':'cloudflare'},b'other error'),
+                                    (403,{},b'error code: 1010')]:
+            def reject(payload):
+                raise HTTPError(ENDPOINT,status,'test-secret',headers,io.BytesIO(body))
+            result=process_day(self.root,DAY,send=reject)
+            self.assertEqual(result['status'],'retry_pending')
+            self.assertFalse((self.root/'push_state/transport-hold.json').exists())
+            self.assertNotIn('test-secret',json.dumps(result))
+
+    def test_invalid_transport_hold_fails_closed_without_leaking_content(self):
+        (self.root/'push_state/transport-hold.json').write_text('test-secret')
+        result=process_day(self.root,DAY,send=lambda x:self.fail('network'))
+        self.assertEqual(result['blockers'],['invalid_transport_hold'])
+        self.assertFalse(result['networkAttempted'])
+        self.assertNotIn('test-secret',json.dumps(result))
+
+    def test_malformed_success_is_not_acknowledged(self):
+        for response in [{}, {'success': True}, {'result': {'data': {'json': {'success': False}}}}, []]:
+            r=process_day(self.root, DAY, send=lambda x: (200, response))
+            self.assertEqual(r['status'], 'retry_pending')
+
+    def test_dry_run_never_sends(self):
+        r=process_day(self.root, DAY, dry_run=True, send=lambda x: self.fail('network'))
+        self.assertEqual(r['status'], 'ready_dry_run')
+
+    def test_config_permissions_and_endpoint_guard(self):
+        self.config['endpoint']='https://example.invalid'
+        self.write()
+        (self.root/'push_config.json').chmod(0o644)
+        r=process_day(self.root, DAY, send=lambda x: self.fail('network'))
+        self.assertIn('endpoint_or_store_not_confirmed', r['blockers'])
+        self.assertIn('config_permissions_must_be_600', r['blockers'])
+
+    def test_partial_zero_cannot_imply_no_sales(self):
+        self.record.update(cupsDetected=0, uniqueCupIds=[], coverage='partial', gapsDescription='offline')
+        self.assertEqual(validate_record(self.record, DAY), 'zero_with_incomplete_coverage')
+
+    def test_positive_partial_cannot_be_published_as_daily_total(self):
+        self.record.update(coverage='partial', gapsDescription='Only candidate windows reviewed',
+                           approvedAt='2026-09-28T12:34:56-07:00')
+        self.write()
+        result=process_day(self.root, DAY, send=lambda x:self.fail('partial count sent'))
+        self.assertEqual(result['blockers'], ['partial_count_not_displayable'])
+        self.assertFalse((self.root/'push_state'/(DAY+'.receipt.json')).exists())
+
+    def test_tenant_protocol_does_not_imply_partial_display_support(self):
+        self.tenant_config()
+        self.record.update(coverage='partial', gapsDescription='Camera offline')
+        self.write()
+        result=process_day(self.root, DAY, dry_run=True, send=lambda x:self.fail('network'))
+        self.assertEqual(result['blockers'], ['partial_count_not_displayable'])
+
+    def test_changed_approved_total_cannot_silently_overwrite(self):
+        process_day(self.root, DAY, send=lambda x: (200, {'result':{'data':{'json':{'success':True}}}}))
+        self.record.update(cupsDetected=1, uniqueCupIds=['fixture-A'])
+        self.write()
+        r=process_day(self.root, DAY, send=lambda x: self.fail('network'))
+        self.assertEqual(r['blockers'], ['changed_record_requires_reconciliation'])
+
+    def partial_config(self):
+        self.tenant_config()
+        self.config['dashboardSupportsPartialCounts']=True
+        self.record.update(coverage='partial',gapsDescription='Only reviewed windows; 2 cases pending')
+        self.write()
+
+    @staticmethod
+    def tenant_ack(payload):
+        return 200, {'result':{'data':{'json':{'success':True,'disposition':'apply'}}}}
+
+    def test_verified_partial_display_allows_reviewed_nonzero_count(self):
+        self.partial_config()
+        calls=[]
+        def send(payload):
+            calls.append(payload)
+            return self.tenant_ack(payload)
+        result=process_day(self.root,DAY,send=send)
+        self.assertEqual(result['status'],'acknowledged')
+        self.assertEqual(result['coverage'],'partial')
+        self.assertEqual(json.loads(calls[0]['sourceDetail'])['coverage'],'partial')
+        self.assertFalse(result['dashboardVerified'])
+        self.assertNotIn('test-secret',json.dumps(result))
+
+    def test_partial_display_capability_does_not_approve_tracks(self):
+        self.partial_config()
+        self.record['countBasis']='frigate_tracks';self.write()
+        result=process_day(self.root,DAY,send=lambda x:self.fail('tracks sent'))
+        self.assertIn('unverified_count_basis',result['blockers'])
+
+    def test_display_capability_must_be_boolean_true(self):
+        self.partial_config()
+        for value in ['true',1,None,False]:
+            self.config['dashboardSupportsPartialCounts']=value;self.write()
+            result=process_day(self.root,DAY,send=lambda x:self.fail('partial sent'))
+            self.assertEqual(result['blockers'],['partial_count_not_displayable'])
+
+    def first_partial(self):
+        self.partial_config()
+        return process_day(self.root,DAY,send=self.tenant_ack)
+
+    def prepare_revision(self, first):
+        self.record.update(supersedesRecordSha256=first['recordSha256'],coverage='complete',
+                           approvedAt='2026-09-28T12:34:57-07:00',gapsDescription='')
+        self.write()
+
+    def test_explicit_newer_revision_upgrades_partial_and_retains_old_receipt(self):
+        first=self.first_partial();self.prepare_revision(first)
+        second=process_day(self.root,DAY,send=self.tenant_ack)
+        self.assertEqual(second['status'],'acknowledged')
+        self.assertEqual(second['coverage'],'complete')
+        self.assertNotEqual(second['recordSha256'],first['recordSha256'])
+        self.assertTrue((self.root/'push_state'/'receipts'/(DAY+'-'+first['recordSha256']+'.json')).exists())
+        retry=process_day(self.root,DAY,send=lambda x:self.fail('duplicate send'))
+        self.assertEqual(retry['status'],'already_acknowledged')
+
+    def test_revision_requires_explicit_matching_lineage_and_config(self):
+        first=self.first_partial();self.prepare_revision(first)
+        self.record['supersedesRecordSha256']='wrong';self.write()
+        result=process_day(self.root,DAY,send=lambda x:self.fail('unrelated revision'))
+        self.assertEqual(result['blockers'],['changed_record_requires_reconciliation'])
+        self.prepare_revision(first);self.config['apiKey']='new-key';self.write()
+        result=process_day(self.root,DAY,send=lambda x:self.fail('changed binding'))
+        self.assertEqual(result['blockers'],['changed_record_requires_reconciliation'])
+
+    def test_same_second_or_older_revision_is_blocked(self):
+        first=self.first_partial();self.prepare_revision(first)
+        for stamp in ['2026-09-28T12:34:56.999999-07:00','2026-09-28T12:34:55-07:00']:
+            self.record['approvedAt']=stamp;self.write()
+            result=process_day(self.root,DAY,send=lambda x:self.fail('stale revision sent'))
+            self.assertEqual(result['blockers'],['revision_timestamp_not_newer'])
+
+    def test_complete_cannot_regress_to_partial(self):
+        first=self.first_partial();self.prepare_revision(first)
+        second=process_day(self.root,DAY,send=self.tenant_ack)
+        self.record.update(supersedesRecordSha256=second['recordSha256'],coverage='partial',
+                           gapsDescription='downgrade',approvedAt='2026-09-28T12:34:58-07:00')
+        self.write()
+        result=process_day(self.root,DAY,send=lambda x:self.fail('downgrade sent'))
+        self.assertEqual(result['blockers'],['complete_count_cannot_be_replaced_by_partial'])
+
+    def test_failed_revision_preserves_previous_receipt(self):
+        first=self.first_partial();self.prepare_revision(first)
+        result=process_day(self.root,DAY,send=lambda x:(503,{}))
+        self.assertEqual(result['status'],'retry_pending')
+        receipt=json.loads((self.root/'push_state'/(DAY+'.receipt.json')).read_text())
+        self.assertEqual(receipt['recordSha256'],first['recordSha256'])
+
+    def test_restart_catches_missed_sunday_without_count_file(self):
+        (self.root/'approved_counts'/(DAY+'.json')).unlink()
+        dates=pending_dates(self.root, dt.datetime(2026,9,29,12,tzinfo=ZONE))
+        self.assertEqual(dates, ['2026-09-27'])
+
+    def test_pending_does_not_close_today_before_22(self):
+        dates=pending_dates(self.root, dt.datetime(2026,10,2,21,59,tzinfo=ZONE))
+        self.assertNotIn('2026-10-02', dates)
+        dates=pending_dates(self.root, dt.datetime(2026,10,2,22,tzinfo=ZONE))
+        self.assertIn('2026-10-02', dates)
+
+    def test_retired_date_never_reappears_from_outbox_or_history(self):
+        (self.root/'push_state'/'retired_dates.json').write_text(json.dumps({DAY:'user retired reconstruction'}))
+        (self.root/'push_state'/(DAY+'.latest.json')).write_text('{}')
+        dates=pending_dates(self.root, dt.datetime(2026,10,2,22,tzinfo=ZONE))
+        self.assertNotIn(DAY, dates)
+        self.assertIn('2026-10-02', dates)
+        result=process_day(self.root,DAY,send=lambda x:self.fail('retired record sent'))
+        self.assertEqual(result['status'],'retired')
+        self.assertTrue((self.root/'approved_counts'/(DAY+'.json')).exists())
+
+    def test_corrupt_retirement_policy_cannot_enable_send(self):
+        (self.root/'push_state'/'retired_dates.json').write_text('[]')
+        with self.assertRaises(ValueError):
+            process_day(self.root,DAY,send=lambda x:self.fail('unexpected send'))
+
+    def tenant_config(self):
+        self.config['protocol']='tenant_event_v1'
+        self.record['approvedAt']='2026-09-28T12:34:56-07:00'
+        self.write()
+
+    def test_tenant_contract_uses_stable_aggregate_identity_and_utc(self):
+        self.tenant_config()
+        calls=[]
+        def transient(payload):
+            calls.append(payload)
+            return 503, {}
+        process_day(self.root,DAY,send=transient)
+        process_day(self.root,DAY,send=transient)
+        self.assertEqual(calls[0]['sourceEventId'],calls[1]['sourceEventId'])
+        self.assertTrue(calls[0]['sourceEventId'].startswith('daily-reviewed-'))
+        self.assertEqual(calls[0]['sourceEventAt'],'2026-09-28T19:34:56.000000Z')
+        self.assertNotIn('storeId',calls[0])
+
+    def test_stale_server_response_cannot_be_claimed_as_delivery(self):
+        self.tenant_config()
+        r=process_day(self.root,DAY,send=lambda x:(200,{'result':{'data':{'json':{'success':True,'disposition':'stale'}}}}))
+        self.assertEqual(r['status'],'blocked')
+        self.assertFalse(r['posted'])
+        self.assertFalse((self.root/'push_state'/(DAY+'.receipt.json')).exists())
+
+    def test_missing_naive_or_future_approval_is_blocked(self):
+        self.tenant_config()
+        for value in [None,'2026-09-28T12:00:00','2999-01-01T00:00:00Z']:
+            self.record['approvedAt']=value;self.write()
+            r=process_day(self.root,DAY,send=lambda x:self.fail('invalid timestamp sent'))
+            self.assertIn('valid_approval_timestamp_required',r['blockers'])
+
+    def test_tenant_replay_ack_is_explicit(self):
+        self.tenant_config()
+        r=process_day(self.root,DAY,send=lambda x:(200,{'result':{'data':{'json':{'success':True,'disposition':'replay'}}}}))
+        self.assertEqual(r['status'],'acknowledged')
+        self.assertEqual(r['serverDisposition'],'replay')
+
+    def test_protocol_must_be_confirmed(self):
+        self.config.pop('protocol');self.write()
+        r=process_day(self.root,DAY,send=lambda x:self.fail('unconfirmed protocol sent'))
+        self.assertIn('production_protocol_not_confirmed',r['blockers'])
+
+    def first_payload_config(self):
+        self.config.update(productionContractVerified=False,
+                           verificationMode='first_approved_payload')
+        self.write()
+
+    def test_unverified_config_requires_explicit_first_payload_mode(self):
+        self.config['productionContractVerified']=False;self.write()
+        r=process_day(self.root,DAY,send=lambda x:self.fail('unverified configuration sent'))
+        self.assertIn('production_contract_not_verified',r['blockers'])
+
+    def test_first_payload_dry_run_does_not_claim_verification(self):
+        self.first_payload_config()
+        r=process_day(self.root,DAY,dry_run=True,send=lambda x:self.fail('dry run sent'))
+        self.assertEqual(r['status'],'ready_dry_run')
+        self.assertFalse(r['productionContractVerified'])
+        self.assertFalse(json.loads((self.root/'push_config.json').read_text())['productionContractVerified'])
+        self.assertFalse((self.root/'push_state'/(DAY+'.receipt.json')).exists())
+
+    def test_first_payload_still_requires_approved_unique_cups_and_protocol(self):
+        self.first_payload_config()
+        self.record['status']='pending';self.config.pop('protocol');self.write()
+        r=process_day(self.root,DAY,send=lambda x:self.fail('invalid real payload sent'))
+        self.assertIn('unique_cup_count_not_approved',r['blockers'])
+        self.assertIn('production_protocol_not_confirmed',r['blockers'])
+
+    def test_first_real_ack_verifies_private_config_without_claiming_dashboard(self):
+        self.first_payload_config()
+        r=process_day(self.root,DAY,send=lambda x:(200,{'result':{'data':{'json':{'success':True}}}}))
+        self.assertEqual(r['status'],'acknowledged')
+        self.assertTrue(r['productionContractVerified'])
+        self.assertFalse(r['dashboardVerified'])
+        config=json.loads((self.root/'push_config.json').read_text())
+        self.assertTrue(config['productionContractVerified'])
+        self.assertEqual(config['productionVerification']['businessDate'],DAY)
+        self.assertEqual(config['apiKey'],'test-secret')
+        self.assertEqual((self.root/'push_config.json').stat().st_mode & 0o777,0o600)
+        self.assertNotIn('test-secret',json.dumps(r))
+        self.assertNotIn('configurationBinding',r)
+
+    def test_failed_first_payload_never_verifies_or_creates_receipt(self):
+        self.first_payload_config()
+        for response in [(401,{}),(503,{}),(200,{})]:
+            r=process_day(self.root,DAY,send=lambda x:response)
+            self.assertEqual(r['status'],'retry_pending')
+            self.assertFalse(r['productionContractVerified'])
+            self.assertFalse(json.loads((self.root/'push_config.json').read_text())['productionContractVerified'])
+            self.assertFalse((self.root/'push_state'/(DAY+'.receipt.json')).exists())
+
+    def test_receipt_recovers_config_write_failure_without_resending(self):
+        self.first_payload_config()
+        with patch('frigate_push_counts.mark_configuration_verified',return_value=False):
+            first=process_day(self.root,DAY,send=lambda x:(200,{'result':{'data':{'json':{'success':True}}}}))
+        self.assertEqual(first['status'],'acknowledged')
+        self.assertFalse(first['productionContractVerified'])
+        second=process_day(self.root,DAY,send=lambda x:self.fail('duplicate send'))
+        self.assertEqual(second['status'],'already_acknowledged')
+        self.assertTrue(second['productionContractVerified'])
+
+    def test_receipt_for_old_credential_cannot_verify_new_credential(self):
+        self.first_payload_config()
+        process_day(self.root,DAY,send=lambda x:(200,{'result':{'data':{'json':{'success':True}}}}))
+        self.config['apiKey']='different-key';self.write()
+        r=process_day(self.root,DAY,send=lambda x:self.fail('duplicate send'))
+        self.assertEqual(r['status'],'already_acknowledged')
+        self.assertFalse(r['productionContractVerified'])
+        self.assertFalse(json.loads((self.root/'push_config.json').read_text())['productionContractVerified'])
+
+
+if __name__ == '__main__':
+    unittest.main()

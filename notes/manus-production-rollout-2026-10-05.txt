@@ -1,0 +1,17 @@
+Continúa el despliegue multi-tenant de Ojala ya autorizado por Barrett. No inicies Fase 3 POS. Repositorio: barrettmasso1/ojala-ops-dashboard. Dominio publicado: ojaladarsh-m6piugsr.manus.space.
+
+Estado verificado el 05/10/2026:
+- PR #3 YA fue fusionado en multi-tenant-v1: 67e875a3b6f9fc5cd84788fdd8e389e5c7bfed5a. No vuelvas a tratar el antiguo 403 del conector como falta de autorización.
+- PR #2 sigue abierto y draft, con ese HEAD; main sigue f6b78b63fe65e08c5be6a6d9590dd1bf0a77e37f. No hay workflows de GitHub Actions. Merge en la rama no acredita deploy ni migración.
+- Beelink tiene emisor 2026-10-05.1, contrato legacy_v1, cron 22:00 America/Mazatlan y reintentos. 30 pruebas del emisor y 12 del validador de revisión pasan.
+- Domingo 04/10: 36 candidatos revisados, 13 vasos distintos confirmados en evidencia parcial, dos casos pendientes. NO es el total del día; NO usar 13, 24 tracks ni 21 fotos para llenar el tile. Para 02–04/10 no hay archivos approved_counts ni recibos de envío. El 27/09 sigue retirado y no debe reabrirse.
+- Los cron de 02, 03 y 04/10 sí se ejecutaron a las 22:00; no enviaron por approved_count_file_missing. No diagnosticar erróneamente el cron como ausente.
+
+Ejecuta ahora lo disponible en tu sesión administrativa:
+1. Identifica la base del runtime PUBLICADO mediante evidencia de plataforma. No supongas que preview y producción comparten base. Crea backup nuevo y auditoría previa de ledger, esquema y huellas de todas las columnas originales. El ensayo TiDB del 24/09 preservó 2439 filas y pasó 8 pruebas tenant, pero no reemplaza este backup.
+2. Revisa el SQL exacto 0012/0013 del HEAD actual. Verifica un procedimiento de recuperación ante ejecución parcial. Con destino y recuperación comprobados, prepara PR #2 para merge, fusiona con HEAD esperado y aplica pnpm drizzle-kit migrate/publicación en orden coordinado. No uses db:push para generar SQL nuevo ni repitas ALTER a ciegas. No arrastres PRs visuales posteriores sin revisar sus dependencias.
+3. Comprueba en producción dashboard autenticado, stores.id=1 Ojala Gelato, ledger esperado, histórico preservado y aislamiento entre tiendas con fixtures separados y limpieza comprobada. Entrega screenshots y commit publicado. Si falta acceso real a la base publicada, indica exactamente la capacidad ausente y no declare despliegue completo.
+4. Coordina el nuevo contrato Frigate con sourceEventId/sourceEventAt y cambio privado a tenant_event_v1 en Beelink antes de reanudar envíos. Conserva la clave; no imprimirla, rotarla o marcar productionContractVerified antes de un payload real aceptado. No enviar payloads inventados, ceros de prueba ni datos POS como cámara.
+5. El tile actual oculta coverage/sourceDetail. Prepara visualización explícita de conteo parcial y sus lagunas, y no lo compares como día completo con POS. Hasta publicar y verificar ese comportamiento, el emisor bloquea cualquier conteo parcial. Una revisión manual de secuencias tampoco demuestra que el contador automático ya funcione.
+
+Entrega evidencia verificable, no solo una lista de pasos. El ciclo end-to-end sigue abierto hasta contar con un total real aprobado, ACK, fila correcta y tile fechado visible. Manual y POS de los días actuales aún deben obtenerse del cierre real; no reabrir 27/09.

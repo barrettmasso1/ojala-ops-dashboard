@@ -1,0 +1,77 @@
+{
+  "checkedAt": "2026-10-10T01:32:10.775511+00:00",
+  "businessDate": "2026-10-09",
+  "pr": 13,
+  "originalHead": "bb8b0ce96d36b49069b8517c90cd68dcda09308d",
+  "mergedMain": "28c7a87d05e728159fd5f16024051c0ae627150b",
+  "mergeConflicts": false,
+  "tests": {
+    "vitest": 206,
+    "visualSender": 22,
+    "sceneRecovery": 5,
+    "countSender": 41,
+    "total": 274,
+    "typescript": "PASS",
+    "build": "PASS"
+  },
+  "validationRuns": [
+    {
+      "name": "vitest",
+      "returncode": 0,
+      "startedAt": "2026-10-10T01:30:35.325714+00:00",
+      "finishedAt": "2026-10-10T01:31:14.828664+00:00"
+    },
+    {
+      "name": "typescript",
+      "returncode": 0,
+      "startedAt": "2026-10-10T01:31:14.829193+00:00",
+      "finishedAt": "2026-10-10T01:31:23.534164+00:00"
+    },
+    {
+      "name": "build",
+      "returncode": 0,
+      "startedAt": "2026-10-10T01:31:23.534802+00:00",
+      "finishedAt": "2026-10-10T01:31:40.112443+00:00"
+    },
+    {
+      "name": "visual-sender",
+      "returncode": 0,
+      "startedAt": "2026-10-10T01:31:40.112869+00:00",
+      "finishedAt": "2026-10-10T01:31:40.395955+00:00"
+    },
+    {
+      "name": "scene-recovery",
+      "returncode": 0,
+      "startedAt": "2026-10-10T01:31:40.396492+00:00",
+      "finishedAt": "2026-10-10T01:31:41.044604+00:00"
+    },
+    {
+      "name": "count-push",
+      "returncode": 0,
+      "startedAt": "2026-10-10T01:31:41.045045+00:00",
+      "finishedAt": "2026-10-10T01:31:41.261467+00:00"
+    }
+  ],
+  "migrationSqlUnchangedFromOriginalHead": true,
+  "migrationHashes": {
+    "0012_multi_tenant_v1.sql": "658a8dc517269864998efbdc0784cdb8254db9f40bef66b8fc617436734235b6",
+    "0013_tenant_credential_and_frigate_event_boundaries.sql": "e642d2e1a2ad658ba389ebe5df007ea440a01445dbbdcc0c5633bf177d0e4433",
+    "0014_glossy_silvermane.sql": "a1909861c3750e53c99a3506a06c798758b8283dba61b6a781bda038ee71d603",
+    "0015_frigate_handoff_visual_filter.sql": "e49d1aa65b6be3ef0008de1f381e15645e94002fbb411c1b438d85db6889db2c",
+    "0016_handoff_scene_recovery_evidence.sql": "f06594cecfea38ba89b1c0545954322043a28cbd11228f6d89bd458fdd528a00",
+    "0017_visual_analysis_evidence.sql": "5423638635bb0163a179329eb99b2e0b9e8a4758973ace7d167d37c72c749ddf"
+  },
+  "support": {
+    "case": "215476329685343",
+    "source": "user_provided_Manus_support_response",
+    "status": "escalated_to_technical_team",
+    "platformSolutionConfirmed": false
+  },
+  "production": {
+    "mergedPR13": false,
+    "deployedPR13": false,
+    "migrationsRun": false,
+    "countAcknowledgementConfirmed": false
+  },
+  "prompt": "notes/manus-pr13-production-prompt-2026-10-09.txt"
+}
