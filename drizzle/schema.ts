@@ -1,9 +1,44 @@
-import { bigint, decimal, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { bigint, decimal, index, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
 
 export const staffAttendanceNameEnum = mysqlEnum("staffAttendanceName", ["Karol", "Anhec", "Jesse", "Esme"]);
 
+export const stores = mysqlTable("stores", {
+  id: int("id").autoincrement().primaryKey(),
+  nombre: varchar("nombre", { length: 160 }).notNull(),
+  timezone: varchar("timezone", { length: 64 }).notNull(),
+  isActive: int("isActive").notNull().default(1),
+  horarioApertura: varchar("horario_apertura", { length: 8 }),
+  horarioCierre: varchar("horario_cierre", { length: 8 }),
+  duenoEmail: varchar("dueno_email", { length: 320 }),
+  posType: mysqlEnum("posType", ["none", "square", "toast", "shopify", "other"]).notNull().default("none"),
+  cupSizesJson: text("cupSizesJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/**
+ * Server-resolved credentials for non-OAuth staff and machine integrations.
+ * Human staff passwords use scrypt verifiers; Frigate machine keys use a
+ * SHA-256 lookup hash. Plain credentials are never persisted.
+ */
+export const storeCredentials = mysqlTable("storeCredentials", {
+  id: int("id").autoincrement().primaryKey(),
+  storeId: int("storeId").notNull().references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
+  credentialType: mysqlEnum("storeCredentialType", ["staff_portal", "frigate"]).notNull(),
+  verifierFormat: mysqlEnum("storeCredentialVerifierFormat", ["scrypt_v1", "sha256_v1"]).notNull(),
+  credentialVerifier: varchar("credentialVerifier", { length: 512 }).notNull(),
+  label: varchar("label", { length: 160 }).notNull().default(""),
+  revokedAt: timestamp("revokedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  storeIndex: index("idx_storeCredentials_storeId").on(table.storeId),
+  credentialLookup: uniqueIndex("storeCredentials_type_verifier_unique").on(table.credentialType, table.credentialVerifier),
+}));
+
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
+  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
@@ -12,10 +47,13 @@ export const users = mysqlTable("users", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
-});
+}, table => ({
+  storeIndex: index("idx_users_storeId").on(table.storeId),
+}));
 
 export const checklistQuestions = mysqlTable("checklistQuestions", {
   id: int("id").autoincrement().primaryKey(),
+  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   checklistType: mysqlEnum("checklistType", ["opening", "closing"]).notNull(),
   sectionTitle: varchar("sectionTitle", { length: 80 }).notNull(),
   prompt: text("prompt").notNull(),
@@ -25,10 +63,13 @@ export const checklistQuestions = mysqlTable("checklistQuestions", {
   isActive: int("isActive").notNull().default(1),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, table => ({
+  storeIndex: index("idx_checklistQuestions_storeId").on(table.storeId),
+}));
 
 export const openingChecklists = mysqlTable("openingChecklists", {
   id: int("id").autoincrement().primaryKey(),
+  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   businessDate: varchar("businessDate", { length: 10 }).notNull(),
   staffName: varchar("staffName", { length: 160 }).notNull(),
   equipmentStatus: text("equipmentStatus").notNull(),
@@ -41,10 +82,13 @@ export const openingChecklists = mysqlTable("openingChecklists", {
   notes: text("notes"),
   submittedByUserId: int("submittedByUserId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, table => ({
+  storeIndex: index("idx_openingChecklists_storeId").on(table.storeId),
+}));
 
 export const closingChecklists = mysqlTable("closingChecklists", {
   id: int("id").autoincrement().primaryKey(),
+  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   businessDate: varchar("businessDate", { length: 10 }).notNull(),
   staffName: varchar("staffName", { length: 160 }).notNull(),
   cashCounted: decimal("cashCounted", { precision: 10, scale: 2 }).notNull(),
@@ -56,10 +100,13 @@ export const closingChecklists = mysqlTable("closingChecklists", {
   notes: text("notes"),
   submittedByUserId: int("submittedByUserId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, table => ({
+  storeIndex: index("idx_closingChecklists_storeId").on(table.storeId),
+}));
 
 export const endOfDayReports = mysqlTable("endOfDayReports", {
   id: int("id").autoincrement().primaryKey(),
+  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   businessDate: varchar("businessDate", { length: 10 }).notNull(),
   staffName: varchar("staffName", { length: 160 }).notNull(),
   cups4oz: int("cups4oz").notNull().default(0),
@@ -85,10 +132,13 @@ export const endOfDayReports = mysqlTable("endOfDayReports", {
   generalNotes: text("generalNotes"),
   submittedByUserId: int("submittedByUserId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, table => ({
+  storeIndex: index("idx_endOfDayReports_storeId").on(table.storeId),
+}));
 
 export const inventoryItems = mysqlTable("inventoryItems", {
   id: int("id").autoincrement().primaryKey(),
+  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   department: varchar("department", { length: 48 }).notNull().default("Ingredients"),
   category: varchar("category", { length: 48 }).notNull(),
   itemName: varchar("itemName", { length: 160 }).notNull(),
@@ -104,10 +154,13 @@ export const inventoryItems = mysqlTable("inventoryItems", {
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, table => ({
+  storeIndex: index("idx_inventoryItems_storeId").on(table.storeId),
+}));
 
 export const readyMadeGelatoWeights = mysqlTable("readyMadeGelatoWeights", {
   id: int("id").autoincrement().primaryKey(),
+  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   businessDate: varchar("businessDate", { length: 10 }).notNull(),
   flavor: varchar("flavor", { length: 160 }).notNull(),
   shiftType: mysqlEnum("readyMadeGelatoShiftType", ["opening", "closing"]).notNull().default("opening"),
@@ -119,20 +172,26 @@ export const readyMadeGelatoWeights = mysqlTable("readyMadeGelatoWeights", {
   submittedByUserId: int("submittedByUserId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, table => ({
+  storeIndex: index("idx_readyMadeGelatoWeights_storeId").on(table.storeId),
+}));
 
 export const submissionHistoryEntries = mysqlTable("submissionHistoryEntries", {
   id: int("id").autoincrement().primaryKey(),
+  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   businessDate: varchar("businessDate", { length: 10 }).notNull(),
   submissionType: mysqlEnum("submissionHistoryType", ["opening", "closing", "inventory"]).notNull(),
   staffName: varchar("staffName", { length: 160 }).notNull(),
   payloadJson: text("payloadJson").notNull(),
   submittedByUserId: int("submittedByUserId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, table => ({
+  storeIndex: index("idx_submissionHistoryEntries_storeId").on(table.storeId),
+}));
 
 export const staffAttendance = mysqlTable("staffAttendance", {
   id: int("id").autoincrement().primaryKey(),
+  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   businessDate: varchar("businessDate", { length: 10 }).notNull(),
   staffName: staffAttendanceNameEnum.notNull(),
   clockInAt: bigint("clockInAt", { mode: "number" }).notNull(),
@@ -140,31 +199,113 @@ export const staffAttendance = mysqlTable("staffAttendance", {
   submittedByUserId: int("submittedByUserId").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, table => ({
+  storeIndex: index("idx_staffAttendance_storeId").on(table.storeId),
+}));
 
 export const frigateCupCounts = mysqlTable("frigateCupCounts", {
   id: int("id").autoincrement().primaryKey(),
+  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   businessDate: varchar("businessDate", { length: 10 }).notNull(),
   cameraName: varchar("cameraName", { length: 64 }).notNull().default("handoff"),
   cupsDetected: int("cupsDetected").notNull().default(0),
   peopleEntries: int("peopleEntries").notNull().default(0),
   sourceDetail: text("sourceDetail"),
+  sourceEventId: varchar("sourceEventId", { length: 128 }).notNull(),
+  sourceEventAt: timestamp("sourceEventAt").notNull(),
   receivedAt: timestamp("receivedAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, table => ({
+  storeIndex: index("idx_frigateCupCounts_storeId").on(table.storeId),
+  storeDateCameraUnique: uniqueIndex("frigateCupCounts_store_date_camera_unique").on(table.storeId, table.businessDate, table.cameraName),
+}));
+
+/**
+ * An explicit, normalized polygon for each configured handoff camera.
+ * Geometry is manager-provided; camera labels alone are never treated as a
+ * source of spatial authorization or a substitute for zone coordinates.
+ */
+export const frigateCameraZones = mysqlTable("frigateCameraZones", {
+  id: int("id").autoincrement().primaryKey(),
+  storeId: int("storeId").notNull().references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
+  cameraName: varchar("cameraName", { length: 64 }).notNull(),
+  zoneName: varchar("zoneName", { length: 64 }).notNull().default("handoff_zone"),
+  polygonJson: text("polygonJson").notNull(),
+  geometryVersion: int("geometryVersion").notNull().default(1),
+  isActive: int("isActive").notNull().default(1),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  storeIndex: index("idx_frigateCameraZones_storeId").on(table.storeId),
+  storeCameraZoneUnique: uniqueIndex("frigateCameraZones_store_camera_zone_unique").on(table.storeId, table.cameraName, table.zoneName),
+}));
+
+/**
+ * Verified stills submitted by the handoff sender. These records are visual
+ * evidence only: no state here may change cups sold, deliveries, or revenue.
+ */
+export const frigateHandoffVisualEvents = mysqlTable("frigateHandoffVisualEvents", {
+  id: int("id").autoincrement().primaryKey(),
+  storeId: int("storeId").notNull().references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
+  businessDate: varchar("businessDate", { length: 10 }).notNull(),
+  cameraName: varchar("cameraName", { length: 64 }).notNull().default("handoff"),
+  cupEventId: varchar("cupEventId", { length: 128 }).notNull(),
+  capturedAt: timestamp("capturedAt").notNull(),
+  imageKey: varchar("imageKey", { length: 512 }),
+  imageMimeType: varchar("imageMimeType", { length: 64 }).notNull(),
+  imageSha256: varchar("imageSha256", { length: 64 }).notNull(),
+  captureMetadataJson: text("captureMetadataJson").notNull(),
+  zoneId: int("zoneId").references(() => frigateCameraZones.id, { onDelete: "restrict", onUpdate: "cascade" }),
+  zoneGeometryVersion: int("zoneGeometryVersion"),
+  zoneGeometryJson: text("zoneGeometryJson"),
+  evidenceOrigin: mysqlEnum("evidenceOrigin", ["verified_snapshot", "recording_extracted_frame"]).notNull().default("verified_snapshot"),
+  sourceDetail: text("sourceDetail"),
+  analysisStatus: mysqlEnum("analysisStatus", ["pending_review", "approved_by_ai", "discarded", "approved_by_manager", "discarded_by_manager"]).notNull().default("pending_review"),
+  aiSuggestedStatus: mysqlEnum("aiSuggestedStatus", ["pending_review", "approved_by_ai", "discarded"]),
+  analysisModel: varchar("analysisModel", { length: 96 }).notNull().default("platform-default-vision"),
+  personPresent: int("personPresent").notNull().default(0),
+  gelatoCupPresent: int("gelatoCupPresent").notNull().default(0),
+  cupInHandoffZone: int("cupInHandoffZone").notNull().default(0),
+  visibleCupCount: int("visibleCupCount").notNull().default(0),
+  confidence: mysqlEnum("confidence", ["high", "medium", "low"]).notNull().default("low"),
+  analysisReason: text("analysisReason"),
+  analysisEvidenceJson: text("analysisEvidenceJson"),
+  analysisAttempts: int("analysisAttempts").notNull().default(0),
+  nextRetryAt: timestamp("nextRetryAt"),
+  analysisLeaseUntil: timestamp("analysisLeaseUntil"),
+  analysisLeaseToken: varchar("analysisLeaseToken", { length: 64 }),
+  lastAnalysisError: text("lastAnalysisError"),
+  reviewedAt: timestamp("reviewedAt"),
+  reviewedByUserId: int("reviewedByUserId"),
+  reviewNotes: text("reviewNotes"),
+  receivedAt: timestamp("receivedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  storeIndex: index("idx_frigateHandoffVisualEvents_storeId").on(table.storeId),
+  storeCameraEventUnique: uniqueIndex("frigateHandoffVisualEvents_store_camera_event_unique").on(table.storeId, table.cameraName, table.cupEventId),
+  reviewQueueIndex: index("idx_frigateHandoffVisualEvents_review_queue").on(table.storeId, table.analysisStatus, table.nextRetryAt),
+  capturedAtIndex: index("idx_frigateHandoffVisualEvents_capturedAt").on(table.storeId, table.capturedAt),
+  originIndex: index("idx_frigateHandoffVisualEvents_origin").on(table.storeId, table.evidenceOrigin, table.capturedAt),
+}));
 
 export const recipes = mysqlTable("recipes", {
   id: int("id").autoincrement().primaryKey(),
-  name: varchar("name", { length: 160 }).notNull().unique(),
+  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
+  name: varchar("name", { length: 160 }).notNull(),
   batchYieldOunces: decimal("batchYieldOunces", { precision: 10, scale: 2 }).notNull().default("0.00"),
   notes: text("notes"),
   processSteps: text("processSteps"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, table => ({
+  storeIndex: index("idx_recipes_storeId").on(table.storeId),
+  storeNameUnique: uniqueIndex("recipes_store_name_unique").on(table.storeId, table.name),
+}));
 
 export const recipeIngredients = mysqlTable("recipeIngredients", {
   id: int("id").autoincrement().primaryKey(),
+  storeId: int("storeId").notNull().default(1).references(() => stores.id, { onDelete: "restrict", onUpdate: "cascade" }),
   recipeId: int("recipeId").notNull(),
   inventoryItemId: int("inventoryItemId"),
   ingredientName: varchar("ingredientName", { length: 160 }).notNull(),
@@ -176,8 +317,14 @@ export const recipeIngredients = mysqlTable("recipeIngredients", {
   processSteps: text("processSteps"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, table => ({
+  storeIndex: index("idx_recipeIngredients_storeId").on(table.storeId),
+}));
 
+export type Store = typeof stores.$inferSelect;
+export type InsertStore = typeof stores.$inferInsert;
+export type StoreCredential = typeof storeCredentials.$inferSelect;
+export type InsertStoreCredential = typeof storeCredentials.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type ChecklistQuestion = typeof checklistQuestions.$inferSelect;
@@ -202,3 +349,7 @@ export type RecipeIngredient = typeof recipeIngredients.$inferSelect;
 export type InsertRecipeIngredient = typeof recipeIngredients.$inferInsert;
 export type FrigateCupCount = typeof frigateCupCounts.$inferSelect;
 export type InsertFrigateCupCount = typeof frigateCupCounts.$inferInsert;
+export type FrigateCameraZone = typeof frigateCameraZones.$inferSelect;
+export type InsertFrigateCameraZone = typeof frigateCameraZones.$inferInsert;
+export type FrigateHandoffVisualEvent = typeof frigateHandoffVisualEvents.$inferSelect;
+export type InsertFrigateHandoffVisualEvent = typeof frigateHandoffVisualEvents.$inferInsert;

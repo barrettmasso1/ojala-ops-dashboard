@@ -1,0 +1,12 @@
+*.zip
+*.mp4
+*.mkv
+*.mov
+*.avi
+*.jpg
+*.jpeg
+*.png
+*.webp
+replay-output/
+__pycache__/
+*.pyc

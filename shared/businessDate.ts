@@ -1,8 +1,8 @@
 const BUSINESS_TIME_ZONE = "America/Los_Angeles";
 
-function getDateParts(date: Date) {
+function getDateParts(date: Date, timeZone = BUSINESS_TIME_ZONE) {
   const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: BUSINESS_TIME_ZONE,
+    timeZone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -17,7 +17,11 @@ function getDateParts(date: Date) {
 }
 
 export function getPacificBusinessDate(date = new Date()) {
-  const { year, month, day } = getDateParts(date);
+  return getBusinessDate(date);
+}
+
+export function getBusinessDate(date = new Date(), timeZone = BUSINESS_TIME_ZONE) {
+  const { year, month, day } = getDateParts(date, timeZone);
   return `${year}-${month}-${day}`;
 }
 
@@ -26,8 +30,12 @@ export function formatPacificDateTime(
   locale: Intl.LocalesArgument = "en-US",
   options?: Intl.DateTimeFormatOptions,
 ) {
+  return formatBusinessDateTime(date, locale, options);
+}
+
+export function formatBusinessDateTime(date = new Date(), locale: Intl.LocalesArgument = "en-US", options?: Intl.DateTimeFormatOptions, timeZone = BUSINESS_TIME_ZONE) {
   return new Intl.DateTimeFormat(locale, {
-    timeZone: BUSINESS_TIME_ZONE,
+    timeZone,
     dateStyle: "full",
     timeStyle: "short",
     ...options,
@@ -35,16 +43,24 @@ export function formatPacificDateTime(
 }
 
 export function formatPacificTime(date = new Date(), locale: Intl.LocalesArgument = "en-US") {
+  return formatBusinessTime(date, locale);
+}
+
+export function formatBusinessTime(date = new Date(), locale: Intl.LocalesArgument = "en-US", timeZone = BUSINESS_TIME_ZONE) {
   return new Intl.DateTimeFormat(locale, {
-    timeZone: BUSINESS_TIME_ZONE,
+    timeZone,
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
 }
 
 export function formatPacificCalendarDate(date = new Date(), locale: Intl.LocalesArgument = "en-US") {
+  return formatBusinessCalendarDate(date, locale);
+}
+
+export function formatBusinessCalendarDate(date = new Date(), locale: Intl.LocalesArgument = "en-US", timeZone = BUSINESS_TIME_ZONE) {
   return new Intl.DateTimeFormat(locale, {
-    timeZone: BUSINESS_TIME_ZONE,
+    timeZone,
     weekday: "long",
     month: "long",
     day: "numeric",
@@ -53,8 +69,12 @@ export function formatPacificCalendarDate(date = new Date(), locale: Intl.Locale
 }
 
 export function isFuturePacificBusinessDate(dateString: string, referenceDate = new Date()) {
+  return isFutureBusinessDate(dateString, referenceDate);
+}
+
+export function isFutureBusinessDate(dateString: string, referenceDate = new Date(), timeZone = BUSINESS_TIME_ZONE) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return false;
-  return dateString > getPacificBusinessDate(referenceDate);
+  return dateString > getBusinessDate(referenceDate, timeZone);
 }
 
 export function getPacificWeekStart(dateString: string) {

@@ -68,4 +68,15 @@ describe("portal draft storage", () => {
     expect(loadPortalDraft("opening", "2026-04-26", storage)).toBeNull();
     expect(storage.removeItem).toHaveBeenCalledWith(getPortalDraftKey("opening"));
   });
+
+  it("keeps drafts on a shared browser separate between stores", () => {
+    const storage = createStorage();
+    savePortalDraft("opening", "2026-04-26", { staffName: "Ojala" }, storage, 1);
+    savePortalDraft("opening", "2026-04-26", { staffName: "Second shop" }, storage, 2);
+    expect(loadPortalDraft<{ staffName: string }>("opening", "2026-04-26", storage, 2)?.data.staffName).toBe("Second shop");
+    expect(loadPortalDraft<{ staffName: string }>("opening", "2026-04-26", storage, 1)?.data.staffName).toBe("Ojala");
+    clearPortalDraft("opening", storage, 2);
+    expect(loadPortalDraft("opening", "2026-04-26", storage, 2)).toBeNull();
+    expect(loadPortalDraft("opening", "2026-04-26", storage, 1)).not.toBeNull();
+  });
 });

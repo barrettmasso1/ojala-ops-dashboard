@@ -1,0 +1,11 @@
+[Unit]
+Description=Retry verified Ojala handoff visual snapshots
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+Persistent=true
+Unit=ojala-handoff-visual.service
+
+[Install]
+WantedBy=timers.target

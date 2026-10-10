@@ -1,0 +1,12 @@
+{
+  "businessDate": "2026-10-09",
+  "pr13PreparedHead": "549c0327d4b31348042a50f75b51d78d3d51032b",
+  "followupFrames": 86,
+  "reviewedPartialUnits": 8,
+  "pendingCases": 5,
+  "reviewBasis": "Codex review; independent manual and POS totals not observed",
+  "newCountOrProductionWrite": false,
+  "privateSupplementalManifestSha256": "a8b9fec485e939d97d04a26f137f5d71104db14ed4e1f9d1071e15bf3e2f4730",
+  "supportCase": "215476329685343",
+  "productionStatus": "Transport support resolution, runtime/database provenance, fresh backup and coordinated migration/deploy remain pending. No production acknowledgement or dashboard acceptance verified."
+}

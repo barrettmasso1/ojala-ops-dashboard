@@ -1,0 +1,43 @@
+{
+  "report_type": "normalized visual box evidence without source media",
+  "case_id": "ojala-2026-09-26-165652-170652",
+  "model": "gemini-3.1-pro-preview",
+  "coordinate_system": "normalized x, y, width, height; upper-left origin",
+  "privacy": {
+    "contains_source_images": false,
+    "contains_customer_identity": false,
+    "contains_only_model_box_coordinates": true
+  },
+  "frames": [
+    {
+      "frame_id": "recording-scene-170238-replay",
+      "origin": "recording_extracted_frame",
+      "captured_at_local_approximate": "2026-09-26T17:02:38 America/Mazatlan",
+      "image_sha256": "12db915d447fdcfd6301e36010e75d60fc3ae85c614859dbd87f5787f4b48ff0",
+      "decision": {"person_present": true, "gelato_cup_present": true, "cup_in_handoff_zone": true, "visible_cup_count": 1, "confidence": "high", "ambiguous": false},
+      "person_boxes": [{"x":0,"y":0.48,"width":0.23,"height":0.52,"confidence":"high"},{"x":0.15,"y":0.29,"width":0.14,"height":0.35,"confidence":"high"},{"x":0.36,"y":0.24,"width":0.16,"height":0.58,"confidence":"high"},{"x":0.51,"y":0.44,"width":0.22,"height":0.55,"confidence":"high"}],
+      "gelato_cup_boxes": [{"x":0.472,"y":0.565,"width":0.028,"height":0.055,"confidence":"high"}],
+      "workflow_disposition": "pending_review; never automatic Frigate success"
+    },
+    {
+      "frame_id": "recording-scene-170238-supplied-control",
+      "origin": "recording_extracted_frame",
+      "captured_at_local_approximate": "2026-09-26T17:02:38 America/Mazatlan",
+      "image_sha256": "4f69bf54fffc4d4056a154897f23e4c6a6de0563910cd622887b1c4b05d4d2e8",
+      "decision": {"person_present": true, "gelato_cup_present": true, "cup_in_handoff_zone": true, "visible_cup_count": 1, "confidence": "high", "ambiguous": false},
+      "person_boxes": [{"x":0,"y":0.48,"width":0.22,"height":0.52,"confidence":"high"},{"x":0.15,"y":0.29,"width":0.14,"height":0.35,"confidence":"high"},{"x":0.36,"y":0.24,"width":0.16,"height":0.58,"confidence":"high"},{"x":0.5,"y":0.44,"width":0.23,"height":0.56,"confidence":"high"}],
+      "gelato_cup_boxes": [{"x":0.47,"y":0.55,"width":0.03,"height":0.05,"confidence":"high"}],
+      "workflow_disposition": "control evidence only; pending manager review"
+    },
+    {
+      "frame_id": "automatic-capture-170457",
+      "origin": "automatic_frigate_capture",
+      "captured_at_local": "2026-09-26T17:04:57.764098-07:00",
+      "image_sha256": "cf966ba9717edbe26f11e829cd1ab4ddc296226e0522a8638a5b8afb42aadf4a",
+      "decision": {"person_present": true, "gelato_cup_present": true, "cup_in_handoff_zone": true, "visible_cup_count": 4, "confidence": "high", "ambiguous": false},
+      "person_boxes": [{"x":0.14,"y":0.43,"width":0.29,"height":0.57,"confidence":"high"},{"x":0.33,"y":0.29,"width":0.16,"height":0.56,"confidence":"high"},{"x":0.45,"y":0.46,"width":0.21,"height":0.54,"confidence":"high"},{"x":0.71,"y":0.36,"width":0.11,"height":0.19,"confidence":"high"}],
+      "gelato_cup_boxes": [{"x":0.455,"y":0.535,"width":0.025,"height":0.035,"confidence":"high"},{"x":0.442,"y":0.585,"width":0.022,"height":0.03,"confidence":"high"},{"x":0.448,"y":0.638,"width":0.025,"height":0.03,"confidence":"high"},{"x":0.785,"y":0.525,"width":0.02,"height":0.035,"confidence":"high"}],
+      "workflow_disposition": "visual observation only; not a sale or delivery"
+    }
+  ]
+}
