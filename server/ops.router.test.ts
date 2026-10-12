@@ -1,14 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import type { TrpcContext } from "./_core/context";
 
 const dbMocks = vi.hoisted(() => ({
   STAFF_ATTENDANCE_NAMES: ["Karol", "Anhec", "Jesse", "Esme"] as const,
   clockInStaff: vi.fn(),
   clockOutStaff: vi.fn(),
+  attachHandoffVisualImage: vi.fn(),
+  claimHandoffVisualAnalysis: vi.fn(),
   createOpeningChecklist: vi.fn(),
   createClosingChecklist: vi.fn(),
   createEndOfDayReport: vi.fn(),
+  deferHandoffVisualAnalysis: vi.fn(),
+  finalizeHandoffVisualAnalysis: vi.fn(),
   getAttendanceTimeBook: vi.fn(),
+  getActiveHandoffCameraZone: vi.fn(),
   getDailyOperationsSnapshot: vi.fn(),
   getInventoryAlerts: vi.fn(),
   getRecentNotes: vi.fn(),
@@ -18,14 +24,22 @@ const dbMocks = vi.hoisted(() => ({
   getWeekOverWeekSales: vi.fn(),
   listChecklistQuestions: vi.fn(),
   listInventoryItems: vi.fn(),
+  listHandoffVisualEvents: vi.fn(),
   listReadyMadeGelatoWeights: vi.fn(),
   removeChecklistQuestion: vi.fn(),
+  reserveHandoffVisualEvent: vi.fn(),
+  bindHandoffVisualEventZone: vi.fn(),
+  queueHandoffVisualForZoneConfiguration: vi.fn(),
+  queueHandoffVisualForZoneMismatch: vi.fn(),
+  reviewHandoffVisualEvent: vi.fn(),
   saveChecklistQuestion: vi.fn(),
   saveInventoryItem: vi.fn(),
   saveReadyMadeGelatoWeights: vi.fn(),
   saveAttendanceEntry: vi.fn(),
   createSubmissionHistoryEntry: vi.fn(),
+  getActiveStoreById: vi.fn(),
   listSubmissionHistoryEntries: vi.fn(),
+  resolveActiveStoreCredential: vi.fn(),
   updateInventoryCount: vi.fn(),
   updateSubmissionHistoryForm: vi.fn(),
   updateSubmissionHistoryGelato: vi.fn(),
@@ -47,20 +61,57 @@ const gelatoPhotoMocks = vi.hoisted(() => ({
   extractGelatoPhotos: vi.fn().mockResolvedValue({ extractedPhotos: [], groupedEntries: [] }),
 }));
 
+const handoffVisualMocks = vi.hoisted(() => ({
+  analyzeHandoffVisualImage: vi.fn(),
+  getHandoffVisualRetryDelayMs: vi.fn(() => 60_000),
+}));
+
+const storageMocks = vi.hoisted(() => ({
+  storagePut: vi.fn(),
+  storageGetSignedUrl: vi.fn(),
+}));
+
 vi.mock("./db", () => dbMocks);
 vi.mock("./_core/notification", () => notificationMocks);
 vi.mock("./_core/sdk", () => sdkMocks);
 vi.mock("./gelatoPhotoPilot", () => gelatoPhotoMocks);
+vi.mock("./handoffVisualAnalysis", () => handoffVisualMocks);
+vi.mock("./storage", () => storageMocks);
+
+process.env.STAFF_PORTAL_PASSWORD = "test-staff-password";
+process.env.FRIGATE_API_KEY = "test-frigate-key";
 
 const { appRouter } = await import("./routers");
 
 type Role = "admin" | "user";
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
-function createContext(role: Role | null): TrpcContext {
+const storeOne = { id: 1, nombre: "Ojala Gelato", timezone: "America/Mazatlan", isActive: 1 };
+const storeTwo = { id: 2, nombre: "Second Store", timezone: "America/Los_Angeles", isActive: 1 };
+const visualImageBytes = Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+const visualImageDataUrl = `data:image/jpeg;base64,${visualImageBytes.toString("base64")}`;
+const visualImageSha256 = createHash("sha256").update(visualImageBytes).digest("hex");
+const visualZone = { id: 301, geometryVersion: 1, polygonJson: JSON.stringify([{ x: 0.1, y: 0.2 }, { x: 0.8, y: 0.2 }, { x: 0.8, y: 0.9 }]) };
+const visualCapture = (cupEventId: string, capturedAt = "2026-07-18T22:03:00.000Z") => ({
+  camera: "handoff" as const,
+  cup_zone: "handoff_zone" as const,
+  cup_event_id: cupEventId,
+  captured_at_utc: capturedAt,
+  image_sha256: visualImageSha256,
+});
+const visualCaptureV3 = (cupEventId: string, zoneGeometry = JSON.parse(visualZone.polygonJson)) => ({
+  ...visualCapture(cupEventId),
+  schema_version: 3 as const,
+  zone_geometry: zoneGeometry,
+  zone_config_sha256: createHash("sha256").update(JSON.stringify(zoneGeometry)).digest("hex"),
+  image_dimensions: { width: 1920, height: 1080 },
+});
+
+function createContext(role: Role | null, storeId = 1): TrpcContext {
   const user: AuthenticatedUser | null = role
     ? {
         id: role === "admin" ? 99 : 1,
+        storeId,
         openId: `${role}-user`,
         email: `${role}@example.com`,
         name: role === "admin" ? "Manager" : "Employee",
@@ -90,27 +141,128 @@ describe("operations router", () => {
     vi.clearAllMocks();
     notificationMocks.notifyOwner.mockResolvedValue(true);
     sdkMocks.sdk.createSessionToken.mockResolvedValue("staff-session-token");
+    dbMocks.getActiveStoreById.mockResolvedValue(storeOne);
+    dbMocks.resolveActiveStoreCredential.mockResolvedValue(null);
+    dbMocks.upsertFrigateCupCount.mockResolvedValue({ success: true, disposition: "apply" });
+    dbMocks.getActiveHandoffCameraZone.mockResolvedValue(visualZone);
+    dbMocks.reserveHandoffVisualEvent.mockResolvedValue({
+      event: {
+        id: 610, analysisStatus: "pending_review", imageKey: null, analysisAttempts: 0,
+        imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
+        evidenceOrigin: "verified_snapshot",
+        zoneId: visualZone.id, zoneGeometryVersion: visualZone.geometryVersion, zoneGeometryJson: visualZone.polygonJson,
+      },
+      created: true,
+    });
+    dbMocks.attachHandoffVisualImage.mockResolvedValue({
+      id: 610,
+      analysisStatus: "pending_review",
+      imageKey: "frigate-handoff-verified/fixture.jpg",
+      analysisAttempts: 0,
+      imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
+      evidenceOrigin: "verified_snapshot",
+      zoneId: visualZone.id, zoneGeometryVersion: visualZone.geometryVersion, zoneGeometryJson: visualZone.polygonJson,
+    });
+    dbMocks.claimHandoffVisualAnalysis.mockResolvedValue("fixture-lease-token");
+    dbMocks.finalizeHandoffVisualAnalysis.mockResolvedValue({ id: 610, analysisStatus: "approved_by_ai" });
+    dbMocks.deferHandoffVisualAnalysis.mockResolvedValue({ id: 610, analysisStatus: "pending_review" });
+    dbMocks.queueHandoffVisualForZoneMismatch.mockResolvedValue({ id: 610, analysisStatus: "pending_review" });
+    storageMocks.storagePut.mockResolvedValue({ key: "frigate-handoff-verified/fixture.jpg", url: "/manus-storage/frigate-handoff-verified/fixture.jpg" });
+    storageMocks.storageGetSignedUrl.mockResolvedValue("https://signed.example/frigate-handoff-verified/fixture.jpg");
+    handoffVisualMocks.analyzeHandoffVisualImage.mockResolvedValue({
+      personPresent: true,
+      gelatoCupPresent: true,
+      cupInHandoffZone: true,
+      visibleCupCount: 1,
+      confidence: "high",
+      status: "approved_by_ai",
+      reason: "fixture",
+    });
   });
 
   it("accepts the configured shared staff portal password and sets a staff session cookie", async () => {
     const context = createContext(null);
     const caller = appRouter.createCaller(context);
 
-    const result = await caller.auth.staffPortalLogin({ password: "Ojalagelato727272" });
+    const result = await caller.auth.staffPortalLogin({ password: "test-staff-password" });
 
     expect(result).toEqual({ success: true, role: "user" });
     expect(dbMocks.upsertUser).toHaveBeenCalledWith(
       expect.objectContaining({
-        openId: "ojala-shared-staff-portal",
+        openId: "store-1-shared-staff-portal",
         role: "user",
         loginMethod: "shared-password",
       }),
     );
     expect(sdkMocks.sdk.createSessionToken).toHaveBeenCalledWith(
-      "ojala-shared-staff-portal",
-      expect.objectContaining({ name: "Ojala Staff" }),
+      "store-1-shared-staff-portal",
+      expect.objectContaining({ name: "Ojala Gelato Staff" }),
     );
     expect((context.res as unknown as { cookie: ReturnType<typeof vi.fn> }).cookie).toHaveBeenCalled();
+  });
+
+  it("does not allow the shared Phase 1 staff password to select another tenant", async () => {
+    const context = createContext(null);
+    const caller = appRouter.createCaller(context);
+
+    await caller.auth.staffPortalLogin({ password: "test-staff-password", storeId: 2 } as never);
+
+    expect(dbMocks.upsertUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        openId: "store-1-shared-staff-portal",
+        storeId: 1,
+      }),
+    );
+  });
+
+  it("resolves a managed staff credential to its server-assigned store and ignores a forged storeId", async () => {
+    dbMocks.resolveActiveStoreCredential.mockResolvedValue({ store: storeTwo, credential: { id: 11 } });
+    const caller = appRouter.createCaller(createContext(null));
+
+    await caller.auth.staffPortalLogin({ password: "store-two-staff-secret", storeId: 1 } as never);
+
+    expect(dbMocks.resolveActiveStoreCredential).toHaveBeenCalledWith({
+      credentialType: "staff_portal",
+      secret: "store-two-staff-secret",
+    });
+    expect(dbMocks.upsertUser).toHaveBeenCalledWith(expect.objectContaining({
+      openId: "store-2-shared-staff-portal",
+      storeId: 2,
+      name: "Second Store Staff",
+    }));
+    expect(sdkMocks.sdk.createSessionToken).toHaveBeenCalledWith(
+      "store-2-shared-staff-portal",
+      expect.objectContaining({ name: "Second Store Staff" }),
+    );
+  });
+
+  it("rejects an invalid or disabled-store staff credential without issuing a session", async () => {
+    dbMocks.getActiveStoreById.mockResolvedValue(null);
+    const caller = appRouter.createCaller(createContext(null));
+
+    await expect(caller.auth.staffPortalLogin({ password: "test-staff-password" })).rejects.toThrow("Invalid staff portal password");
+    await expect(caller.auth.staffPortalLogin({ password: "not-a-credential" })).rejects.toThrow("Invalid staff portal password");
+    expect(sdkMocks.sdk.createSessionToken).not.toHaveBeenCalled();
+    expect(dbMocks.upsertUser).not.toHaveBeenCalled();
+  });
+
+  it("propagates the authenticated tenant to store-scoped queries", async () => {
+    dbMocks.listInventoryItems.mockResolvedValue([]);
+    const caller = appRouter.createCaller(createContext("user", 2));
+    await caller.forms.inventoryItems();
+    expect(dbMocks.listInventoryItems).toHaveBeenCalledWith(2);
+  });
+
+  it("passes the authenticated store to writes even when a caller knows another store's record ID", async () => {
+    dbMocks.updateInventoryCount.mockResolvedValue({ id: 401, storeId: 2, itemName: "Store 2 Cups", currentQuantity: "9.00" });
+    dbMocks.updateSubmissionHistoryForm.mockResolvedValue({ id: 501, storeId: 2 });
+    const caller = appRouter.createCaller(createContext("admin", 2));
+
+    await caller.forms.submitInventoryUpdate({ id: 401, currentQuantity: 9, notes: "fixture", notifyOwner: false });
+    await caller.dashboard.updateSubmissionForm({ entryId: 501, form: { notes: "fixture" } });
+
+    expect(dbMocks.updateInventoryCount).toHaveBeenCalledWith(expect.objectContaining({ id: 401, storeId: 2 }));
+    expect(dbMocks.updateSubmissionHistoryForm).toHaveBeenCalledWith(expect.objectContaining({ entryId: 501, storeId: 2 }));
   });
 
   it("blocks non-admin sessions from manager dashboard queries", async () => {
@@ -126,22 +278,328 @@ describe("operations router", () => {
     const caller = appRouter.createCaller(createContext(null));
 
     const result = await caller.frigate.submitCounts({
-      apiKey: process.env.FRIGATE_API_KEY ?? "",
+      apiKey: "test-frigate-key",
       businessDate: "2026-07-18",
       cameraName: "handoff",
       cupsDetected: 14,
       peopleEntries: 6,
       sourceDetail: "vitest-secret-check",
+      sourceEventId: "fixture-event-0001",
+      sourceEventAt: "2026-07-18T22:00:00.000Z",
     });
 
-    expect(result).toEqual({ success: true });
+    expect(result).toEqual({ success: true, disposition: "apply" });
     expect(dbMocks.upsertFrigateCupCount).toHaveBeenCalledWith({
+      storeId: 1,
       businessDate: "2026-07-18",
       cameraName: "handoff",
       cupsDetected: 14,
       peopleEntries: 6,
       sourceDetail: "vitest-secret-check",
+      sourceEventId: "fixture-event-0001",
+      sourceEventAt: new Date("2026-07-18T22:00:00.000Z"),
     });
+  });
+
+  it("resolves a managed Frigate key to Store 2 and ignores a forged payload storeId", async () => {
+    dbMocks.resolveActiveStoreCredential.mockResolvedValue({ store: storeTwo, credential: { id: 22 } });
+    const caller = appRouter.createCaller(createContext(null));
+
+    await caller.frigate.submitCounts({
+      apiKey: "store-two-frigate-secret",
+      businessDate: "2026-07-18",
+      cameraName: "handoff",
+      cupsDetected: 14,
+      peopleEntries: 6,
+      sourceDetail: "fixture",
+      sourceEventId: "fixture-event-0002",
+      sourceEventAt: "2026-07-18T22:01:00.000Z",
+      storeId: 1,
+    } as never);
+
+    expect(dbMocks.resolveActiveStoreCredential).toHaveBeenCalledWith({
+      credentialType: "frigate",
+      secret: "store-two-frigate-secret",
+    });
+    expect(dbMocks.upsertFrigateCupCount).toHaveBeenCalledWith({
+      storeId: 2,
+      businessDate: "2026-07-18",
+      cameraName: "handoff",
+      cupsDetected: 14,
+      peopleEntries: 6,
+      sourceDetail: "fixture",
+      sourceEventId: "fixture-event-0002",
+      sourceEventAt: new Date("2026-07-18T22:01:00.000Z"),
+    });
+  });
+
+  it("rejects an invalid or disabled-store Frigate key without writing a count", async () => {
+    dbMocks.getActiveStoreById.mockResolvedValue(null);
+    const caller = appRouter.createCaller(createContext(null));
+
+    await expect(caller.frigate.submitCounts({
+      apiKey: "test-frigate-key",
+      businessDate: "2026-07-18",
+      cameraName: "handoff",
+      cupsDetected: 14,
+      peopleEntries: 6,
+      sourceEventId: "fixture-event-0003",
+      sourceEventAt: "2026-07-18T22:02:00.000Z",
+    })).rejects.toThrow("Unauthorized");
+    expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();
+  });
+
+  it("binds a verified handoff image to the Frigate credential store and never accepts a payload storeId", async () => {
+    const caller = appRouter.createCaller(createContext(null));
+
+    const result = await caller.frigate.submitHandoffVisual({
+      apiKey: "test-frigate-key",
+      capture: visualCapture("cup-event-0001"),
+      imageDataUrl: visualImageDataUrl,
+      sourceDetail: "verified_snapshot",
+      storeId: 2,
+    } as never);
+
+    expect(result).toEqual({ success: true, eventId: 610, status: "approved_by_ai", disposition: "analyzed", retryable: false });
+    expect(dbMocks.reserveHandoffVisualEvent).toHaveBeenCalledWith(expect.objectContaining({
+      storeId: 1,
+      cameraName: "handoff",
+      cupEventId: "cup-event-0001",
+      imageSha256: visualImageSha256,
+      zoneId: visualZone.id,
+    }));
+    expect(dbMocks.finalizeHandoffVisualAnalysis).toHaveBeenCalledWith(expect.objectContaining({
+      storeId: 1,
+      id: 610,
+      analysisLeaseToken: "fixture-lease-token",
+      analysis: expect.objectContaining({ status: "approved_by_ai", visibleCupCount: 1 }),
+    }));
+    expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();
+  });
+
+  it("returns an unauthorized tRPC error for an invalid visual Frigate credential", async () => {
+    const caller = appRouter.createCaller(createContext(null));
+
+    await expect(caller.frigate.submitHandoffVisual({
+      apiKey: "not-a-valid-frigate-key",
+      capture: visualCapture("cup-event-invalid-key"),
+      imageDataUrl: visualImageDataUrl,
+    })).rejects.toMatchObject({ code: "UNAUTHORIZED", message: "Unauthorized" });
+
+    expect(dbMocks.reserveHandoffVisualEvent).not.toHaveBeenCalled();
+    expect(storageMocks.storagePut).not.toHaveBeenCalled();
+  });
+
+  it("keeps a recording-extracted recovery frame separate from an automatic Frigate success", async () => {
+    dbMocks.reserveHandoffVisualEvent.mockResolvedValueOnce({
+      event: {
+        id: 610, analysisStatus: "pending_review", imageKey: null, analysisAttempts: 0,
+        imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
+        evidenceOrigin: "recording_extracted_frame",
+        zoneId: visualZone.id, zoneGeometryVersion: visualZone.geometryVersion, zoneGeometryJson: visualZone.polygonJson,
+      },
+      created: true,
+    });
+    dbMocks.attachHandoffVisualImage.mockResolvedValueOnce({
+      id: 610, analysisStatus: "pending_review", imageKey: "frigate-handoff-recovery/fixture.jpg", analysisAttempts: 0,
+      imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
+      evidenceOrigin: "recording_extracted_frame",
+      zoneId: visualZone.id, zoneGeometryVersion: visualZone.geometryVersion, zoneGeometryJson: visualZone.polygonJson,
+    });
+    dbMocks.finalizeHandoffVisualAnalysis.mockResolvedValueOnce({ id: 610, analysisStatus: "pending_review" });
+    const caller = appRouter.createCaller(createContext("admin", 1));
+
+    const result = await caller.dashboard.importRecordingExtractedHandoffFrame({
+      caseReference: "ojala-2026-09-26-165652-170652",
+      capture: visualCaptureV3("recovered-scene-170238"),
+      imageDataUrl: visualImageDataUrl,
+    });
+
+    expect(result).toEqual({ success: true, eventId: 610, status: "pending_review", disposition: "analyzed", retryable: false });
+    expect(dbMocks.reserveHandoffVisualEvent).toHaveBeenCalledWith(expect.objectContaining({
+      storeId: 1,
+      evidenceOrigin: "recording_extracted_frame",
+      sourceDetail: "recording_extracted_case:ojala-2026-09-26-165652-170652",
+    }));
+    expect(dbMocks.finalizeHandoffVisualAnalysis).toHaveBeenCalledWith(expect.objectContaining({
+      storeId: 1,
+      analysis: expect.objectContaining({ status: "pending_review" }),
+      aiSuggestedStatus: "approved_by_ai",
+    }));
+    expect(storageMocks.storagePut).toHaveBeenCalledWith(
+      expect.stringContaining("frigate-handoff-recovery/store-1/handoff/recovered-scene-170238-"),
+      expect.any(Buffer),
+      "image/jpeg",
+    );
+    expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();
+  });
+
+  it("does not allow a non-admin session to import a recovered recording frame", async () => {
+    const caller = appRouter.createCaller(createContext("user", 1));
+
+    await expect(caller.dashboard.importRecordingExtractedHandoffFrame({
+      caseReference: "ojala-2026-09-26-165652-170652",
+      capture: visualCaptureV3("recovered-scene-non-admin"),
+      imageDataUrl: visualImageDataUrl,
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMocks.reserveHandoffVisualEvent).not.toHaveBeenCalled();
+  });
+
+  it("binds a recovered recording frame to the authenticated manager store", async () => {
+    dbMocks.getActiveStoreById.mockResolvedValueOnce(storeTwo);
+    dbMocks.reserveHandoffVisualEvent.mockResolvedValueOnce({
+      event: {
+        id: 612, analysisStatus: "pending_review", imageKey: null, analysisAttempts: 0,
+        imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
+        evidenceOrigin: "recording_extracted_frame",
+        zoneId: visualZone.id, zoneGeometryVersion: visualZone.geometryVersion, zoneGeometryJson: visualZone.polygonJson,
+      },
+      created: true,
+    });
+    dbMocks.attachHandoffVisualImage.mockResolvedValueOnce({
+      id: 612, analysisStatus: "pending_review", imageKey: "frigate-handoff-recovery/store-2.jpg", analysisAttempts: 0,
+      imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
+      evidenceOrigin: "recording_extracted_frame",
+      zoneId: visualZone.id, zoneGeometryVersion: visualZone.geometryVersion, zoneGeometryJson: visualZone.polygonJson,
+    });
+    dbMocks.finalizeHandoffVisualAnalysis.mockResolvedValueOnce({ id: 612, analysisStatus: "pending_review" });
+    const caller = appRouter.createCaller(createContext("admin", 2));
+
+    await caller.dashboard.importRecordingExtractedHandoffFrame({
+      caseReference: "ojala-2026-09-26-165652-170652",
+      capture: visualCaptureV3("recovered-scene-store-two"),
+      imageDataUrl: visualImageDataUrl,
+    });
+
+    expect(dbMocks.reserveHandoffVisualEvent).toHaveBeenCalledWith(expect.objectContaining({ storeId: 2, evidenceOrigin: "recording_extracted_frame" }));
+  });
+
+  it("rejects a cross-origin cup-event collision before it can change a visual label", async () => {
+    dbMocks.reserveHandoffVisualEvent.mockRejectedValueOnce(new Error("cup_event_id is already reserved for a different evidence origin"));
+    const caller = appRouter.createCaller(createContext("admin", 1));
+
+    await expect(caller.dashboard.importRecordingExtractedHandoffFrame({
+      caseReference: "ojala-2026-09-26-165652-170652",
+      capture: visualCaptureV3("reused-automatic-event"),
+      imageDataUrl: visualImageDataUrl,
+    })).rejects.toThrow("different evidence origin");
+    expect(handoffVisualMocks.analyzeHandoffVisualImage).not.toHaveBeenCalled();
+    expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();
+  });
+
+  it("keeps an AI outage queued for retry without treating the image as a count", async () => {
+    handoffVisualMocks.analyzeHandoffVisualImage.mockRejectedValueOnce(new Error("temporary model outage"));
+    const caller = appRouter.createCaller(createContext(null));
+
+    const result = await caller.frigate.submitHandoffVisual({
+      apiKey: "test-frigate-key",
+      capture: visualCapture("cup-event-0002"),
+      imageDataUrl: visualImageDataUrl,
+    });
+
+    expect(result).toEqual({ success: true, eventId: 610, status: "pending_review", disposition: "queued_for_retry", retryable: true });
+    expect(dbMocks.deferHandoffVisualAnalysis).toHaveBeenCalledWith(expect.objectContaining({ id: 610, storeId: 1, analysisLeaseToken: "fixture-lease-token" }));
+    expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();
+  });
+
+  it("replays a fractional +00:00 capture using preserved sidecar identity instead of database timestamp precision", async () => {
+    const originalTimestamp = "2026-07-18T22:03:00.230890+00:00";
+    dbMocks.reserveHandoffVisualEvent.mockResolvedValueOnce({
+      event: {
+        id: 610, analysisStatus: "pending_review", imageKey: "frigate-handoff-verified/fixture.jpg", analysisAttempts: 0,
+        imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
+        captureMetadataJson: JSON.stringify({ captured_at_utc: originalTimestamp }),
+        evidenceOrigin: "verified_snapshot",
+        zoneId: visualZone.id, zoneGeometryVersion: visualZone.geometryVersion, zoneGeometryJson: visualZone.polygonJson,
+      },
+      created: false,
+    });
+    const caller = appRouter.createCaller(createContext(null));
+
+    await expect(caller.frigate.submitHandoffVisual({
+      apiKey: "test-frigate-key",
+      capture: visualCapture("cup-event-fractional-retry", originalTimestamp),
+      imageDataUrl: visualImageDataUrl,
+    })).resolves.toMatchObject({ success: true, eventId: 610 });
+  });
+
+  it("retains evidence pending when real store-camera geometry has not been configured", async () => {
+    dbMocks.getActiveHandoffCameraZone.mockResolvedValueOnce(null);
+    dbMocks.reserveHandoffVisualEvent.mockResolvedValueOnce({
+      event: {
+        id: 611, analysisStatus: "pending_review", imageKey: null, analysisAttempts: 0,
+        imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
+        evidenceOrigin: "verified_snapshot",
+        zoneId: null, zoneGeometryVersion: null, zoneGeometryJson: null,
+      },
+      created: true,
+    });
+    dbMocks.attachHandoffVisualImage.mockResolvedValueOnce({
+      id: 611, analysisStatus: "pending_review", imageKey: "frigate-handoff-verified/unconfigured.jpg", analysisAttempts: 0,
+      imageSha256: visualImageSha256, capturedAt: new Date("2026-07-18T22:03:00.000Z"),
+      evidenceOrigin: "verified_snapshot",
+      zoneId: null, zoneGeometryVersion: null, zoneGeometryJson: null,
+    });
+    dbMocks.queueHandoffVisualForZoneConfiguration.mockResolvedValueOnce({ id: 611, analysisStatus: "pending_review" });
+    const caller = appRouter.createCaller(createContext(null));
+
+    const result = await caller.frigate.submitHandoffVisual({
+      apiKey: "test-frigate-key", capture: visualCapture("cup-event-no-zone"), imageDataUrl: visualImageDataUrl,
+    });
+
+    expect(result).toEqual({ success: true, eventId: 611, status: "pending_review", disposition: "awaiting_zone_configuration", retryable: true });
+    expect(dbMocks.queueHandoffVisualForZoneConfiguration).toHaveBeenCalledWith({ id: 611, storeId: 1 });
+    expect(handoffVisualMocks.analyzeHandoffVisualImage).not.toHaveBeenCalled();
+  });
+
+  it("never authorizes a v3 capture from client geometry that disagrees with the server-configured zone", async () => {
+    const caller = appRouter.createCaller(createContext(null));
+    const result = await caller.frigate.submitHandoffVisual({
+      apiKey: "test-frigate-key",
+      capture: visualCaptureV3("cup-event-zone-mismatch", [{ x: 0.01, y: 0.01 }, { x: 0.2, y: 0.01 }, { x: 0.01, y: 0.2 }]),
+      imageDataUrl: visualImageDataUrl,
+    });
+
+    expect(result).toEqual({ success: true, eventId: 610, status: "pending_review", disposition: "zone_metadata_mismatch", retryable: false });
+    expect(dbMocks.queueHandoffVisualForZoneMismatch).toHaveBeenCalledWith({ id: 610, storeId: 1 });
+    expect(handoffVisualMocks.analyzeHandoffVisualImage).not.toHaveBeenCalled();
+  });
+
+  it("rejects a capture whose sidecar checksum does not match the submitted image", async () => {
+    const caller = appRouter.createCaller(createContext(null));
+    await expect(caller.frigate.submitHandoffVisual({
+      apiKey: "test-frigate-key",
+      capture: { ...visualCapture("cup-event-tampered"), image_sha256: "0".repeat(64) },
+      imageDataUrl: visualImageDataUrl,
+    })).rejects.toThrow("does not match");
+    expect(dbMocks.reserveHandoffVisualEvent).not.toHaveBeenCalled();
+  });
+
+  it("scopes manager visual review records to the authenticated store", async () => {
+    dbMocks.listHandoffVisualEvents.mockResolvedValue([]);
+    dbMocks.reviewHandoffVisualEvent.mockResolvedValue({ id: 778, analysisStatus: "approved_by_manager" });
+    const caller = appRouter.createCaller(createContext("admin", 2));
+
+    await caller.dashboard.handoffVisualEvents({ status: "pending_review" });
+    await caller.dashboard.reviewHandoffVisualEvent({ id: 778, decision: "approved_by_manager", reviewNotes: "Confirmed cup in handoff zone." });
+
+    expect(dbMocks.listHandoffVisualEvents).toHaveBeenCalledWith(expect.objectContaining({ storeId: 2, status: "pending_review" }));
+    expect(dbMocks.reviewHandoffVisualEvent).toHaveBeenCalledWith(expect.objectContaining({
+      id: 778,
+      storeId: 2,
+      reviewedByUserId: 99,
+    }));
+  });
+
+  it("returns a non-disclosing not-found error for a forged cross-store visual record ID", async () => {
+    dbMocks.reviewHandoffVisualEvent.mockRejectedValueOnce(new Error("Handoff visual event was not found in this store"));
+    const caller = appRouter.createCaller(createContext("admin", 2));
+
+    await expect(caller.dashboard.reviewHandoffVisualEvent({
+      id: 610,
+      decision: "discarded_by_manager",
+      reviewNotes: "forged cross-store attempt",
+    })).rejects.toMatchObject({ code: "NOT_FOUND", message: "Handoff visual event was not found" });
   });
 
   it("records a staff clock-in through the shared portal timeclock procedure", async () => {
@@ -168,7 +626,7 @@ describe("operations router", () => {
         clockOutAt: null,
       }),
     });
-    expect(dbMocks.clockInStaff).toHaveBeenCalledWith({ staffName: "Karol", submittedByUserId: 1 });
+    expect(dbMocks.clockInStaff).toHaveBeenCalledWith({ storeId: 1, staffName: "Karol", submittedByUserId: 1 });
   });
 
   it("records a staff clock-out and exposes today's staff status", async () => {
@@ -214,7 +672,7 @@ describe("operations router", () => {
         clockOutAt: 1778029200000,
       }),
     });
-    expect(dbMocks.clockOutStaff).toHaveBeenCalledWith({ staffName: "Karol", submittedByUserId: 1 });
+    expect(dbMocks.clockOutStaff).toHaveBeenCalledWith({ storeId: 1, staffName: "Karol", submittedByUserId: 1 });
     expect(statusResult).toEqual({
       businessDate: "2026-05-05",
       staff: expect.arrayContaining([
@@ -224,7 +682,7 @@ describe("operations router", () => {
         }),
       ]),
     });
-    expect(dbMocks.getTodayAttendance).toHaveBeenCalledWith("2026-05-05");
+    expect(dbMocks.getTodayAttendance).toHaveBeenCalledWith("2026-05-05", 1);
   });
 
   it("lets admin users save a manual or corrected attendance entry while blocking non-admin staff", async () => {
@@ -258,6 +716,7 @@ describe("operations router", () => {
     });
 
     expect(dbMocks.saveAttendanceEntry).toHaveBeenCalledWith({
+      storeId: 1,
       entryId: 91,
       staffName: "Karol",
       businessDate: "2026-05-09",
@@ -302,7 +761,7 @@ describe("operations router", () => {
         ]),
       }),
     );
-    expect(dbMocks.getWeeklyAttendanceSummary).toHaveBeenCalledWith({ startDate: "2026-04-27", endDate: "2026-05-03" });
+    expect(dbMocks.getWeeklyAttendanceSummary).toHaveBeenCalledWith({ startDate: "2026-04-27", endDate: "2026-05-03", storeId: 1 });
 
     const employeeCaller = appRouter.createCaller(createContext("user"));
     await expect(employeeCaller.timeclock.weeklyHours({ startDate: "2026-04-27", endDate: "2026-05-03" })).rejects.toMatchObject({
@@ -366,7 +825,7 @@ describe("operations router", () => {
         ]),
       }),
     );
-    expect(dbMocks.getAttendanceTimeBook).toHaveBeenCalledWith({ startDate: "2026-04-27", endDate: "2026-05-03" });
+    expect(dbMocks.getAttendanceTimeBook).toHaveBeenCalledWith({ startDate: "2026-04-27", endDate: "2026-05-03", storeId: 1 });
   });
 
   it("loads editable opening checklist questions for employees", async () => {
@@ -387,7 +846,7 @@ describe("operations router", () => {
     const result = await caller.forms.checklistQuestions({ checklistType: "opening" });
 
     expect(result).toHaveLength(1);
-    expect(dbMocks.listChecklistQuestions).toHaveBeenCalledWith("opening");
+    expect(dbMocks.listChecklistQuestions).toHaveBeenCalledWith("opening", 1);
   });
 
   it("submits an opening checklist with stock counts and structured yes-no answers", async () => {
@@ -544,6 +1003,7 @@ describe("operations router", () => {
       },
     });
     expect(dbMocks.updateInventoryCount).toHaveBeenCalledWith({
+      storeId: 1,
       id: 41,
       currentQuantity: "18.00",
       notes: "Packaging restocked and counted by front counter",
@@ -636,6 +1096,7 @@ describe("operations router", () => {
       ],
     });
     expect(dbMocks.saveReadyMadeGelatoWeights).toHaveBeenCalledWith({
+      storeId: 1,
       businessDate: "2026-04-22",
       shiftType: "opening",
       submittedByUserId: 1,
@@ -687,6 +1148,7 @@ describe("operations router", () => {
       entry: expect.objectContaining({ id: 501, submissionType: "opening", staffName: "Ava" }),
     });
     expect(dbMocks.createSubmissionHistoryEntry).toHaveBeenCalledWith({
+      storeId: 1,
       businessDate: "2026-04-29",
       submissionType: "opening",
       staffName: "Ava",
@@ -785,7 +1247,7 @@ describe("operations router", () => {
     await expect(adminCaller.dashboard.submissionHistory({ businessDate: "2026-04-29" })).resolves.toEqual([
       expect.objectContaining({ id: 701, submissionType: "closing", staffName: "Marco" }),
     ]);
-    expect(dbMocks.listSubmissionHistoryEntries).toHaveBeenCalledWith("2026-04-29");
+    expect(dbMocks.listSubmissionHistoryEntries).toHaveBeenCalledWith("2026-04-29", 1);
 
     const employeeCaller = appRouter.createCaller(createContext("user"));
     await expect(employeeCaller.dashboard.submissionHistory({ businessDate: "2026-04-29" })).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -823,6 +1285,7 @@ describe("operations router", () => {
     });
 
     expect(dbMocks.updateSubmissionHistoryForm).toHaveBeenCalledWith({
+      storeId: 1,
       entryId: 811,
       form: {
         cups4ozHere: 10,
@@ -882,8 +1345,11 @@ describe("operations router", () => {
     });
 
     expect(dbMocks.updateSubmissionHistoryGelato).toHaveBeenCalledWith({
+      storeId: 1,
       entryId: 812,
       submittedByUserId: 99,
+      gelatoEntryMode: undefined,
+      analyzedPhotos: undefined,
       gelatoEntries: [
         {
           flavor: "Vanilla",
@@ -979,6 +1445,7 @@ describe("operations router", () => {
     });
 
     expect(dbMocks.updateSubmissionHistoryGelato).toHaveBeenCalledWith({
+      storeId: 1,
       entryId: 815,
       submittedByUserId: 99,
       gelatoEntryMode: "photo",
@@ -1140,6 +1607,13 @@ describe("operations router", () => {
         frigateCounts: expect.objectContaining({ cupsDetected: 42 }),
       })
     );
+
+    expect(dbMocks.getDailyOperationsSnapshot).toHaveBeenCalledWith("2026-04-21", 1);
+
+    dbMocks.getDailyOperationsSnapshot.mockClear();
+    const secondStoreAdmin = appRouter.createCaller(createContext("admin", 2));
+    await secondStoreAdmin.dashboard.daily({ businessDate: "2026-04-21" });
+    expect(dbMocks.getDailyOperationsSnapshot).toHaveBeenCalledWith("2026-04-21", 2);
 
     const employeeCaller = appRouter.createCaller(createContext("user"));
     await expect(employeeCaller.dashboard.daily({ businessDate: "2026-04-21" })).rejects.toMatchObject({

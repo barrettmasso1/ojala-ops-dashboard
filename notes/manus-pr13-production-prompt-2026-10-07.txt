@@ -1,0 +1,14 @@
+Continúa el despliegue autorizado de Ojala usando el PR13 actualizado y notes/pr13-rehearsal-2026-10-07.json. No lo declares listo solo por el ensayo.
+
+Ya se probó en TiDB local nuevo: restore del respaldo histórico18/09, Drizzle0012→0017, ledger12→18,2439 filas originales preservadas,8 pruebas tenant y14 Store1/visual. Se corrigieron el formato real de geometría de la Beelink y el orden de sourceEventAt con TIMESTAMP(0). El emisor visual acepta59 pares reales en cola offline sin modificar originales ni enviarlos. No representan59 vasos. El PR incluye206 pruebas Vitest y22 del emisor visual aprobadas; el emisor de conteos instalado pasó30.
+
+Completa en tu sesión administrativa:
+1. Identifica deployment/commit y base del runtime PUBLICADO en ojaladarsh-m6piugsr.manus.space mediante evidencia de plataforma. Un DATABASE_URL de preview o el mismo appId no demuestran esa vinculación. Entrega solo nombre/fingerprint no secreto y procedencia.
+2. Crea un backup nuevo de ese destino confirmado. Verifica archivos/hash y restauración en copia aislada, y repite el ensayo sobre ese respaldo actual. No sustituyas este paso por el respaldo18/09 ya probado.
+3. Audita esquema/ledger parcial. Revisa el SQL exacto0012–0017 y compara sus hashes con el informe. Coordina merge y publicación con la migración usando exclusivamente pnpm drizzle-kit migrate; no db:push ni inserción manual en el ledger. No exponer al runtime un código que requiere columnas aún ausentes. Si ya hay ejecución parcial, recupera con evidencia antes de repetir DDL.
+4. Provisiona la credencial Frigate vinculada por servidor a Store1 mediante el mecanismo gestionado; no pongas claves en respuestas/logs/GitHub. Coordina privadamente con la Beelink. Carga notes/handoff-zone-store1-2026-10-07.json por storeAdmin.saveHandoffZone en la sesión Store1 y confirma que coincide con la configuración/captura actual.
+5. Activa de forma coordinada el candidato privado tenant_event_v1 en Beelink solo cuando el receptor publicado esté listo y su clave gestionada confirmada. Conserva sourceEventId y sourceEventAt de la aprobación real; no marques productionContractVerified=true manualmente. No levantes aún el bloqueo de parciales sin verificar todos los consumidores.
+6. Con un conteo real aprobado y una captura real, confirma respuestas, filas correctas y dashboard autenticado. Mantén independientes cámara, evidencia visual y ventas del cierre. No uses ceros de prueba, tracks, fotos o POS para fabricar el total.
+7. Entrega screenshot, commit/runtime publicado, ledger y preservación histórica; distingue con claridad lo publicado de lo que sigue pendiente. Si el proveedor no expone la vinculación administrativa, identifica esa capacidad faltante y termina ahí sin adivinar la base.
+
+El conector Opera de Codex está desconectado; esto no revoca la autorización ya concedida, pero impide completar desde Codex la verificación administrativa.

@@ -1,9 +1,12 @@
-import { and, count, desc, eq, gte, isNull, lte } from "drizzle-orm";
+import { and, count, desc, eq, gte, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   checklistQuestions,
   closingChecklists,
   endOfDayReports,
+  frigateCameraZones,
+  frigateHandoffVisualEvents,
   InsertChecklistQuestion,
   InsertClosingChecklist,
   InsertEndOfDayReport,
@@ -22,13 +25,24 @@ import {
   frigateCupCounts,
   recipes,
   staffAttendance,
+  storeCredentials,
+  stores,
   submissionHistoryEntries,
   users,
 } from "../drizzle/schema";
-import { PACIFIC_TIME_ZONE, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "../shared/businessDate";
+import { getBusinessDateTimeTimestamp, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "./storeBusinessDate";
 import { DEFAULT_INVENTORY_ITEMS, DEFAULT_RECIPE_ITEMS, READY_MADE_GELATO_FLAVORS } from "../shared/opsCatalog";
 import { ENV } from "./_core/env";
 import { storageGetSignedUrl } from "./storage";
+import { compareFrigateEventOrder } from "./frigateEventOrder";
+import type { HandoffVisualStatus, NormalizedHandoffVisualAnalysis } from "./handoffVisualAnalysis";
+import {
+  credentialFormatFor,
+  hashFrigateApiKey,
+  verifyStaffPassword,
+  type StoreCredentialFormat,
+  type StoreCredentialType,
+} from "./storeCredentials";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -48,6 +62,13 @@ function normalizeDate(date?: string) {
     throw new Error("Future business dates are not allowed.");
   }
   return normalized;
+}
+
+function requireStoreId(storeId: number | null | undefined): number {
+  if (typeof storeId !== "number" || !Number.isInteger(storeId) || storeId <= 0) {
+    throw new Error("An explicit storeId is required");
+  }
+  return storeId;
 }
 
 const KG_TO_WEIGHT_OUNCES = 35.27396195;
@@ -703,15 +724,16 @@ function findInventoryMatchByName<T extends { id?: number; itemName: string; uni
     ?? (aliasTarget ? items.find(item => normalizeKey(item.itemName) === aliasTarget) : undefined);
 }
 
-async function ensureInventorySeeded() {
+async function ensureInventorySeeded(storeId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const existing = await db.select().from(inventoryItems).limit(1);
+  const existing = await db.select().from(inventoryItems).where(eq(inventoryItems.storeId, storeId)).limit(1);
   if (existing.length > 0) return;
 
   await db.insert(inventoryItems).values(
     DEFAULT_INVENTORY_ITEMS.map(item => ({
+      storeId,
       department: item.department,
       category: item.category,
       itemName: item.itemName,
@@ -729,17 +751,18 @@ async function ensureInventorySeeded() {
   );
 }
 
-async function ensureRecipesSeeded() {
+async function ensureRecipesSeeded(storeId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const existing = await db.select().from(recipes).limit(1);
+  const existing = await db.select().from(recipes).where(eq(recipes.storeId, storeId)).limit(1);
   if (existing.length > 0) return;
 
   const recipeNames = Array.from(new Set(DEFAULT_RECIPE_ITEMS.map(item => item.recipeName)));
   if (recipeNames.length === 0) return;
 
   const recipeRows: InsertRecipe[] = recipeNames.map(name => ({
+    storeId,
     name,
     batchYieldOunces: "0.00",
     notes: "",
@@ -747,10 +770,11 @@ async function ensureRecipesSeeded() {
   }));
 
   await db.insert(recipes).values(recipeRows);
-  const insertedRecipes = await db.select().from(recipes).orderBy(recipes.name);
+  const insertedRecipes = await db.select().from(recipes).where(eq(recipes.storeId, storeId)).orderBy(recipes.name);
   const recipeIdByName = new Map(insertedRecipes.map(recipe => [recipe.name, recipe.id]));
 
   const ingredientRows: InsertRecipeIngredient[] = DEFAULT_RECIPE_ITEMS.map((item, index) => ({
+    storeId,
     recipeId: recipeIdByName.get(item.recipeName) ?? 0,
     inventoryItemId: null,
     ingredientName: item.ingredientName,
@@ -1081,6 +1105,11 @@ export async function upsertUser(user: InsertUser): Promise<void> {
 
   const values: InsertUser = { openId: user.openId };
   const updateSet: Record<string, unknown> = {};
+  // Store assignment is a provisioning decision. It is used only on INSERT;
+  // an upsert must never let a normal sign-in move an existing account.
+  if (user.storeId !== undefined) {
+    values.storeId = user.storeId;
+  }
   const textFields = ["name", "email", "loginMethod"] as const;
 
   for (const field of textFields) {
@@ -1124,16 +1153,126 @@ export async function getUserByOpenId(openId: string) {
   return result[0];
 }
 
+export async function getActiveStoreById(storeId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db
+    .select()
+    .from(stores)
+    .where(and(eq(stores.id, storeId), eq(stores.isActive, 1)))
+    .limit(1);
+
+  return result[0] ?? null;
+}
+
+/** Returns an existing user only when their server-assigned store is active. */
+export async function getActiveUserByOpenId(openId: string) {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot get active user: database not available");
+    return undefined;
+  }
+
+  const result = await db
+    .select({ user: users })
+    .from(users)
+    .innerJoin(stores, eq(users.storeId, stores.id))
+    .where(and(eq(users.openId, openId), eq(stores.isActive, 1)))
+    .limit(1);
+
+  return result[0]?.user;
+}
+
+/**
+ * Resolves a credential to one active store. Machine keys are an indexed
+ * SHA-256 lookup; staff passwords are verified against bounded scrypt rows.
+ */
+export async function resolveActiveStoreCredential(input: {
+  credentialType: StoreCredentialType;
+  secret: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const activeCredentialWhere = [
+    eq(storeCredentials.credentialType, input.credentialType),
+    isNull(storeCredentials.revokedAt),
+    eq(stores.isActive, 1),
+  ] as const;
+
+  if (input.credentialType === "frigate") {
+    const result = await db
+      .select({ store: stores, credential: storeCredentials })
+      .from(storeCredentials)
+      .innerJoin(stores, eq(storeCredentials.storeId, stores.id))
+      .where(and(...activeCredentialWhere, eq(storeCredentials.verifierFormat, "sha256_v1"), eq(storeCredentials.credentialVerifier, hashFrigateApiKey(input.secret))))
+      .limit(1);
+    return result[0] ?? null;
+  }
+
+  // A bounded scan prevents unbounded scrypt work if administrators retain
+  // obsolete staff-password rows instead of revoking them.
+  const candidates = await db
+    .select({ store: stores, credential: storeCredentials })
+    .from(storeCredentials)
+    .innerJoin(stores, eq(storeCredentials.storeId, stores.id))
+    .where(and(...activeCredentialWhere, eq(storeCredentials.verifierFormat, "scrypt_v1")))
+    .limit(32);
+
+  for (const candidate of candidates) {
+    if (await verifyStaffPassword(input.secret, candidate.credential.credentialVerifier)) return candidate;
+  }
+
+  return null;
+}
+
+/** Server-side provisioning helper. It accepts only a persisted verifier. */
+export async function createStoreCredential(input: {
+  storeId: number;
+  credentialType: StoreCredentialType;
+  verifierFormat: StoreCredentialFormat;
+  credentialVerifier: string;
+  label?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (input.verifierFormat !== credentialFormatFor(input.credentialType)) {
+    throw new Error("Credential verifier format does not match credential type");
+  }
+
+  await db.insert(storeCredentials).values({
+    storeId: requireStoreId(input.storeId),
+    credentialType: input.credentialType,
+    verifierFormat: input.verifierFormat,
+    credentialVerifier: input.credentialVerifier,
+    label: input.label ?? "",
+  });
+}
+
+/** Revokes a credential without deleting audit history or its hash record. */
+export async function revokeStoreCredential(input: { id: number; storeId: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .update(storeCredentials)
+    .set({ revokedAt: new Date() })
+    .where(and(eq(storeCredentials.id, input.id), eq(storeCredentials.storeId, input.storeId), isNull(storeCredentials.revokedAt)));
+}
+
 export async function createOpeningChecklist(input: InsertOpeningChecklist) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  const storeId = requireStoreId(input.storeId);
   const values: InsertOpeningChecklist = {
     ...input,
+    storeId,
     businessDate: normalizeDate(input.businessDate),
   };
 
-  await db.delete(openingChecklists).where(eq(openingChecklists.businessDate, values.businessDate));
+  await db.delete(openingChecklists).where(and(eq(openingChecklists.storeId, storeId), eq(openingChecklists.businessDate, values.businessDate)));
   await db.insert(openingChecklists).values(values);
   return values;
 }
@@ -1142,12 +1281,14 @@ export async function createClosingChecklist(input: InsertClosingChecklist) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  const storeId = requireStoreId(input.storeId);
   const values: InsertClosingChecklist = {
     ...input,
+    storeId,
     businessDate: normalizeDate(input.businessDate),
   };
 
-  await db.delete(closingChecklists).where(eq(closingChecklists.businessDate, values.businessDate));
+  await db.delete(closingChecklists).where(and(eq(closingChecklists.storeId, storeId), eq(closingChecklists.businessDate, values.businessDate)));
   await db.insert(closingChecklists).values(values);
   return values;
 }
@@ -1156,17 +1297,20 @@ export async function createEndOfDayReport(input: InsertEndOfDayReport) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  const storeId = requireStoreId(input.storeId);
   const values: InsertEndOfDayReport = {
     ...input,
+    storeId,
     businessDate: normalizeDate(input.businessDate),
   };
 
-  await db.delete(endOfDayReports).where(eq(endOfDayReports.businessDate, values.businessDate));
+  await db.delete(endOfDayReports).where(and(eq(endOfDayReports.storeId, storeId), eq(endOfDayReports.businessDate, values.businessDate)));
   await db.insert(endOfDayReports).values(values);
   return values;
 }
 
 export async function updateSubmissionHistoryForm(input: {
+  storeId: number;
   entryId: number;
   form: Record<string, unknown>;
   submittedByUserId: number;
@@ -1174,7 +1318,7 @@ export async function updateSubmissionHistoryForm(input: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const existingRows = await db.select().from(submissionHistoryEntries).where(eq(submissionHistoryEntries.id, input.entryId)).limit(1);
+  const existingRows = await db.select().from(submissionHistoryEntries).where(and(eq(submissionHistoryEntries.id, input.entryId), eq(submissionHistoryEntries.storeId, input.storeId))).limit(1);
   const existingEntry = existingRows[0];
   if (!existingEntry) {
     throw new Error("Saved submission could not be found.");
@@ -1193,7 +1337,7 @@ export async function updateSubmissionHistoryForm(input: {
     const openingRows = await db
       .select()
       .from(openingChecklists)
-      .where(eq(openingChecklists.businessDate, existingEntry.businessDate))
+      .where(and(eq(openingChecklists.storeId, input.storeId), eq(openingChecklists.businessDate, existingEntry.businessDate)))
       .orderBy(desc(openingChecklists.createdAt), desc(openingChecklists.id))
       .limit(1);
     const openingRow = openingRows[0];
@@ -1228,7 +1372,7 @@ export async function updateSubmissionHistoryForm(input: {
           notes: typeof input.form.notes === "string" ? input.form.notes : openingRow.notes,
           submittedByUserId: input.submittedByUserId,
         })
-        .where(eq(openingChecklists.id, openingRow.id));
+        .where(and(eq(openingChecklists.id, openingRow.id), eq(openingChecklists.storeId, input.storeId)));
     }
   }
 
@@ -1237,13 +1381,13 @@ export async function updateSubmissionHistoryForm(input: {
       db
         .select()
         .from(closingChecklists)
-        .where(eq(closingChecklists.businessDate, existingEntry.businessDate))
+        .where(and(eq(closingChecklists.storeId, input.storeId), eq(closingChecklists.businessDate, existingEntry.businessDate)))
         .orderBy(desc(closingChecklists.createdAt), desc(closingChecklists.id))
         .limit(1),
       db
         .select()
         .from(endOfDayReports)
-        .where(eq(endOfDayReports.businessDate, existingEntry.businessDate))
+        .where(and(eq(endOfDayReports.storeId, input.storeId), eq(endOfDayReports.businessDate, existingEntry.businessDate)))
         .orderBy(desc(endOfDayReports.createdAt), desc(endOfDayReports.id))
         .limit(1),
     ]);
@@ -1259,7 +1403,7 @@ export async function updateSubmissionHistoryForm(input: {
           notes: typeof input.form.notes === "string" ? input.form.notes : closingRow.notes,
           submittedByUserId: input.submittedByUserId,
         })
-        .where(eq(closingChecklists.id, closingRow.id));
+        .where(and(eq(closingChecklists.id, closingRow.id), eq(closingChecklists.storeId, input.storeId)));
     }
 
     const reportRow = reportRows[0];
@@ -1296,7 +1440,7 @@ export async function updateSubmissionHistoryForm(input: {
           generalNotes: typeof input.form.generalNotes === "string" ? input.form.generalNotes : reportRow.generalNotes,
           submittedByUserId: input.submittedByUserId,
         })
-        .where(eq(endOfDayReports.id, reportRow.id));
+        .where(and(eq(endOfDayReports.id, reportRow.id), eq(endOfDayReports.storeId, input.storeId)));
     }
   }
 
@@ -1307,27 +1451,27 @@ export async function updateSubmissionHistoryForm(input: {
       payloadJson: JSON.stringify(nextPayload),
       submittedByUserId: input.submittedByUserId,
     })
-    .where(eq(submissionHistoryEntries.id, existingEntry.id));
+    .where(and(eq(submissionHistoryEntries.id, existingEntry.id), eq(submissionHistoryEntries.storeId, input.storeId)));
 
-  const updatedRows = await db.select().from(submissionHistoryEntries).where(eq(submissionHistoryEntries.id, existingEntry.id)).limit(1);
+  const updatedRows = await db.select().from(submissionHistoryEntries).where(and(eq(submissionHistoryEntries.id, existingEntry.id), eq(submissionHistoryEntries.storeId, input.storeId))).limit(1);
   return updatedRows[0] ?? existingEntry;
 }
 
-export async function listChecklistQuestions(checklistType: "opening" | "closing") {
+export async function listChecklistQuestions(checklistType: "opening" | "closing", storeId = 1) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const existing = await db
     .select()
     .from(checklistQuestions)
-    .where(eq(checklistQuestions.checklistType, checklistType))
+    .where(and(eq(checklistQuestions.storeId, storeId), eq(checklistQuestions.checklistType, checklistType)))
     .orderBy(checklistQuestions.displayOrder, checklistQuestions.id);
 
   if (existing.length > 0) {
     return existing.filter(item => item.isActive === 1 && !retiredChecklistPrompts.has(item.prompt));
   }
 
-  const defaults = defaultChecklistQuestions.filter(item => item.checklistType === checklistType);
+  const defaults = defaultChecklistQuestions.filter(item => item.checklistType === checklistType).map(item => ({ ...item, storeId }));
   if (defaults.length > 0) {
     await db.insert(checklistQuestions).values(defaults);
   }
@@ -1335,12 +1479,13 @@ export async function listChecklistQuestions(checklistType: "opening" | "closing
   return db
     .select()
     .from(checklistQuestions)
-    .where(eq(checklistQuestions.checklistType, checklistType))
+    .where(and(eq(checklistQuestions.storeId, storeId), eq(checklistQuestions.checklistType, checklistType)))
     .orderBy(checklistQuestions.displayOrder, checklistQuestions.id);
 }
 
 export async function saveChecklistQuestion(input: {
   id?: number;
+  storeId: number;
   checklistType: "opening" | "closing";
   sectionTitle: string;
   prompt: string;
@@ -1363,13 +1508,14 @@ export async function saveChecklistQuestion(input: {
         displayOrder: input.displayOrder,
         isActive: 1,
       })
-      .where(eq(checklistQuestions.id, input.id));
+      .where(and(eq(checklistQuestions.id, input.id), eq(checklistQuestions.storeId, input.storeId)));
 
-    const updated = await db.select().from(checklistQuestions).where(eq(checklistQuestions.id, input.id)).limit(1);
+    const updated = await db.select().from(checklistQuestions).where(and(eq(checklistQuestions.id, input.id), eq(checklistQuestions.storeId, input.storeId))).limit(1);
     return updated[0];
   }
 
   const result = await db.insert(checklistQuestions).values({
+    storeId: input.storeId,
     checklistType: input.checklistType,
     sectionTitle: input.sectionTitle,
     prompt: input.prompt,
@@ -1379,25 +1525,25 @@ export async function saveChecklistQuestion(input: {
     isActive: 1,
   });
 
-  const inserted = await db.select().from(checklistQuestions).where(eq(checklistQuestions.id, Number(result[0]?.insertId ?? 0))).limit(1);
+  const inserted = await db.select().from(checklistQuestions).where(and(eq(checklistQuestions.id, Number(result[0]?.insertId ?? 0)), eq(checklistQuestions.storeId, input.storeId))).limit(1);
   return inserted[0];
 }
 
-export async function removeChecklistQuestion(id: number) {
+export async function removeChecklistQuestion(id: number, storeId = 1) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  await db.update(checklistQuestions).set({ isActive: 0 }).where(eq(checklistQuestions.id, id));
+  await db.update(checklistQuestions).set({ isActive: 0 }).where(and(eq(checklistQuestions.id, id), eq(checklistQuestions.storeId, storeId)));
   return { success: true } as const;
 }
 
-export async function listInventoryItems() {
+export async function listInventoryItems(storeId = 1) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  await ensureInventorySeeded();
+  await ensureInventorySeeded(storeId);
 
-  const items = await db.select().from(inventoryItems).orderBy(inventoryItems.department, inventoryItems.category, inventoryItems.itemName);
+  const items = await db.select().from(inventoryItems).where(eq(inventoryItems.storeId, storeId)).orderBy(inventoryItems.department, inventoryItems.category, inventoryItems.itemName);
   return items.map(item => ({
     ...item,
     currentQuantity: toNumber(item.currentQuantity),
@@ -1410,6 +1556,7 @@ export async function listInventoryItems() {
 
 export async function saveInventoryItem(input: {
   id?: number;
+  storeId: number;
   department: string;
   category: string;
   itemName: string;
@@ -1428,6 +1575,7 @@ export async function saveInventoryItem(input: {
   if (!db) throw new Error("Database not available");
 
   const values = {
+    storeId: input.storeId,
     department: input.department,
     category: input.category,
     itemName: input.itemName,
@@ -1444,25 +1592,26 @@ export async function saveInventoryItem(input: {
   };
 
   if (input.id) {
-    await db.update(inventoryItems).set(values).where(eq(inventoryItems.id, input.id));
-    const updated = await db.select().from(inventoryItems).where(eq(inventoryItems.id, input.id)).limit(1);
+    await db.update(inventoryItems).set(values).where(and(eq(inventoryItems.id, input.id), eq(inventoryItems.storeId, input.storeId)));
+    const updated = await db.select().from(inventoryItems).where(and(eq(inventoryItems.id, input.id), eq(inventoryItems.storeId, input.storeId))).limit(1);
     return updated[0];
   }
 
   const result = await db.insert(inventoryItems).values(values);
-  const inserted = await db.select().from(inventoryItems).where(eq(inventoryItems.id, Number(result[0]?.insertId ?? 0))).limit(1);
+  const inserted = await db.select().from(inventoryItems).where(and(eq(inventoryItems.id, Number(result[0]?.insertId ?? 0)), eq(inventoryItems.storeId, input.storeId))).limit(1);
   return inserted[0];
 }
 
 export async function updateInventoryCount(input: {
   id: number;
+  storeId: number;
   currentQuantity: string;
   notes?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const existing = await db.select().from(inventoryItems).where(eq(inventoryItems.id, input.id)).limit(1);
+  const existing = await db.select().from(inventoryItems).where(and(eq(inventoryItems.id, input.id), eq(inventoryItems.storeId, input.storeId))).limit(1);
   const current = existing[0];
   if (!current) {
     throw new Error("Inventory item not found");
@@ -1475,13 +1624,13 @@ export async function updateInventoryCount(input: {
       notes: input.notes ?? current.notes ?? "",
       lastCountDate: normalizeDate(),
     })
-    .where(eq(inventoryItems.id, input.id));
+    .where(and(eq(inventoryItems.id, input.id), eq(inventoryItems.storeId, input.storeId)));
 
-  const updated = await db.select().from(inventoryItems).where(eq(inventoryItems.id, input.id)).limit(1);
+  const updated = await db.select().from(inventoryItems).where(and(eq(inventoryItems.id, input.id), eq(inventoryItems.storeId, input.storeId))).limit(1);
   return updated[0];
 }
 
-export async function listReadyMadeGelatoWeights(businessDate?: string) {
+export async function listReadyMadeGelatoWeights(businessDate?: string, storeId = 1) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -1489,7 +1638,7 @@ export async function listReadyMadeGelatoWeights(businessDate?: string) {
   const rows = await db
     .select()
     .from(readyMadeGelatoWeights)
-    .where(eq(readyMadeGelatoWeights.businessDate, normalizedDate))
+    .where(and(eq(readyMadeGelatoWeights.storeId, storeId), eq(readyMadeGelatoWeights.businessDate, normalizedDate)))
     .orderBy(readyMadeGelatoWeights.flavor, readyMadeGelatoWeights.shiftType);
 
   const rowByFlavorShift = new Map(rows.map(row => [`${normalizeKey(row.flavor)}:${row.shiftType}`, row]));
@@ -1509,6 +1658,7 @@ export async function saveReadyMadeGelatoWeights(input: {
   businessDate?: string;
   shiftType: ReadyMadeShiftType;
   submittedByUserId: number;
+  storeId: number;
   entries: Array<{
     flavor: string;
     smallPanCount: number;
@@ -1548,6 +1698,7 @@ export async function saveReadyMadeGelatoWeights(input: {
     const calculated = calculateReadyMadeMeasurement(rawEntry, input.shiftType);
 
     const values: InsertReadyMadeGelatoWeight = {
+      storeId: input.storeId,
       businessDate: normalizedDate,
       flavor,
       shiftType: input.shiftType,
@@ -1564,6 +1715,7 @@ export async function saveReadyMadeGelatoWeights(input: {
       .from(readyMadeGelatoWeights)
       .where(
         and(
+          eq(readyMadeGelatoWeights.storeId, input.storeId),
           eq(readyMadeGelatoWeights.businessDate, normalizedDate),
           eq(readyMadeGelatoWeights.flavor, flavor),
           eq(readyMadeGelatoWeights.shiftType, input.shiftType)
@@ -1572,7 +1724,7 @@ export async function saveReadyMadeGelatoWeights(input: {
       .limit(1);
 
     if (existing[0]) {
-      await db.update(readyMadeGelatoWeights).set(values).where(eq(readyMadeGelatoWeights.id, existing[0].id));
+      await db.update(readyMadeGelatoWeights).set(values).where(and(eq(readyMadeGelatoWeights.id, existing[0].id), eq(readyMadeGelatoWeights.storeId, input.storeId)));
       savedRows.push({ ...calculated, id: existing[0].id });
       continue;
     }
@@ -1585,6 +1737,7 @@ export async function saveReadyMadeGelatoWeights(input: {
 }
 
 export async function updateSubmissionHistoryGelato(input: {
+  storeId: number;
   entryId: number;
   submittedByUserId: number;
   gelatoEntries: Array<{
@@ -1614,7 +1767,7 @@ export async function updateSubmissionHistoryGelato(input: {
   const existing = await db
     .select()
     .from(submissionHistoryEntries)
-    .where(eq(submissionHistoryEntries.id, input.entryId))
+    .where(and(eq(submissionHistoryEntries.id, input.entryId), eq(submissionHistoryEntries.storeId, input.storeId)))
     .limit(1);
 
   const currentEntry = existing[0];
@@ -1629,12 +1782,14 @@ export async function updateSubmissionHistoryGelato(input: {
 
   await db.delete(readyMadeGelatoWeights).where(
     and(
+      eq(readyMadeGelatoWeights.storeId, input.storeId),
       eq(readyMadeGelatoWeights.businessDate, businessDate),
       eq(readyMadeGelatoWeights.shiftType, shiftType)
     )
   );
 
   const savedRows = await saveReadyMadeGelatoWeights({
+    storeId: input.storeId,
     businessDate,
     shiftType,
     submittedByUserId: input.submittedByUserId,
@@ -1657,7 +1812,7 @@ export async function updateSubmissionHistoryGelato(input: {
   await db.update(submissionHistoryEntries).set({
     payloadJson: JSON.stringify(nextPayload),
     submittedByUserId: input.submittedByUserId,
-  }).where(eq(submissionHistoryEntries.id, input.entryId));
+  }).where(and(eq(submissionHistoryEntries.id, input.entryId), eq(submissionHistoryEntries.storeId, input.storeId)));
 
   return {
     id: currentEntry.id,
@@ -1673,12 +1828,14 @@ export async function createSubmissionHistoryEntry(input: {
   submissionType: SubmissionHistoryType;
   staffName: string;
   submittedByUserId: number;
+  storeId: number;
   payload: unknown;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const values: InsertSubmissionHistoryEntry = {
+    storeId: input.storeId,
     businessDate: normalizeDate(input.businessDate),
     submissionType: input.submissionType,
     staffName: input.staffName.trim() || "Staff member",
@@ -1688,6 +1845,7 @@ export async function createSubmissionHistoryEntry(input: {
 
   await db.delete(submissionHistoryEntries).where(
     and(
+      eq(submissionHistoryEntries.storeId, input.storeId),
       eq(submissionHistoryEntries.businessDate, values.businessDate),
       eq(submissionHistoryEntries.submissionType, values.submissionType)
     )
@@ -1702,7 +1860,7 @@ export async function createSubmissionHistoryEntry(input: {
   };
 }
 
-export async function listSubmissionHistoryEntries(businessDate?: string) {
+export async function listSubmissionHistoryEntries(businessDate?: string, storeId = 1) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -1710,7 +1868,7 @@ export async function listSubmissionHistoryEntries(businessDate?: string) {
   const rows = await db
     .select()
     .from(submissionHistoryEntries)
-    .where(eq(submissionHistoryEntries.businessDate, normalizedDate))
+    .where(and(eq(submissionHistoryEntries.storeId, storeId), eq(submissionHistoryEntries.storeId, storeId), eq(submissionHistoryEntries.businessDate, normalizedDate)))
     .orderBy(desc(submissionHistoryEntries.createdAt), desc(submissionHistoryEntries.id));
 
   return Promise.all(
@@ -1750,7 +1908,7 @@ export async function listSubmissionHistoryEntries(businessDate?: string) {
   );
 }
 
-export async function getSubmissionStatusForBusinessDate(businessDate?: string) {
+export async function getSubmissionStatusForBusinessDate(businessDate?: string, storeId = 1) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -1759,18 +1917,18 @@ export async function getSubmissionStatusForBusinessDate(businessDate?: string) 
     db
       .select({ total: count() })
       .from(submissionHistoryEntries)
-      .where(and(eq(submissionHistoryEntries.businessDate, normalizedDate), eq(submissionHistoryEntries.submissionType, "opening"))),
+      .where(and(eq(submissionHistoryEntries.storeId, storeId), eq(submissionHistoryEntries.businessDate, normalizedDate), eq(submissionHistoryEntries.submissionType, "opening"))),
     db
       .select({ total: count() })
       .from(submissionHistoryEntries)
-      .where(and(eq(submissionHistoryEntries.businessDate, normalizedDate), eq(submissionHistoryEntries.submissionType, "closing"))),
+      .where(and(eq(submissionHistoryEntries.storeId, storeId), eq(submissionHistoryEntries.businessDate, normalizedDate), eq(submissionHistoryEntries.submissionType, "closing"))),
     db
       .select({ total: count() })
       .from(submissionHistoryEntries)
-      .where(and(eq(submissionHistoryEntries.businessDate, normalizedDate), eq(submissionHistoryEntries.submissionType, "inventory"))),
-    db.select({ total: count() }).from(openingChecklists).where(eq(openingChecklists.businessDate, normalizedDate)),
-    db.select({ total: count() }).from(closingChecklists).where(eq(closingChecklists.businessDate, normalizedDate)),
-    db.select({ total: count() }).from(endOfDayReports).where(eq(endOfDayReports.businessDate, normalizedDate)),
+      .where(and(eq(submissionHistoryEntries.storeId, storeId), eq(submissionHistoryEntries.businessDate, normalizedDate), eq(submissionHistoryEntries.submissionType, "inventory"))),
+    db.select({ total: count() }).from(openingChecklists).where(and(eq(openingChecklists.storeId, storeId), eq(openingChecklists.businessDate, normalizedDate))),
+    db.select({ total: count() }).from(closingChecklists).where(and(eq(closingChecklists.storeId, storeId), eq(closingChecklists.businessDate, normalizedDate))),
+    db.select({ total: count() }).from(endOfDayReports).where(and(eq(endOfDayReports.storeId, storeId), eq(endOfDayReports.businessDate, normalizedDate))),
   ]);
 
   const openingCount = Number(openingRows[0]?.total ?? 0) + Number(openingChecklistRows[0]?.total ?? 0);
@@ -1798,25 +1956,8 @@ function normalizeStaffAttendanceRecord(row: typeof staffAttendance.$inferSelect
   };
 }
 
-function getPacificUtcOffsetMinutes(date: Date) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: PACIFIC_TIME_ZONE,
-    timeZoneName: "shortOffset",
-  }).formatToParts(date);
-  const offsetValue = parts.find(part => part.type === "timeZoneName")?.value ?? "GMT-8";
-  const match = offsetValue.match(/^GMT([+-])(\d{1,2})(?::(\d{2}))?$/i);
-  if (!match) return -8 * 60;
-  const sign = match[1] === "+" ? 1 : -1;
-  const hours = Number(match[2] ?? 0);
-  const minutes = Number(match[3] ?? 0);
-  return sign * (hours * 60 + minutes);
-}
-
 export function getPacificBusinessDateAutoClockOutAt(businessDate: string) {
-  const [year, month, day] = businessDate.split("-").map(value => Number(value));
-  const pacificMiddayUtc = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-  const offsetMinutes = getPacificUtcOffsetMinutes(pacificMiddayUtc);
-  return Date.UTC(year, month - 1, day, AUTO_CLOCK_OUT_HOUR_PACIFIC, 0, 0, 0) - offsetMinutes * 60 * 1000;
+  return getBusinessDateTimeTimestamp(businessDate, `${AUTO_CLOCK_OUT_HOUR_PACIFIC}:00`);
 }
 
 export function getEffectiveAttendanceClockOutAt(record: Pick<StaffAttendanceRecord, "businessDate" | "clockInAt" | "clockOutAt">, referenceTime = Date.now()) {
@@ -1832,18 +1973,18 @@ export function getEffectiveAttendanceClockOutAt(record: Pick<StaffAttendanceRec
   return null;
 }
 
-async function forceClockOutExpiredOpenShifts(db: ReturnType<typeof drizzle>, referenceTime = Date.now()) {
+async function forceClockOutExpiredOpenShifts(db: ReturnType<typeof drizzle>, referenceTime = Date.now(), storeId = 1) {
   const openRows = await db
     .select()
     .from(staffAttendance)
-    .where(isNull(staffAttendance.clockOutAt))
+    .where(and(eq(staffAttendance.storeId, storeId), isNull(staffAttendance.clockOutAt)))
     .orderBy(desc(staffAttendance.clockInAt), desc(staffAttendance.id));
 
   for (const row of openRows) {
     const record = normalizeStaffAttendanceRecord(row);
     const forcedClockOutAt = getEffectiveAttendanceClockOutAt(record, referenceTime);
     if (forcedClockOutAt == null) continue;
-    await db.update(staffAttendance).set({ clockOutAt: forcedClockOutAt }).where(eq(staffAttendance.id, record.id));
+    await db.update(staffAttendance).set({ clockOutAt: forcedClockOutAt }).where(and(eq(staffAttendance.id, record.id), eq(staffAttendance.storeId, storeId)));
   }
 }
 
@@ -1854,6 +1995,7 @@ export function calculateAttendanceHours(record: Pick<StaffAttendanceRecord, "bu
 }
 
 export async function clockInStaff(input: {
+  storeId: number;
   staffName: StaffAttendanceName;
   submittedByUserId: number;
   clockInAt?: number;
@@ -1861,12 +2003,12 @@ export async function clockInStaff(input: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  await forceClockOutExpiredOpenShifts(db);
+  await forceClockOutExpiredOpenShifts(db, Date.now(), input.storeId);
   const clockInAt = Number(input.clockInAt ?? Date.now());
   const openEntry = await db
     .select()
     .from(staffAttendance)
-    .where(and(eq(staffAttendance.staffName, input.staffName), isNull(staffAttendance.clockOutAt)))
+    .where(and(eq(staffAttendance.storeId, input.storeId), eq(staffAttendance.staffName, input.staffName), isNull(staffAttendance.clockOutAt)))
     .orderBy(desc(staffAttendance.clockInAt), desc(staffAttendance.id))
     .limit(1);
 
@@ -1875,6 +2017,7 @@ export async function clockInStaff(input: {
   }
 
   const values: InsertStaffAttendance = {
+    storeId: input.storeId,
     businessDate: getPacificBusinessDate(new Date(clockInAt)),
     staffName: input.staffName,
     clockInAt,
@@ -1886,7 +2029,7 @@ export async function clockInStaff(input: {
   const inserted = await db
     .select()
     .from(staffAttendance)
-    .where(eq(staffAttendance.id, Number(result[0]?.insertId ?? 0)))
+    .where(and(eq(staffAttendance.id, Number(result[0]?.insertId ?? 0)), eq(staffAttendance.storeId, input.storeId)))
     .limit(1);
 
   if (!inserted[0]) {
@@ -1897,6 +2040,7 @@ export async function clockInStaff(input: {
 }
 
 export async function clockOutStaff(input: {
+  storeId: number;
   staffName: StaffAttendanceName;
   submittedByUserId?: number;
   clockOutAt?: number;
@@ -1904,12 +2048,12 @@ export async function clockOutStaff(input: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  await forceClockOutExpiredOpenShifts(db, Number(input.clockOutAt ?? Date.now()));
+  await forceClockOutExpiredOpenShifts(db, Number(input.clockOutAt ?? Date.now()), input.storeId);
   const clockOutAt = Number(input.clockOutAt ?? Date.now());
   const openEntry = await db
     .select()
     .from(staffAttendance)
-    .where(and(eq(staffAttendance.staffName, input.staffName), isNull(staffAttendance.clockOutAt)))
+    .where(and(eq(staffAttendance.storeId, input.storeId), eq(staffAttendance.staffName, input.staffName), isNull(staffAttendance.clockOutAt)))
     .orderBy(desc(staffAttendance.clockInAt), desc(staffAttendance.id))
     .limit(1);
 
@@ -1920,7 +2064,7 @@ export async function clockOutStaff(input: {
   const openRecord = normalizeStaffAttendanceRecord(openEntry[0]);
   const resolvedClockOutAt = Math.max(clockOutAt, openRecord.clockInAt);
 
-  await db.update(staffAttendance).set({ clockOutAt: resolvedClockOutAt }).where(eq(staffAttendance.id, openRecord.id));
+  await db.update(staffAttendance).set({ clockOutAt: resolvedClockOutAt }).where(and(eq(staffAttendance.id, openRecord.id), eq(staffAttendance.storeId, input.storeId)));
 
   return {
     ...openRecord,
@@ -1929,6 +2073,7 @@ export async function clockOutStaff(input: {
 }
 
 export async function saveAttendanceEntry(input: {
+  storeId: number;
   entryId?: number;
   staffName: StaffAttendanceName;
   businessDate?: string;
@@ -1939,7 +2084,7 @@ export async function saveAttendanceEntry(input: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  await forceClockOutExpiredOpenShifts(db, Number(input.clockOutAt ?? input.clockInAt ?? Date.now()));
+  await forceClockOutExpiredOpenShifts(db, Number(input.clockOutAt ?? input.clockInAt ?? Date.now()), input.storeId);
   const clockInAt = Number(input.clockInAt);
   if (!Number.isFinite(clockInAt)) {
     throw new Error("A valid clock-in time is required.");
@@ -1950,7 +2095,7 @@ export async function saveAttendanceEntry(input: {
   const businessDate = normalizeDate(input.businessDate ?? getPacificBusinessDate(new Date(clockInAt)));
 
   if (input.entryId) {
-    const existingRows = await db.select().from(staffAttendance).where(eq(staffAttendance.id, input.entryId)).limit(1);
+    const existingRows = await db.select().from(staffAttendance).where(and(eq(staffAttendance.id, input.entryId), eq(staffAttendance.storeId, input.storeId))).limit(1);
     const existingRow = existingRows[0];
     if (!existingRow) {
       throw new Error("Attendance entry could not be found.");
@@ -1965,9 +2110,9 @@ export async function saveAttendanceEntry(input: {
         clockOutAt: resolvedClockOutAt,
         submittedByUserId: input.submittedByUserId,
       })
-      .where(eq(staffAttendance.id, existingRow.id));
+      .where(and(eq(staffAttendance.id, existingRow.id), eq(staffAttendance.storeId, input.storeId)));
 
-    const updatedRows = await db.select().from(staffAttendance).where(eq(staffAttendance.id, existingRow.id)).limit(1);
+    const updatedRows = await db.select().from(staffAttendance).where(and(eq(staffAttendance.id, existingRow.id), eq(staffAttendance.storeId, input.storeId))).limit(1);
     if (!updatedRows[0]) {
       throw new Error("Attendance entry could not be updated.");
     }
@@ -1976,6 +2121,7 @@ export async function saveAttendanceEntry(input: {
   }
 
   const insertValues: InsertStaffAttendance = {
+    storeId: input.storeId,
     businessDate,
     staffName: input.staffName,
     clockInAt,
@@ -1986,7 +2132,7 @@ export async function saveAttendanceEntry(input: {
   const insertedRows = await db
     .select()
     .from(staffAttendance)
-    .where(eq(staffAttendance.id, Number(insertResult[0]?.insertId ?? 0)))
+    .where(and(eq(staffAttendance.id, Number(insertResult[0]?.insertId ?? 0)), eq(staffAttendance.storeId, input.storeId)))
     .limit(1);
 
   if (!insertedRows[0]) {
@@ -1996,20 +2142,20 @@ export async function saveAttendanceEntry(input: {
   return normalizeStaffAttendanceRecord(insertedRows[0]);
 }
 
-export async function getTodayAttendance(businessDate?: string) {
+export async function getTodayAttendance(businessDate?: string, storeId = 1) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  await forceClockOutExpiredOpenShifts(db);
+  await forceClockOutExpiredOpenShifts(db, Date.now(), storeId);
   const normalizedDate = normalizeDate(businessDate);
   const rows = await db
     .select()
     .from(staffAttendance)
-    .where(and(gte(staffAttendance.businessDate, normalizedDate), lte(staffAttendance.businessDate, normalizedDate)));
+    .where(and(eq(staffAttendance.storeId, storeId), gte(staffAttendance.businessDate, normalizedDate), lte(staffAttendance.businessDate, normalizedDate)));
   const openRows = await db
     .select()
     .from(staffAttendance)
-    .where(isNull(staffAttendance.clockOutAt))
+    .where(and(eq(staffAttendance.storeId, storeId), isNull(staffAttendance.clockOutAt)))
     .orderBy(desc(staffAttendance.clockInAt), desc(staffAttendance.id));
 
   const recordsById = new Map<number, StaffAttendanceRecord>();
@@ -2040,17 +2186,19 @@ export async function getTodayAttendance(businessDate?: string) {
 export async function getWeeklyAttendanceSummary(input?: {
   startDate?: string;
   endDate?: string;
+  storeId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  await forceClockOutExpiredOpenShifts(db);
+  await forceClockOutExpiredOpenShifts(db, Date.now(), input?.storeId ?? 1);
+  const storeId = input?.storeId ?? 1;
   const endDate = normalizeDate(input?.endDate);
   const startDate = normalizeDate(input?.startDate ?? getPacificSundayWeekStart(endDate));
   const rows = await db
     .select()
     .from(staffAttendance)
-    .where(and(gte(staffAttendance.businessDate, startDate), lte(staffAttendance.businessDate, endDate)))
+    .where(and(eq(staffAttendance.storeId, storeId), gte(staffAttendance.businessDate, startDate), lte(staffAttendance.businessDate, endDate)))
     .orderBy(desc(staffAttendance.businessDate), desc(staffAttendance.clockInAt), desc(staffAttendance.id));
 
   const normalizedRows = rows.map(normalizeStaffAttendanceRecord);
@@ -2092,17 +2240,19 @@ export async function getWeeklyAttendanceSummary(input?: {
 export async function getAttendanceTimeBook(input?: {
   startDate?: string;
   endDate?: string;
+  storeId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  await forceClockOutExpiredOpenShifts(db);
+  await forceClockOutExpiredOpenShifts(db, Date.now(), input?.storeId ?? 1);
+  const storeId = input?.storeId ?? 1;
   const endDate = normalizeDate(input?.endDate);
   const startDate = normalizeDate(input?.startDate ?? getPacificSundayWeekStart(endDate));
   const rows = await db
     .select()
     .from(staffAttendance)
-    .where(and(gte(staffAttendance.businessDate, startDate), lte(staffAttendance.businessDate, endDate)))
+    .where(and(eq(staffAttendance.storeId, storeId), gte(staffAttendance.businessDate, startDate), lte(staffAttendance.businessDate, endDate)))
     .orderBy(desc(staffAttendance.businessDate), desc(staffAttendance.clockInAt), desc(staffAttendance.id));
 
   const normalizedRows = rows.map(normalizeStaffAttendanceRecord);
@@ -2228,47 +2378,47 @@ export function buildRecipeCostSummaries(
   });
 }
 
-export async function listRecipesWithCosts() {
+export async function listRecipesWithCosts(storeId = 1) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  await ensureInventorySeeded();
-  await ensureRecipesSeeded();
+  await ensureInventorySeeded(storeId);
+  await ensureRecipesSeeded(storeId);
 
   const [recipeRows, ingredientRows, inventoryRows] = await Promise.all([
-    db.select().from(recipes).orderBy(recipes.name),
-    db.select().from(recipeIngredients).orderBy(recipeIngredients.recipeId, recipeIngredients.sortOrder, recipeIngredients.id),
-    db.select().from(inventoryItems),
+    db.select().from(recipes).where(eq(recipes.storeId, storeId)).orderBy(recipes.name),
+    db.select().from(recipeIngredients).where(eq(recipeIngredients.storeId, storeId)).orderBy(recipeIngredients.recipeId, recipeIngredients.sortOrder, recipeIngredients.id),
+    db.select().from(inventoryItems).where(eq(inventoryItems.storeId, storeId)),
   ]);
 
   return buildRecipeCostSummaries(recipeRows, ingredientRows, inventoryRows);
 }
 
-export async function getDailyOperationsSnapshot(businessDate?: string) {
+export async function getDailyOperationsSnapshot(businessDate?: string, storeId = 1) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const normalizedDate = normalizeDate(businessDate);
   const [openingEntries, closingEntries, reports, gelatoRows, inventoryRows] = await Promise.all([
-    db.select().from(openingChecklists).where(eq(openingChecklists.businessDate, normalizedDate)).orderBy(desc(openingChecklists.createdAt)),
-    db.select().from(closingChecklists).where(eq(closingChecklists.businessDate, normalizedDate)).orderBy(desc(closingChecklists.createdAt)),
-    db.select().from(endOfDayReports).where(eq(endOfDayReports.businessDate, normalizedDate)).orderBy(desc(endOfDayReports.createdAt)),
-    db.select().from(readyMadeGelatoWeights).where(eq(readyMadeGelatoWeights.businessDate, normalizedDate)).orderBy(readyMadeGelatoWeights.flavor, readyMadeGelatoWeights.shiftType),
-    db.select().from(inventoryItems),
+    db.select().from(openingChecklists).where(and(eq(openingChecklists.storeId, storeId), eq(openingChecklists.businessDate, normalizedDate))).orderBy(desc(openingChecklists.createdAt)),
+    db.select().from(closingChecklists).where(and(eq(closingChecklists.storeId, storeId), eq(closingChecklists.businessDate, normalizedDate))).orderBy(desc(closingChecklists.createdAt)),
+    db.select().from(endOfDayReports).where(and(eq(endOfDayReports.storeId, storeId), eq(endOfDayReports.businessDate, normalizedDate))).orderBy(desc(endOfDayReports.createdAt)),
+    db.select().from(readyMadeGelatoWeights).where(and(eq(readyMadeGelatoWeights.storeId, storeId), eq(readyMadeGelatoWeights.businessDate, normalizedDate))).orderBy(readyMadeGelatoWeights.flavor, readyMadeGelatoWeights.shiftType),
+    db.select().from(inventoryItems).where(eq(inventoryItems.storeId, storeId)),
   ]);
 
-  const frigateCounts = await getFrigateCupCountForDate(normalizedDate, "handoff");
+  const frigateCounts = await getFrigateCupCountForDate(normalizedDate, "handoff", storeId);
   return {
     ...buildDailySnapshot(openingEntries, closingEntries, reports, gelatoRows, inventoryRows, normalizedDate),
     frigateCounts,
   };
 }
 
-export async function getSalesTrend(days = 28) {
+export async function getSalesTrend(days = 28, storeId = 1) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const reports = await db.select().from(endOfDayReports).orderBy(endOfDayReports.businessDate, endOfDayReports.createdAt);
+  const reports = await db.select().from(endOfDayReports).where(eq(endOfDayReports.storeId, storeId)).orderBy(endOfDayReports.businessDate, endOfDayReports.createdAt);
   const perDay = new Map<string, { businessDate: string; totalSales: number }>();
 
   for (const report of reports) {
@@ -2281,16 +2431,16 @@ export async function getSalesTrend(days = 28) {
   return Array.from(perDay.values()).slice(-days);
 }
 
-export async function getWeekOverWeekSales() {
+export async function getWeekOverWeekSales(storeId = 1) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const reports = await db.select().from(endOfDayReports).orderBy(endOfDayReports.businessDate);
+  const reports = await db.select().from(endOfDayReports).where(eq(endOfDayReports.storeId, storeId)).orderBy(endOfDayReports.businessDate);
   return buildWeekOverWeekSeries(reports);
 }
 
-export async function getInventoryAlerts() {
-  const items = await listInventoryItems();
+export async function getInventoryAlerts(storeId = 1) {
+  const items = await listInventoryItems(storeId);
   return items
     .filter(item => item.reorderNeeded)
     .map(item => ({
@@ -2310,13 +2460,13 @@ export async function getInventoryAlerts() {
     }));
 }
 
-export async function getRecentNotes(limit = 12) {
+export async function getRecentNotes(limit = 12, storeId = 1) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const [reports, closings] = await Promise.all([
-    db.select().from(endOfDayReports).orderBy(desc(endOfDayReports.createdAt)).limit(50),
-    db.select().from(closingChecklists).orderBy(desc(closingChecklists.createdAt)).limit(50),
+    db.select().from(endOfDayReports).where(eq(endOfDayReports.storeId, storeId)).orderBy(desc(endOfDayReports.createdAt)).limit(50),
+    db.select().from(closingChecklists).where(eq(closingChecklists.storeId, storeId)).orderBy(desc(closingChecklists.createdAt)).limit(50),
   ]);
 
   return buildRecentNotesFeed(reports, closings, limit);
@@ -2327,32 +2477,58 @@ export async function upsertFrigateCupCount(input: {
   cupsDetected: number;
   peopleEntries: number;
   sourceDetail?: string;
+  sourceEventId: string;
+  sourceEventAt: Date;
+  storeId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const businessDate = input.businessDate;
 
-  // Upsert: delete existing entry for this date+camera, then insert new
-  await db.delete(frigateCupCounts).where(
-    and(
-      eq(frigateCupCounts.businessDate, businessDate),
-      eq(frigateCupCounts.cameraName, input.cameraName)
-    )
+  const existing = await getFrigateCupCountForDate(businessDate, input.cameraName, input.storeId);
+  const disposition = compareFrigateEventOrder(
+    existing ? { sourceEventId: existing.sourceEventId, sourceEventAt: existing.sourceEventAt } : null,
+    { sourceEventId: input.sourceEventId, sourceEventAt: input.sourceEventAt },
   );
+  if (disposition === "stale") return { success: true, disposition };
 
-  await db.insert(frigateCupCounts).values({
-    businessDate,
-    cameraName: input.cameraName,
-    cupsDetected: input.cupsDetected,
-    peopleEntries: input.peopleEntries,
-    sourceDetail: input.sourceDetail ?? "",
-  });
+  const incomingIsNewer = sql`VALUES(\`sourceEventAt\`) > \`sourceEventAt\``;
 
-  return { success: true };
+  // Contract: payloads are absolute snapshots, not deltas. A correction may
+  // lower a count, so source time (not MAX(cupsDetected)) decides ordering.
+  // The scoped unique index makes an exact retry update the same tuple.
+  await db
+    .insert(frigateCupCounts)
+    .values({
+      storeId: input.storeId,
+      businessDate,
+      cameraName: input.cameraName,
+      cupsDetected: input.cupsDetected,
+      peopleEntries: input.peopleEntries,
+      sourceDetail: input.sourceDetail ?? "",
+      sourceEventId: input.sourceEventId,
+      sourceEventAt: input.sourceEventAt,
+    })
+    .onDuplicateKeyUpdate({
+      set: {
+        cupsDetected: sql`IF(${incomingIsNewer}, VALUES(\`cupsDetected\`), \`cupsDetected\`)`,
+        peopleEntries: sql`IF(${incomingIsNewer}, VALUES(\`peopleEntries\`), \`peopleEntries\`)`,
+        sourceDetail: sql`IF(${incomingIsNewer}, VALUES(\`sourceDetail\`), \`sourceDetail\`)`,
+        sourceEventId: sql`IF(${incomingIsNewer}, VALUES(\`sourceEventId\`), \`sourceEventId\`)`,
+        sourceEventAt: sql`IF(${incomingIsNewer}, VALUES(\`sourceEventAt\`), \`sourceEventAt\`)`,
+        receivedAt: sql`IF(${incomingIsNewer}, VALUES(\`receivedAt\`), \`receivedAt\`)`,
+      },
+    });
+
+  const current = await getFrigateCupCountForDate(businessDate, input.cameraName, input.storeId);
+  return {
+    success: true,
+    disposition: current?.sourceEventId === input.sourceEventId ? disposition : "stale",
+  };
 }
 
-export async function getFrigateCupCountForDate(businessDate: string, cameraName = "handoff") {
+export async function getFrigateCupCountForDate(businessDate: string, cameraName = "handoff", storeId = 1) {
   const db = await getDb();
   if (!db) return null;
 
@@ -2360,6 +2536,7 @@ export async function getFrigateCupCountForDate(businessDate: string, cameraName
     .from(frigateCupCounts)
     .where(
       and(
+        eq(frigateCupCounts.storeId, storeId),
         eq(frigateCupCounts.businessDate, businessDate),
         eq(frigateCupCounts.cameraName, cameraName)
       )
@@ -2367,4 +2544,371 @@ export async function getFrigateCupCountForDate(businessDate: string, cameraName
     .limit(1);
 
   return rows[0] ?? null;
+}
+
+export async function getActiveHandoffCameraZone(input: { storeId: number; cameraName: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [zone] = await db
+    .select()
+    .from(frigateCameraZones)
+    .where(and(
+      eq(frigateCameraZones.storeId, requireStoreId(input.storeId)),
+      eq(frigateCameraZones.cameraName, input.cameraName),
+      eq(frigateCameraZones.zoneName, "handoff_zone"),
+      eq(frigateCameraZones.isActive, 1),
+    ))
+    .limit(1);
+  return zone ?? null;
+}
+
+type HandoffVisualStoredStatus = HandoffVisualStatus;
+
+function handoffVisualPublicRow(row: typeof frigateHandoffVisualEvents.$inferSelect) {
+  return {
+    ...row,
+    imageUrl: row.imageKey ? `/manus-storage/${row.imageKey}` : null,
+  };
+}
+
+async function getHandoffVisualEventById(input: { id: number; storeId: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const rows = await db
+    .select()
+    .from(frigateHandoffVisualEvents)
+    .where(and(
+      eq(frigateHandoffVisualEvents.id, input.id),
+      eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
+    ))
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
+/**
+ * Creates the durable queue record before image storage or vision processing.
+ * The scoped unique key prevents a replay from creating a second review item.
+ */
+export async function reserveHandoffVisualEvent(input: {
+  storeId: number;
+  businessDate: string;
+  cameraName: string;
+  cupEventId: string;
+  capturedAt: Date;
+  imageSha256: string;
+  captureMetadataJson: string;
+  zoneId?: number;
+  zoneGeometryVersion?: number;
+  zoneGeometryJson?: string;
+  evidenceOrigin?: "verified_snapshot" | "recording_extracted_frame";
+  sourceDetail?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const storeId = requireStoreId(input.storeId);
+
+  const where = and(
+    eq(frigateHandoffVisualEvents.storeId, storeId),
+    eq(frigateHandoffVisualEvents.cameraName, input.cameraName),
+    eq(frigateHandoffVisualEvents.cupEventId, input.cupEventId),
+  );
+  const existing = await db.select().from(frigateHandoffVisualEvents).where(where).limit(1);
+  if (existing[0]) {
+    if (existing[0].evidenceOrigin !== (input.evidenceOrigin ?? "verified_snapshot")) {
+      throw new Error("cup_event_id is already reserved for a different evidence origin");
+    }
+    return { event: existing[0], created: false };
+  }
+
+  try {
+    await db.insert(frigateHandoffVisualEvents).values({
+      storeId,
+      businessDate: input.businessDate,
+      cameraName: input.cameraName,
+      cupEventId: input.cupEventId,
+      capturedAt: input.capturedAt,
+      imageSha256: input.imageSha256,
+      captureMetadataJson: input.captureMetadataJson,
+      zoneId: input.zoneId ?? null,
+      zoneGeometryVersion: input.zoneGeometryVersion ?? null,
+      zoneGeometryJson: input.zoneGeometryJson ?? null,
+      evidenceOrigin: input.evidenceOrigin ?? "verified_snapshot",
+      sourceDetail: input.sourceDetail ?? "",
+      analysisStatus: "pending_review",
+      imageMimeType: "application/octet-stream",
+    });
+  } catch (error) {
+    // The unique key is the concurrency boundary when two sender retries race.
+    const concurrent = await db.select().from(frigateHandoffVisualEvents).where(where).limit(1);
+    if (concurrent[0]) {
+      if (concurrent[0].evidenceOrigin !== (input.evidenceOrigin ?? "verified_snapshot")) {
+        throw new Error("cup_event_id is already reserved for a different evidence origin");
+      }
+      return { event: concurrent[0], created: false };
+    }
+    throw error;
+  }
+
+  const created = await db.select().from(frigateHandoffVisualEvents).where(where).limit(1);
+  if (!created[0]) throw new Error("Unable to reserve handoff visual event");
+  return { event: created[0], created: true };
+}
+
+/** Binds an unconfigured pending event to a real zone exactly once. */
+export async function bindHandoffVisualEventZone(input: {
+  id: number;
+  storeId: number;
+  zoneId: number;
+  zoneGeometryVersion: number;
+  zoneGeometryJson: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .update(frigateHandoffVisualEvents)
+    .set({
+      zoneId: input.zoneId,
+      zoneGeometryVersion: input.zoneGeometryVersion,
+      zoneGeometryJson: input.zoneGeometryJson,
+    })
+    .where(and(
+      eq(frigateHandoffVisualEvents.id, input.id),
+      eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
+      eq(frigateHandoffVisualEvents.analysisStatus, "pending_review"),
+      isNull(frigateHandoffVisualEvents.zoneId),
+    ));
+  return getHandoffVisualEventById(input);
+}
+
+/** Keeps a verified capture visible when its store/camera geometry is absent. */
+export async function queueHandoffVisualForZoneConfiguration(input: { id: number; storeId: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .update(frigateHandoffVisualEvents)
+    .set({
+      nextRetryAt: new Date(Date.now() + 60 * 60 * 1_000),
+      lastAnalysisError: "Handoff zone geometry is not configured for this store and camera. The verified capture remains pending review.",
+    })
+    .where(and(
+      eq(frigateHandoffVisualEvents.id, input.id),
+      eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
+      eq(frigateHandoffVisualEvents.analysisStatus, "pending_review"),
+      isNull(frigateHandoffVisualEvents.zoneId),
+    ));
+  return getHandoffVisualEventById(input);
+}
+
+/**
+ * A capture's v3 sidecar may record geometry for auditing, but that geometry
+ * cannot override the authenticated store/camera configuration. Keep a
+ * mismatch reviewable and terminal to automatic retries until a manager
+ * resolves it.
+ */
+export async function queueHandoffVisualForZoneMismatch(input: { id: number; storeId: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .update(frigateHandoffVisualEvents)
+    .set({
+      nextRetryAt: null,
+      lastAnalysisError: "Capture-side zone metadata does not match the configured store/camera handoff zone. The verified capture requires manager review.",
+    })
+    .where(and(
+      eq(frigateHandoffVisualEvents.id, input.id),
+      eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
+      eq(frigateHandoffVisualEvents.analysisStatus, "pending_review"),
+    ));
+  return getHandoffVisualEventById(input);
+}
+
+export async function attachHandoffVisualImage(input: {
+  id: number;
+  storeId: number;
+  imageKey: string;
+  imageMimeType: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .update(frigateHandoffVisualEvents)
+    .set({
+      imageKey: input.imageKey,
+      imageMimeType: input.imageMimeType,
+      nextRetryAt: null,
+      lastAnalysisError: null,
+    })
+    .where(and(
+      eq(frigateHandoffVisualEvents.id, input.id),
+      eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
+    ));
+
+  const event = await getHandoffVisualEventById(input);
+  if (!event) throw new Error("Handoff visual event was not found in this store");
+  return event;
+}
+
+/**
+ * Claims one due queue item with an atomic time-bound lease. A replay can
+ * retrieve an existing event but cannot execute the vision model twice.
+ */
+export async function claimHandoffVisualAnalysis(input: { id: number; storeId: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const now = new Date();
+  const leaseUntil = new Date(now.getTime() + 5 * 60 * 1_000);
+  const analysisLeaseToken = randomUUID();
+
+  const result = await db
+    .update(frigateHandoffVisualEvents)
+    .set({
+      analysisAttempts: sql`${frigateHandoffVisualEvents.analysisAttempts} + 1`,
+      analysisLeaseUntil: leaseUntil,
+      analysisLeaseToken,
+      nextRetryAt: null,
+      lastAnalysisError: null,
+    })
+    .where(and(
+      eq(frigateHandoffVisualEvents.id, input.id),
+      eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
+      eq(frigateHandoffVisualEvents.analysisStatus, "pending_review"),
+      isNotNull(frigateHandoffVisualEvents.imageKey),
+      or(isNull(frigateHandoffVisualEvents.analysisLeaseUntil), lte(frigateHandoffVisualEvents.analysisLeaseUntil, now)),
+      or(
+        eq(frigateHandoffVisualEvents.analysisAttempts, 0),
+        lte(frigateHandoffVisualEvents.nextRetryAt, now),
+        lte(frigateHandoffVisualEvents.analysisLeaseUntil, now),
+      ),
+    ));
+
+  const header = Array.isArray(result) ? result[0] : result;
+  return Number((header as { affectedRows?: number } | undefined)?.affectedRows ?? 0) === 1 ? analysisLeaseToken : null;
+}
+
+export async function finalizeHandoffVisualAnalysis(input: {
+  id: number;
+  storeId: number;
+  analysisLeaseToken: string;
+  analysis: NormalizedHandoffVisualAnalysis;
+  aiSuggestedStatus?: "pending_review" | "approved_by_ai" | "discarded";
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .update(frigateHandoffVisualEvents)
+    .set({
+      analysisStatus: input.analysis.status,
+      aiSuggestedStatus: input.aiSuggestedStatus ?? input.analysis.status,
+      personPresent: input.analysis.personPresent ? 1 : 0,
+      gelatoCupPresent: input.analysis.gelatoCupPresent ? 1 : 0,
+      cupInHandoffZone: input.analysis.cupInHandoffZone ? 1 : 0,
+      visibleCupCount: input.analysis.visibleCupCount,
+      confidence: input.analysis.confidence,
+      analysisModel: input.analysis.model ?? "platform-default-vision",
+      analysisReason: input.analysis.reason,
+      analysisEvidenceJson: JSON.stringify(input.analysis.evidence),
+      analysisLeaseUntil: null,
+      analysisLeaseToken: null,
+      nextRetryAt: null,
+      lastAnalysisError: null,
+    })
+    .where(and(
+      eq(frigateHandoffVisualEvents.id, input.id),
+      eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
+      eq(frigateHandoffVisualEvents.analysisStatus, "pending_review"),
+      eq(frigateHandoffVisualEvents.analysisLeaseToken, input.analysisLeaseToken),
+    ));
+
+  const event = await getHandoffVisualEventById(input);
+  if (!event) throw new Error("Handoff visual event was not found in this store");
+  return event;
+}
+
+/** Keeps an analysis outage visible and retryable without storing the thrown error or any image data. */
+export async function deferHandoffVisualAnalysis(input: {
+  id: number;
+  storeId: number;
+  analysisLeaseToken: string;
+  nextRetryAt: Date;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .update(frigateHandoffVisualEvents)
+    .set({
+      analysisStatus: "pending_review",
+      analysisLeaseUntil: null,
+      analysisLeaseToken: null,
+      nextRetryAt: input.nextRetryAt,
+      lastAnalysisError: "Image analysis is temporarily unavailable. This case remains queued for retry or manager review.",
+    })
+    .where(and(
+      eq(frigateHandoffVisualEvents.id, input.id),
+      eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
+      eq(frigateHandoffVisualEvents.analysisStatus, "pending_review"),
+      eq(frigateHandoffVisualEvents.analysisLeaseToken, input.analysisLeaseToken),
+    ));
+
+  const event = await getHandoffVisualEventById(input);
+  if (!event) throw new Error("Handoff visual event was not found in this store");
+  return event;
+}
+
+export async function listHandoffVisualEvents(input: {
+  storeId: number;
+  businessDate?: string;
+  status?: HandoffVisualStoredStatus | "all";
+  limit?: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const where = [eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId))];
+  if (input.businessDate) where.push(eq(frigateHandoffVisualEvents.businessDate, input.businessDate));
+  if (input.status && input.status !== "all") where.push(eq(frigateHandoffVisualEvents.analysisStatus, input.status));
+
+  const rows = await db
+    .select()
+    .from(frigateHandoffVisualEvents)
+    .where(and(...where))
+    .orderBy(desc(frigateHandoffVisualEvents.capturedAt), desc(frigateHandoffVisualEvents.id))
+    .limit(Math.min(Math.max(input.limit ?? 60, 1), 200));
+
+  return rows.map(handoffVisualPublicRow);
+}
+
+export async function reviewHandoffVisualEvent(input: {
+  id: number;
+  storeId: number;
+  reviewedByUserId: number;
+  decision: "approved_by_manager" | "discarded_by_manager";
+  reviewNotes?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const notes = (input.reviewNotes ?? "").trim().slice(0, 2_000);
+
+  await db
+    .update(frigateHandoffVisualEvents)
+    .set({
+      analysisStatus: input.decision,
+      reviewedAt: new Date(),
+      reviewedByUserId: input.reviewedByUserId,
+      reviewNotes: notes,
+      nextRetryAt: null,
+      analysisLeaseUntil: null,
+      analysisLeaseToken: null,
+    })
+    .where(and(
+      eq(frigateHandoffVisualEvents.id, input.id),
+      eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
+    ));
+
+  const event = await getHandoffVisualEventById(input);
+  if (!event) throw new Error("Handoff visual event was not found in this store");
+  return handoffVisualPublicRow(event);
 }

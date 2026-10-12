@@ -1,0 +1,3 @@
+ALTER TABLE `frigateHandoffVisualEvents` ADD `evidenceOrigin` enum('verified_snapshot','recording_extracted_frame') DEFAULT 'verified_snapshot' NOT NULL;--> statement-breakpoint
+ALTER TABLE `frigateHandoffVisualEvents` ADD `aiSuggestedStatus` enum('pending_review','approved_by_ai','discarded');--> statement-breakpoint
+CREATE INDEX `idx_frigateHandoffVisualEvents_origin` ON `frigateHandoffVisualEvents` (`storeId`,`evidenceOrigin`,`capturedAt`);

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { ENV } from "./_core/env";
@@ -11,10 +12,17 @@ import {
   createEndOfDayReport,
   clockInStaff,
   clockOutStaff,
+  bindHandoffVisualEventZone,
   createOpeningChecklist,
+  attachHandoffVisualImage,
+  claimHandoffVisualAnalysis,
   createSubmissionHistoryEntry,
+  deferHandoffVisualAnalysis,
+  finalizeHandoffVisualAnalysis,
   getAttendanceTimeBook,
   getDailyOperationsSnapshot,
+  getActiveHandoffCameraZone,
+  listHandoffVisualEvents,
   getSubmissionStatusForBusinessDate,
   getInventoryAlerts,
   getRecentNotes,
@@ -28,11 +36,17 @@ import {
   listReadyMadeGelatoWeights,
   listRecipesWithCosts,
   removeChecklistQuestion,
+  reserveHandoffVisualEvent,
+  reviewHandoffVisualEvent,
   saveChecklistQuestion,
   saveAttendanceEntry,
   saveInventoryItem,
   saveReadyMadeGelatoWeights,
   STAFF_ATTENDANCE_NAMES,
+  getActiveStoreById,
+  resolveActiveStoreCredential,
+  queueHandoffVisualForZoneConfiguration,
+  queueHandoffVisualForZoneMismatch,
   updateInventoryCount,
   updateSubmissionHistoryForm,
  updateSubmissionHistoryGelato,
@@ -40,7 +54,19 @@ import {
   upsertUser,
 } from "./db";
 import { extractGelatoPhotos } from "./gelatoPhotoPilot";
-import { formatPacificDateTime, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "../shared/businessDate";
+import { formatPacificDateTime, getBusinessDateTimeTimestamp, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, isFuturePacificBusinessDate } from "./storeBusinessDate";
+import { legacyCredentialsMatch } from "./storeCredentials";
+import { clearCredentialFailures, getCredentialRetryAfterMs, recordCredentialFailure } from "./credentialRateLimit";
+import { normalizeFrigateEventAt } from "./frigateEventOrder";
+import { storeAdminRouter } from "./storeAdminRouter";
+import { analyzeHandoffVisualImage, getHandoffVisualRetryDelayMs } from "./handoffVisualAnalysis";
+import { applyEvidenceOriginPolicy, type HandoffEvidenceOrigin } from "./handoffEvidenceOrigin";
+import { decodeHandoffImageDataUrl, handoffCaptureMetadataJson, handoffImageExtension, parseHandoffCaptureMetadata } from "./handoffVisualPayload";
+import { storageGetSignedUrl, storagePut } from "./storage";
+import { getBusinessDate } from "../shared/businessDate";
+import { isHandoffCaptureZoneCoherent, parseStoredHandoffZoneGeometry } from "./handoffZoneGeometry";
+
+const PHASE1_OJALA_STORE_ID = 1;
 
 const optionalBusinessDateSchema = z
   .string()
@@ -253,23 +279,6 @@ const checklistQuestionSchema = z.object({
 
 const staffAttendanceTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 
-function convertPacificBusinessDateTimeToTimestamp(businessDate: string, timeValue: string) {
-  const [year, month, day] = businessDate.split("-").map(Number);
-  const [hours, minutes] = timeValue.split(":").map(Number);
-  const pacificReference = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-  const offsetParts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Los_Angeles",
-    timeZoneName: "shortOffset",
-  }).formatToParts(pacificReference);
-  const offsetValue = offsetParts.find(part => part.type === "timeZoneName")?.value ?? "GMT-8";
-  const match = offsetValue.match(/^GMT([+-])(\d{1,2})(?::(\d{2}))?$/i);
-  const sign = match?.[1] === "-" ? -1 : 1;
-  const offsetHours = Number(match?.[2] ?? 8);
-  const offsetMinutes = Number(match?.[3] ?? 0);
-  const totalOffsetMinutes = sign * (offsetHours * 60 + offsetMinutes);
-  return Date.UTC(year, month - 1, day, hours, minutes, 0) - totalOffsetMinutes * 60 * 1000;
-}
-
 function normalizeFrontendOrigin(origin?: string) {
   if (!origin) return "";
 
@@ -304,26 +313,237 @@ function buildDashboardUrl(
   return host ? `${protocol}://${host}/dashboard` : "/dashboard";
 }
 
+async function resolveStaffPortalStore(password: string) {
+  const managedCredential = await resolveActiveStoreCredential({
+    credentialType: "staff_portal",
+    secret: password,
+  });
+  if (managedCredential) return managedCredential.store;
+
+  // Explicit, limited compatibility for Ojala's existing staff password. It
+  // cannot be used to select another store and is rejected if Store 1 is off.
+  if (legacyCredentialsMatch(password, ENV.staffPortalPassword)) {
+    return getActiveStoreById(PHASE1_OJALA_STORE_ID);
+  }
+
+  return null;
+}
+
+async function resolveFrigateStore(apiKey: string) {
+  const managedCredential = await resolveActiveStoreCredential({
+    credentialType: "frigate",
+    secret: apiKey,
+  });
+  if (managedCredential) return managedCredential.store;
+
+  // Explicit, limited compatibility for the existing Ojala Frigate sender.
+  // A client never supplies a store ID, so this path is irrevocably Store 1.
+  if (legacyCredentialsMatch(apiKey, ENV.FRIGATE_API_KEY)) {
+    return getActiveStoreById(PHASE1_OJALA_STORE_ID);
+  }
+
+  return null;
+}
+
+function credentialClientKey(req: { headers: Record<string, string | string[] | undefined> }) {
+  const forwardedFor = req.headers["x-forwarded-for"];
+  const value = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
+  return value?.split(",")[0]?.trim() || "unknown";
+}
+
+function enforceCredentialRateLimit(channel: "staff_portal" | "frigate", clientKey: string) {
+  const retryAfterMs = getCredentialRetryAfterMs(channel, clientKey);
+  if (retryAfterMs > 0) {
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: "Too many credential failures. Try again later.",
+    });
+  }
+}
+
+function storedCaptureTimestamp(event: { captureMetadataJson?: string | null; capturedAt: Date }) {
+  try {
+    const value = JSON.parse(event.captureMetadataJson ?? "") as { captured_at_utc?: unknown };
+    if (typeof value.captured_at_utc === "string") return value.captured_at_utc;
+  } catch {
+    // Rows created before metadata preservation use the Date fallback below.
+  }
+  return event.capturedAt.toISOString();
+}
+
+async function processHandoffVisualEvent(input: {
+  storeId: number;
+  storeTimeZone: string;
+  metadata: ReturnType<typeof parseHandoffCaptureMetadata>;
+  sourceDetail: string;
+  evidenceOrigin: HandoffEvidenceOrigin;
+  imageDataUrl: string;
+}) {
+  const decoded = decodeHandoffImageDataUrl(input.imageDataUrl);
+  if (decoded.checksum !== input.metadata.imageSha256) {
+    throw new Error("Capture metadata image_sha256 does not match the submitted image");
+  }
+  const businessDate = getBusinessDate(input.metadata.capturedAt, input.storeTimeZone);
+  const activeZone = await getActiveHandoffCameraZone({ storeId: input.storeId, cameraName: input.metadata.camera });
+  const reserved = await reserveHandoffVisualEvent({
+    storeId: input.storeId,
+    businessDate,
+    cameraName: input.metadata.camera,
+    cupEventId: input.metadata.cupEventId,
+    capturedAt: input.metadata.capturedAt,
+    imageSha256: input.metadata.imageSha256,
+    captureMetadataJson: handoffCaptureMetadataJson(input.metadata),
+    zoneId: activeZone?.id,
+    zoneGeometryVersion: activeZone?.geometryVersion,
+    zoneGeometryJson: activeZone?.polygonJson,
+    evidenceOrigin: input.evidenceOrigin,
+    sourceDetail: input.sourceDetail,
+  });
+  let event = reserved.event;
+
+  // The store/camera/event tuple identifies a capture. A retry must preserve
+  // its original identity and provenance; reusing an ID across capture origins
+  // could make a recovered frame look like an automatic Frigate success.
+  if (
+    event.imageSha256 !== input.metadata.imageSha256 ||
+    storedCaptureTimestamp(event) !== input.metadata.capturedAtUtc ||
+    event.evidenceOrigin !== input.evidenceOrigin
+  ) {
+    throw new Error("cup_event_id is already reserved for a different visual evidence record");
+  }
+
+  // Terminal reviews are immutable to sender retries. A photo cannot alter a
+  // manager decision and never updates sales, deliveries, or cup counts.
+  if (event.analysisStatus !== "pending_review") {
+    return { eventId: event.id, status: event.analysisStatus, disposition: "already_processed" as const, retryable: false };
+  }
+
+  if (!event.imageKey) {
+    const storagePrefix = event.evidenceOrigin === "recording_extracted_frame"
+      ? "frigate-handoff-recovery"
+      : "frigate-handoff-verified";
+    const uploaded = await storagePut(
+      `${storagePrefix}/store-${input.storeId}/${input.metadata.camera}/${input.metadata.cupEventId}-${decoded.checksum.slice(0, 16)}.${handoffImageExtension(decoded.mimeType)}`,
+      decoded.buffer,
+      decoded.mimeType,
+    );
+    event = await attachHandoffVisualImage({
+      id: event.id,
+      storeId: input.storeId,
+      imageKey: uploaded.key,
+      imageMimeType: decoded.mimeType,
+    });
+  }
+
+  if (!event.zoneId || !event.zoneGeometryVersion || !event.zoneGeometryJson) {
+    if (activeZone) {
+      event = await bindHandoffVisualEventZone({
+        id: event.id,
+        storeId: input.storeId,
+        zoneId: activeZone.id,
+        zoneGeometryVersion: activeZone.geometryVersion,
+        zoneGeometryJson: activeZone.polygonJson,
+      }) ?? event;
+    } else {
+      const queued = await queueHandoffVisualForZoneConfiguration({ id: event.id, storeId: input.storeId });
+      return { eventId: queued?.id ?? event.id, status: queued?.analysisStatus ?? event.analysisStatus, disposition: "awaiting_zone_configuration" as const, retryable: true };
+    }
+  }
+
+  // Schema v3 records capture-side geometry solely as evidence. It must match
+  // the independently configured store/camera geometry before automation can
+  // use the server snapshot. A client polygon never grants authorization.
+  if (input.metadata.schemaVersion === 3) {
+    const configuredGeometry = parseStoredHandoffZoneGeometry(event.zoneGeometryJson!);
+    const coherent = isHandoffCaptureZoneCoherent({
+      capturedGeometry: input.metadata.capturedZoneGeometry!,
+      capturedConfigSha256: input.metadata.capturedZoneConfigSha256!,
+      serverGeometry: configuredGeometry,
+    });
+    if (!coherent) {
+      const queued = await queueHandoffVisualForZoneMismatch({ id: event.id, storeId: input.storeId });
+      return { eventId: queued?.id ?? event.id, status: queued?.analysisStatus ?? event.analysisStatus, disposition: "zone_metadata_mismatch" as const, retryable: false };
+    }
+  }
+
+  const analysisLeaseToken = await claimHandoffVisualAnalysis({ id: event.id, storeId: input.storeId });
+  if (!analysisLeaseToken) {
+    return {
+      eventId: event.id,
+      status: event.analysisStatus,
+      disposition: "queued_or_replayed" as const,
+      retryable: Boolean(event.nextRetryAt),
+    };
+  }
+
+  try {
+    const imageUrl = await storageGetSignedUrl(event.imageKey!);
+    const geometry = parseStoredHandoffZoneGeometry(event.zoneGeometryJson!);
+    const analysis = await analyzeHandoffVisualImage({
+      imageUrl,
+      cameraName: input.metadata.camera,
+      handoffZonePolygon: geometry.points,
+      handoffZoneGeometryVersion: event.zoneGeometryVersion!,
+    });
+    const originPolicy = applyEvidenceOriginPolicy({ origin: event.evidenceOrigin, analysis });
+    const completed = await finalizeHandoffVisualAnalysis({
+      id: event.id,
+      storeId: input.storeId,
+      analysisLeaseToken,
+      analysis: originPolicy.analysis,
+      aiSuggestedStatus: originPolicy.aiSuggestedStatus,
+    });
+    return { eventId: completed.id, status: completed.analysisStatus, disposition: "analyzed" as const, retryable: false };
+  } catch {
+    const deferred = await deferHandoffVisualAnalysis({
+      id: event.id,
+      storeId: input.storeId,
+      analysisLeaseToken,
+      nextRetryAt: new Date(Date.now() + getHandoffVisualRetryDelayMs(event.analysisAttempts + 1)),
+    });
+    return {
+      eventId: deferred.id,
+      status: deferred.analysisStatus,
+      disposition: deferred.analysisStatus === "pending_review" ? "queued_for_retry" as const : "already_reviewed" as const,
+      retryable: deferred.analysisStatus === "pending_review",
+    };
+  }
+}
+
 export const appRouter = router({
   system: systemRouter,
+  storeAdmin: storeAdminRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
+    store: protectedProcedure.query(async ({ ctx }) => {
+      const store = await getActiveStoreById(ctx.user.storeId);
+      if (!store) throw new TRPCError({ code: "FORBIDDEN", message: "Store is inactive" });
+      let cupSizes: string[] = [];
+      try { cupSizes = JSON.parse(store.cupSizesJson ?? "[]"); } catch { /* legacy metadata */ }
+      return { id: store.id, nombre: store.nombre, timezone: store.timezone, cupSizes };
+    }),
     staffPortalLogin: publicProcedure.input(z.object({ password: z.string().min(1) })).mutation(async ({ ctx, input }) => {
-      if (!ENV.staffPortalPassword || input.password !== ENV.staffPortalPassword) {
+      const clientKey = credentialClientKey(ctx.req);
+      enforceCredentialRateLimit("staff_portal", clientKey);
+      const store = await resolveStaffPortalStore(input.password);
+      if (!store) {
+        recordCredentialFailure("staff_portal", clientKey);
         throw new Error("Invalid staff portal password");
       }
+      clearCredentialFailures("staff_portal", clientKey);
 
-      const sharedStaffOpenId = "ojala-shared-staff-portal";
+      const sharedStaffOpenId = `store-${store.id}-shared-staff-portal`;
       await upsertUser({
         openId: sharedStaffOpenId,
-        name: "Ojala Staff",
+        storeId: store.id,
+        name: `${store.nombre} Staff`,
         loginMethod: "shared-password",
         role: "user",
         lastSignedIn: new Date(),
       });
 
       const sessionToken = await sdk.createSessionToken(sharedStaffOpenId, {
-        name: "Ojala Staff",
+        name: `${store.nombre} Staff`,
         expiresInMs: ONE_YEAR_MS,
       });
       const cookieOptions = getSessionCookieOptions(ctx.req);
@@ -343,18 +563,19 @@ export const appRouter = router({
     }),
   }),
   forms: router({
-    checklistQuestions: protectedProcedure.input(z.object({ checklistType: checklistTypeSchema })).query(async ({ input }) => listChecklistQuestions(input.checklistType)),
-    inventoryItems: protectedProcedure.query(async () => listInventoryItems()),
-    readyMadeGelatoWeights: protectedProcedure.input(z.object({ businessDate: z.string().optional() }).optional()).query(async ({ input }) => listReadyMadeGelatoWeights(input?.businessDate)),
+    checklistQuestions: protectedProcedure.input(z.object({ checklistType: checklistTypeSchema })).query(async ({ ctx, input }) => listChecklistQuestions(input.checklistType, ctx.user.storeId)),
+    inventoryItems: protectedProcedure.query(async ({ ctx }) => listInventoryItems(ctx.user.storeId)),
+    readyMadeGelatoWeights: protectedProcedure.input(z.object({ businessDate: z.string().optional() }).optional()).query(async ({ ctx, input }) => listReadyMadeGelatoWeights(input?.businessDate, ctx.user.storeId)),
     submissionStatus: protectedProcedure
       .input(
         z.object({
           businessDate: requiredBusinessDateSchema,
         })
       )
-      .query(async ({ input }) => getSubmissionStatusForBusinessDate(input.businessDate)),
+      .query(async ({ ctx, input }) => getSubmissionStatusForBusinessDate(input.businessDate, ctx.user.storeId)),
     submitInventoryUpdate: protectedProcedure.input(inventoryUpdateSchema).mutation(async ({ ctx, input }) => {
       const item = await updateInventoryCount({
+        storeId: ctx.user.storeId,
         id: input.id,
         currentQuantity: input.currentQuantity.toFixed(2),
         notes: input.notes ?? "",
@@ -389,6 +610,7 @@ export const appRouter = router({
     }),
     submitSubmissionHistory: protectedProcedure.input(submissionHistorySchema).mutation(async ({ ctx, input }) => {
       const entry = await createSubmissionHistoryEntry({
+        storeId: ctx.user.storeId,
         businessDate: input.businessDate,
         submissionType: input.submissionType,
         staffName: input.staffName,
@@ -417,6 +639,7 @@ export const appRouter = router({
     }),
     submitReadyMadeGelato: protectedProcedure.input(readyMadeGelatoSchema).mutation(async ({ ctx, input }) => {
       const records = await saveReadyMadeGelatoWeights({
+        storeId: ctx.user.storeId,
         businessDate: input.businessDate,
         shiftType: input.shiftType,
         submittedByUserId: ctx.user.id,
@@ -447,6 +670,7 @@ export const appRouter = router({
       }, {});
 
       const record = await createOpeningChecklist({
+        storeId: ctx.user.storeId,
         businessDate: input.businessDate ?? new Date().toISOString().slice(0, 10),
         staffName: input.staffName,
         equipmentStatus: (answersBySection.Equipment ?? []).join("\n") || "No equipment responses provided",
@@ -488,6 +712,7 @@ export const appRouter = router({
       const storeClosedAnswer = input.checklistAnswers.find(answer => answer.prompt === "Store closed properly")?.answer ?? "No";
 
       const record = await createClosingChecklist({
+        storeId: ctx.user.storeId,
         businessDate: input.businessDate ?? new Date().toISOString().slice(0, 10),
         staffName: input.staffName,
         cashCounted: input.cashCounted.toFixed(2),
@@ -514,6 +739,7 @@ export const appRouter = router({
     }),
     submitEndOfDay: protectedProcedure.input(endOfDayReportSchema).mutation(async ({ ctx, input }) => {
       const record = await createEndOfDayReport({
+        storeId: ctx.user.storeId,
         ...input,
         cups4oz: input.cups4ozHere + input.cups4ozToGo,
         cups8oz: input.cups8ozHere + input.cups8ozToGo,
@@ -553,20 +779,86 @@ export const appRouter = router({
         cupsDetected: z.number().int().min(0),
         peopleEntries: z.number().int().min(0).default(0),
         sourceDetail: z.string().optional().default(""),
+        sourceEventId: z.string().min(8).max(128),
+        sourceEventAt: z.string().datetime({ offset: false }),
       }))
-      .mutation(async ({ input }) => {
-        const expected = ENV.FRIGATE_API_KEY;
-        if (!expected || input.apiKey !== expected) {
+      .mutation(async ({ ctx, input }) => {
+        const clientKey = credentialClientKey(ctx.req);
+        enforceCredentialRateLimit("frigate", clientKey);
+        const store = await resolveFrigateStore(input.apiKey);
+        if (!store) {
+          recordCredentialFailure("frigate", clientKey);
           throw new Error("Unauthorized");
         }
-        await upsertFrigateCupCount({
+        clearCredentialFailures("frigate", clientKey);
+        const sourceEventAt = normalizeFrigateEventAt(input.sourceEventAt);
+        if (!sourceEventAt || sourceEventAt.getTime() > Date.now() + 5 * 60 * 1_000) {
+          throw new Error("Invalid Frigate source event timestamp");
+        }
+        const result = await upsertFrigateCupCount({
+          storeId: store.id,
           businessDate: input.businessDate,
           cameraName: input.cameraName,
           cupsDetected: input.cupsDetected,
           peopleEntries: input.peopleEntries,
           sourceDetail: input.sourceDetail,
+          sourceEventId: input.sourceEventId,
+          sourceEventAt,
         });
-        return { success: true } as const;
+        return { success: true, disposition: result.disposition } as const;
+      }),
+    submitHandoffVisual: publicProcedure
+      .input(z.object({
+        apiKey: z.string().min(1),
+        imageDataUrl: z.string().min(32).max(12 * 1024 * 1024),
+        capture: z.object({
+          schema_version: z.union([z.literal(2), z.literal(3)]).optional(),
+          camera: z.literal("handoff"),
+          cup_zone: z.literal("handoff_zone"),
+          cup_event_id: z.string().min(8).max(128),
+          captured_at_utc: z.string().min(20).max(40),
+          image_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+          zone_geometry: z.array(z.object({ x: z.number(), y: z.number() })).min(3).max(16).optional(),
+          zone_config_sha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+          image_dimensions: z.object({ width: z.number().int(), height: z.number().int() }).optional(),
+        }),
+        sourceDetail: z.string().max(500).optional().default("verified_snapshot"),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const clientKey = credentialClientKey(ctx.req);
+        enforceCredentialRateLimit("frigate", clientKey);
+        const store = await resolveFrigateStore(input.apiKey);
+        if (!store) {
+          recordCredentialFailure("frigate", clientKey);
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Unauthorized" });
+        }
+        clearCredentialFailures("frigate", clientKey);
+
+        const metadata = parseHandoffCaptureMetadata({
+          camera: input.capture.camera,
+          cupZone: input.capture.cup_zone,
+          cupEventId: input.capture.cup_event_id,
+          capturedAtUtc: input.capture.captured_at_utc,
+          imageSha256: input.capture.image_sha256,
+          schemaVersion: input.capture.schema_version,
+          zoneGeometry: input.capture.zone_geometry,
+          zoneConfigSha256: input.capture.zone_config_sha256,
+          imageDimensions: input.capture.image_dimensions,
+        });
+        if (metadata.capturedAt.getTime() > Date.now() + 5 * 60 * 1_000) {
+          throw new Error("Invalid handoff image timestamp");
+        }
+
+        const result = await processHandoffVisualEvent({
+          storeId: store.id,
+          storeTimeZone: store.timezone,
+          metadata,
+          imageDataUrl: input.imageDataUrl,
+          evidenceOrigin: "verified_snapshot",
+          sourceDetail: input.sourceDetail,
+        });
+
+        return { success: true, ...result } as const;
       }),
   }),
   timeclock: router({
@@ -574,6 +866,7 @@ export const appRouter = router({
       .input(z.object({ staffName: staffAttendanceNameSchema }))
       .mutation(async ({ ctx, input }) => {
         const entry = await clockInStaff({
+          storeId: ctx.user.storeId,
           staffName: input.staffName,
           submittedByUserId: ctx.user.id,
         });
@@ -588,6 +881,7 @@ export const appRouter = router({
       .input(z.object({ staffName: staffAttendanceNameSchema }))
       .mutation(async ({ ctx, input }) => {
         const entry = await clockOutStaff({
+          storeId: ctx.user.storeId,
           staffName: input.staffName,
           submittedByUserId: ctx.user.id,
         });
@@ -600,9 +894,9 @@ export const appRouter = router({
       }),
     todayStatus: protectedProcedure
       .input(z.object({ businessDate: requiredBusinessDateSchema.optional() }).optional())
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         const businessDate = input?.businessDate ?? getPacificBusinessDate();
-        const staff = await getTodayAttendance(businessDate);
+        const staff = await getTodayAttendance(businessDate, ctx.user.storeId);
 
         return {
           businessDate,
@@ -611,17 +905,17 @@ export const appRouter = router({
       }),
     weeklyHours: adminProcedure
       .input(weeklyAttendanceRangeSchema)
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         const endDate = input?.endDate ?? getPacificBusinessDate();
         const startDate = input?.startDate ?? getPacificSundayWeekStart(endDate);
-        return getWeeklyAttendanceSummary({ startDate, endDate });
+        return getWeeklyAttendanceSummary({ startDate, endDate, storeId: ctx.user.storeId });
       }),
     timeBook: adminProcedure
       .input(weeklyAttendanceRangeSchema)
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         const endDate = input?.endDate ?? getPacificBusinessDate();
         const startDate = input?.startDate ?? getPacificSundayWeekStart(endDate);
-        return getAttendanceTimeBook({ startDate, endDate });
+        return getAttendanceTimeBook({ startDate, endDate, storeId: ctx.user.storeId });
       }),
     saveEntry: adminProcedure
       .input(
@@ -635,13 +929,14 @@ export const appRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         const entry = await saveAttendanceEntry({
+          storeId: ctx.user.storeId,
           entryId: input.entryId,
           staffName: input.staffName,
           businessDate: input.businessDate,
-          clockInAt: convertPacificBusinessDateTimeToTimestamp(input.businessDate, input.clockInTime),
+          clockInAt: getBusinessDateTimeTimestamp(input.businessDate, input.clockInTime),
           clockOutAt:
             input.clockOutTime && input.clockOutTime.trim().length > 0
-              ? convertPacificBusinessDateTimeToTimestamp(input.businessDate, input.clockOutTime)
+              ? getBusinessDateTimeTimestamp(input.businessDate, input.clockOutTime)
               : null,
           submittedByUserId: ctx.user.id,
         });
@@ -659,26 +954,27 @@ export const appRouter = router({
           businessDate: optionalBusinessDateSchema,
         })
       )
-      .query(async ({ input }) => getDailyOperationsSnapshot(input.businessDate)),
+      .query(async ({ ctx, input }) => getDailyOperationsSnapshot(input.businessDate, ctx.user.storeId)),
     salesTrend: adminProcedure
       .input(
         z.object({
           days: z.number().int().min(7).max(90).default(28),
         })
       )
-      .query(async ({ input }) => getSalesTrend(input.days)),
-    weekOverWeek: adminProcedure.query(async () => getWeekOverWeekSales()),
-    inventoryAlerts: adminProcedure.query(async () => getInventoryAlerts()),
-    inventoryItems: adminProcedure.query(async () => listInventoryItems()),
-    recipes: adminProcedure.query(async () => listRecipesWithCosts()),
-    checklistQuestions: adminProcedure.input(z.object({ checklistType: checklistTypeSchema })).query(async ({ input }) => listChecklistQuestions(input.checklistType)),
-    saveChecklistQuestion: adminProcedure.input(checklistQuestionSchema).mutation(async ({ input }) => {
-      const question = await saveChecklistQuestion(input);
+      .query(async ({ ctx, input }) => getSalesTrend(input.days, ctx.user.storeId)),
+    weekOverWeek: adminProcedure.query(async ({ ctx }) => getWeekOverWeekSales(ctx.user.storeId)),
+    inventoryAlerts: adminProcedure.query(async ({ ctx }) => getInventoryAlerts(ctx.user.storeId)),
+    inventoryItems: adminProcedure.query(async ({ ctx }) => listInventoryItems(ctx.user.storeId)),
+    recipes: adminProcedure.query(async ({ ctx }) => listRecipesWithCosts(ctx.user.storeId)),
+    checklistQuestions: adminProcedure.input(z.object({ checklistType: checklistTypeSchema })).query(async ({ ctx, input }) => listChecklistQuestions(input.checklistType, ctx.user.storeId)),
+    saveChecklistQuestion: adminProcedure.input(checklistQuestionSchema).mutation(async ({ ctx, input }) => {
+      const question = await saveChecklistQuestion({ ...input, storeId: ctx.user.storeId });
       return { success: true, question } as const;
     }),
-    removeChecklistQuestion: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => removeChecklistQuestion(input.id)),
-    saveInventoryItem: adminProcedure.input(inventoryItemSchema).mutation(async ({ input }) => {
+    removeChecklistQuestion: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ ctx, input }) => removeChecklistQuestion(input.id, ctx.user.storeId)),
+    saveInventoryItem: adminProcedure.input(inventoryItemSchema).mutation(async ({ ctx, input }) => {
       const item = await saveInventoryItem({
+        storeId: ctx.user.storeId,
         ...input,
         costPerUnit: input.costPerUnit.toFixed(2),
         currentQuantity: input.currentQuantity.toFixed(2),
@@ -698,14 +994,99 @@ export const appRouter = router({
           limit: z.number().int().min(4).max(30).default(12),
         })
       )
-      .query(async ({ input }) => getRecentNotes(input.limit)),
+      .query(async ({ ctx, input }) => getRecentNotes(input.limit, ctx.user.storeId)),
     submissionHistory: adminProcedure
       .input(
         z.object({
           businessDate: optionalBusinessDateSchema,
         }).optional()
       )
-      .query(async ({ input }) => listSubmissionHistoryEntries(input?.businessDate)),
+      .query(async ({ ctx, input }) => listSubmissionHistoryEntries(input?.businessDate, ctx.user.storeId)),
+    importRecordingExtractedHandoffFrame: adminProcedure
+      .input(z.object({
+        caseReference: z.string().regex(/^[A-Za-z0-9._-]{8,128}$/),
+        imageDataUrl: z.string().min(32).max(12 * 1024 * 1024),
+        capture: z.object({
+          schema_version: z.literal(3),
+          camera: z.literal("handoff"),
+          cup_zone: z.literal("handoff_zone"),
+          cup_event_id: z.string().min(8).max(128),
+          captured_at_utc: z.string().min(20).max(40),
+          image_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+          zone_geometry: z.array(z.object({ x: z.number(), y: z.number() })).min(3).max(16),
+          zone_config_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+          image_dimensions: z.object({ width: z.number().int(), height: z.number().int() }),
+        }),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const store = await getActiveStoreById(ctx.user.storeId);
+        if (!store) throw new TRPCError({ code: "FORBIDDEN", message: "The current store is not active" });
+
+        let metadata: ReturnType<typeof parseHandoffCaptureMetadata>;
+        try {
+          metadata = parseHandoffCaptureMetadata({
+            camera: input.capture.camera,
+            cupZone: input.capture.cup_zone,
+            cupEventId: input.capture.cup_event_id,
+            capturedAtUtc: input.capture.captured_at_utc,
+            imageSha256: input.capture.image_sha256,
+            schemaVersion: input.capture.schema_version,
+            zoneGeometry: input.capture.zone_geometry,
+            zoneConfigSha256: input.capture.zone_config_sha256,
+            imageDimensions: input.capture.image_dimensions,
+          });
+        } catch (error) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Invalid recovered scene metadata" });
+        }
+
+        const result = await processHandoffVisualEvent({
+          storeId: store.id,
+          storeTimeZone: store.timezone,
+          metadata,
+          imageDataUrl: input.imageDataUrl,
+          evidenceOrigin: "recording_extracted_frame",
+          sourceDetail: `recording_extracted_case:${input.caseReference}`,
+        });
+
+        return { success: true, ...result } as const;
+      }),
+    handoffVisualEvents: adminProcedure
+      .input(z.object({
+        businessDate: optionalBusinessDateSchema,
+        status: z.enum(["all", "pending_review", "approved_by_ai", "discarded", "approved_by_manager", "discarded_by_manager"]).default("all"),
+        limit: z.number().int().min(1).max(200).default(60),
+      }).optional())
+      .query(async ({ ctx, input }) => listHandoffVisualEvents({
+        storeId: ctx.user.storeId,
+        businessDate: input?.businessDate,
+        status: input?.status ?? "all",
+        limit: input?.limit ?? 60,
+      })),
+    reviewHandoffVisualEvent: adminProcedure
+      .input(z.object({
+        id: z.number().int().positive(),
+        decision: z.enum(["approved_by_manager", "discarded_by_manager"]),
+        reviewNotes: z.string().max(2_000).optional().default(""),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        let event;
+        try {
+          event = await reviewHandoffVisualEvent({
+            id: input.id,
+            storeId: ctx.user.storeId,
+            reviewedByUserId: ctx.user.id,
+            decision: input.decision,
+            reviewNotes: input.reviewNotes,
+          });
+        } catch (error) {
+          // Do not reveal whether an ID belongs to another tenant.
+          if (error instanceof Error && error.message === "Handoff visual event was not found in this store") {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Handoff visual event was not found" });
+          }
+          throw error;
+        }
+        return { success: true, event } as const;
+      }),
     updateSubmissionGelato: adminProcedure
       .input(
         z.object({
@@ -717,6 +1098,7 @@ export const appRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         const entry = await updateSubmissionHistoryGelato({
+          storeId: ctx.user.storeId,
           entryId: input.entryId,
           submittedByUserId: ctx.user.id,
           gelatoEntryMode: input.gelatoEntryMode,
@@ -742,6 +1124,7 @@ export const appRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         const entry = await updateSubmissionHistoryForm({
+          storeId: ctx.user.storeId,
           entryId: input.entryId,
           form: input.form,
           submittedByUserId: ctx.user.id,

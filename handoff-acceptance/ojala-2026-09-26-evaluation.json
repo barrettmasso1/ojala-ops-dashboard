@@ -1,0 +1,90 @@
+{
+  "report_type": "Ojala handoff real-case isolated end-to-end evaluation",
+  "case_id": "ojala-2026-09-26-165652-170652",
+  "window_local": "2026-09-26 16:56:52–17:06:52 America/Mazatlan",
+  "privacy": {
+    "source_images_committed_to_git": false,
+    "source_images_uploaded_to_github": false,
+    "source_images_included_in_this_record": false,
+    "private_evidence_hashes_only": true
+  },
+  "archive": {
+    "sha256": "ecd1783b153c514813a706f88b2b7866f301032b2b1426f2793f5d3fedaee239",
+    "source_recording_sha256": "7f73aa3481abe959f8ff0af6ed2be28867a1d0704e366aa546bd60eda3104b85",
+    "replay_exit_code": 0,
+    "recording_coverage_seconds": 597.8022770881653,
+    "recording_segments": 61
+  },
+  "human_reference": {
+    "operator_reported_medium_cups_sold": 2,
+    "size_automatically_validated": false
+  },
+  "automatic_frigate": {
+    "cup_tracks": 1,
+    "cup_event_id": "1790467493.946143-9rdbpk",
+    "automatic_capture_pairs": 1,
+    "automatic_capture_local_time": "2026-09-26T17:04:57.764098-07:00",
+    "sender_queue_state": "queued",
+    "sender_attempts": 0,
+    "track_score": 0.533203125,
+    "track_top_score": 0.6943359375,
+    "detector_box_normalized": [0.5013020833333334, 0.5733024691358025, 0.05772569444444445, 0.08564814814814815]
+  },
+  "recording_extracted_scene": {
+    "local_time_approximate": "2026-09-26T17:02:38-07:00",
+    "independent_automatic_cup_event": false,
+    "independent_automatic_capture": false,
+    "replay_frame_sha256": "12db915d447fdcfd6301e36010e75d60fc3ae85c614859dbd87f5787f4b48ff0",
+    "control_frame_sha256": "4f69bf54fffc4d4056a154897f23e4c6a6de0563910cd622887b1c4b05d4d2e8",
+    "evidence_origin": "recording_extracted_frame",
+    "must_not_be_labeled_as": "automatic Frigate success"
+  },
+  "gemini_pro_isolated_visual_result": {
+    "model": "gemini-3.1-pro-preview",
+    "recovered_scene": {
+      "person_present": true,
+      "gelato_cup_present": true,
+      "cup_in_handoff_zone": true,
+      "visible_cup_count": 1,
+      "confidence": "high",
+      "ambiguous": false,
+      "person_box_count": 4,
+      "gelato_cup_box_count": 1
+    },
+    "automatic_capture": {
+      "person_present": true,
+      "gelato_cup_present": true,
+      "cup_in_handoff_zone": true,
+      "visible_cup_count": 4,
+      "confidence": "high",
+      "ambiguous": false,
+      "person_box_count": 4,
+      "gelato_cup_box_count": 4
+    }
+  },
+  "isolated_persistence_rehearsal": {
+    "database": "local-only MariaDB 127.0.0.1:3317/ojala_real_case",
+    "production_database_accessed": false,
+    "visual_events_added": 1,
+    "frigate_cup_counts_added": 0,
+    "sales_added": 0,
+    "deliveries_added": 0,
+    "inventory_records_added": 0,
+    "revenue_records_added": 0,
+    "stored_origin": "recording_extracted_frame",
+    "ai_suggested_status": "approved_by_ai",
+    "persisted_status": "pending_review",
+    "boxes_persisted": true
+  },
+  "cause_of_first_detector_omission": {
+    "status": "unconfirmed",
+    "evidence": "The supplied audit contains no first-detector trace or detector box for the 17:02:38 recording scene. The supplied sampling and segment coverage show the camera and worker were active, but they do not identify why the event was absent."
+  },
+  "acceptance_result": {
+    "real_scene_replayed": true,
+    "recovered_scene_kept_separate_from_automatic_capture": true,
+    "visual_evidence_persisted_without_operational_mutation": true,
+    "full_detector_recall_not_certified": true,
+    "production_not_modified": true
+  }
+}
