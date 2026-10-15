@@ -21,8 +21,13 @@ export type CameraEvidenceState =
 const isCount = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 
+// Reviewed-count imports may carry many hash-addressed evidence references.
+// The server caps this JSON payload at 60 KiB; accept the same bound here so
+// presentation does not silently discard valid partial-coverage provenance.
+const MAX_CAMERA_SOURCE_DETAIL_BYTES = 60_000;
+
 function parseSource(value?: string | null): Record<string, unknown> {
-  if (!value || value.length > 10_000) return {};
+  if (!value || value.length > MAX_CAMERA_SOURCE_DETAIL_BYTES) return {};
   try {
     const parsed: unknown = JSON.parse(value);
     return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)

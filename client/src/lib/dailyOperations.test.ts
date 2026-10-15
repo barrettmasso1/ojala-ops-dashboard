@@ -35,6 +35,20 @@ describe("daily operations evidence boundaries", () => {
       cameraReviewStatus: "Reviewed evidence; full-day review remains open",
     });
   });
+  it("keeps valid partial provenance when many evidence hashes exceed 10 KiB", () => {
+    const evidenceReferences = Array.from({ length: 70 }, (_, index) => ({
+      path: `evidence/${"segment/".repeat(12)}frame-${index}.jpg`, sha256: "b".repeat(64),
+    }));
+    const view = buildDailyOperations(sample({
+      frigateCounts: camera("partial", { gaps: "Selected review windows only", evidenceReferences }),
+    }), day);
+    expect(view).toMatchObject({
+      cameraValue: "18 (partial)",
+      state: "partial",
+      cameraCoverage: "Partial coverage; gaps reported",
+      difference: null,
+    });
+  });
   it("compares physical counts across sizes without converting cups to ounces", () => {
     expect(buildDailyOperations(sample({ frigateCounts: camera() }), day)).toMatchObject({
       salesCount: 20,
