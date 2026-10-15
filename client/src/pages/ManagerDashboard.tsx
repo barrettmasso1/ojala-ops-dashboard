@@ -8,6 +8,7 @@ import { normalizeGelatoFlavorName } from "@/lib/gelatoFlavorAliases";
 import { getHistoryGelatoRowVolumeBreakdown } from "@/lib/historyGelato";
 import { buildManagerReconciliationSnapshot, MANAGER_INVENTORY_TABS, type ManagerInventoryView } from "@/lib/managerReconciliation";
 import { buildShopifyVarianceSnapshot, summarizeShopifySalesCsv, type ShopifySalesImportSummary } from "@/lib/shopifySalesCsv";
+import { parseRecoveryImportJson, type RecoveryImportBatch } from "@/lib/handoffRecoveryImport";
 import { trpc } from "@/lib/trpc";
 import { applyAnalyzedPhotoPanSetup, getAnalyzedPhotoCombinedGrossWeightKg, getAnalyzedPhotoPanSetup } from "./EmployeePortal";
 import { formatBusinessCalendarDate, formatBusinessTime, getBusinessDate, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, PACIFIC_TIME_ZONE } from "../../../shared/businessDate";
@@ -725,6 +726,10 @@ export default function ManagerDashboard() {
   const [shopifyImportSummary, setShopifyImportSummary] = useState<ShopifySalesImportSummary | null>(null);
   const [shopifyImportFileName, setShopifyImportFileName] = useState("");
   const [shopifyImportError, setShopifyImportError] = useState<string | null>(null);
+  const [recoveryImportBatch, setRecoveryImportBatch] = useState<RecoveryImportBatch | null>(null);
+  const [recoveryImportFileName, setRecoveryImportFileName] = useState("");
+  const [recoveryImportError, setRecoveryImportError] = useState<string | null>(null);
+  const [recoveryImportProgress, setRecoveryImportProgress] = useState<{ imported: number; total: number; eventIds: number[] } | null>(null);
 
   const isAdmin = user?.role === "admin";
   const maxBusinessDate = getBusinessDate(liveNow, timeZone);
@@ -770,6 +775,10 @@ export default function ManagerDashboard() {
     setShopifyImportSummary(null);
     setShopifyImportFileName("");
     setShopifyImportError(null);
+    setRecoveryImportBatch(null);
+    setRecoveryImportFileName("");
+    setRecoveryImportError(null);
+    setRecoveryImportProgress(null);
   }, [selectedDate]);
 
   const dailyQuery = trpc.dashboard.daily.useQuery(
@@ -888,6 +897,7 @@ export default function ManagerDashboard() {
     },
     onError: error => toast.error(error.message),
   });
+  const importRecoveryFrameMutation = trpc.dashboard.importRecordingExtractedHandoffFrame.useMutation();
 
   const updateSubmissionGelatoMutation = trpc.dashboard.updateSubmissionGelato.useMutation({
     onSuccess: async () => {
@@ -1178,6 +1188,54 @@ export default function ManagerDashboard() {
       toast.error(message);
     } finally {
       event.target.value = "";
+    }
+  }
+
+  async function handleRecoveryImportFileUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const batch = await parseRecoveryImportJson(await file.text(), selectedDate);
+      setRecoveryImportBatch(batch);
+      setRecoveryImportFileName(file.name);
+      setRecoveryImportError(null);
+      setRecoveryImportProgress(null);
+      toast.success(`${batch.items.length} recovered recording frame${batch.items.length === 1 ? "" : "s"} verified locally. Review the import before saving.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to read the recovery import.";
+      setRecoveryImportBatch(null);
+      setRecoveryImportFileName(file.name);
+      setRecoveryImportError(message);
+      setRecoveryImportProgress(null);
+      toast.error(message);
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  async function importRecoveredRecordingFrames() {
+    if (!recoveryImportBatch || recoveryImportBatch.businessDate !== selectedDate) {
+      setRecoveryImportError("Choose the same business date shown by the recovery import before saving.");
+      return;
+    }
+
+    const eventIds: number[] = [];
+    setRecoveryImportError(null);
+    setRecoveryImportProgress({ imported: 0, total: recoveryImportBatch.items.length, eventIds });
+    try {
+      for (const item of recoveryImportBatch.items) {
+        const result = await importRecoveryFrameMutation.mutateAsync(item);
+        eventIds.push(result.eventId);
+        setRecoveryImportProgress({ imported: eventIds.length, total: recoveryImportBatch.items.length, eventIds: [...eventIds] });
+      }
+      toast.success(`${eventIds.length} recording-extracted frame${eventIds.length === 1 ? "" : "s"} saved as manager-review evidence. No sales, deliveries, inventory, or camera counts changed.`);
+      await utils.dashboard.handoffVisualEvents.invalidate({ businessDate: selectedDate, status: "all", limit: 100 });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to import a recovered recording frame.";
+      setRecoveryImportError(`${message} Earlier items remain safely deduplicated; retrying the same manifest will not create duplicate event IDs.`);
+      toast.error(message);
+      await utils.dashboard.handoffVisualEvents.invalidate({ businessDate: selectedDate, status: "all", limit: 100 });
     }
   }
 
@@ -3168,6 +3226,47 @@ export default function ManagerDashboard() {
                 <div className="flex items-center gap-2"><Camera className="h-4 w-4 text-[#52665f]" /> No sales, deliveries, or inventory updates</div>
               </div>
             </div>
+
+            {isAdmin ? (
+              <section className="mt-6 rounded-[1.5rem] border border-[#eadcb6] bg-[#fff9e9]/65 p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="max-w-3xl">
+                    <p className="text-xs uppercase tracking-[0.22em] text-[#86672a]">Admin-only recovery import</p>
+                    <h3 className="mt-2 font-serif text-2xl text-[#3f3321]">Recording-extracted frames</h3>
+                    <p className="mt-3 text-sm leading-6 text-[#6d5a31]">Import only the Beelink <code>recovery-import.json</code> for the selected date. Every image hash is verified before the protected mutation runs, each ID must begin with <code>rec-YYYYMMDD-</code>, and the server independently binds it to this signed-in store and the active handoff zone. Originals and automatic Frigate event IDs are rejected.</p>
+                  </div>
+                  <div className="flex w-full max-w-sm flex-col gap-3 lg:items-end">
+                    <label className="inline-flex cursor-pointer items-center justify-center rounded-full border border-[#6d5a31] bg-[#6d5a31] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#574724]">
+                      Choose recovery JSON
+                      <input type="file" accept="application/json,.json" className="sr-only" onChange={handleRecoveryImportFileUpload} />
+                    </label>
+                    <p className="text-xs leading-5 text-[#7d6a41]">Selected date: {selectedDate}. This import cannot write sales, deliveries, inventory, or Camera cup count.</p>
+                  </div>
+                </div>
+                {recoveryImportFileName ? <p className="mt-4 text-xs leading-5 text-[#7d6a41]">Recovery file: {recoveryImportFileName}</p> : null}
+                {recoveryImportError ? <p className="mt-4 rounded-xl border border-[#e7c7c2] bg-[#fff4f2] px-4 py-3 text-sm leading-6 text-[#8a4343]">{recoveryImportError}</p> : null}
+                {recoveryImportBatch ? (
+                  <div className="mt-5 rounded-[1.25rem] border border-[#eadcb6] bg-white/80 p-4">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-[#3f3321]">{recoveryImportBatch.items.length} recovered recording frame{recoveryImportBatch.items.length === 1 ? "" : "s"} verified for {recoveryImportBatch.businessDate}</p>
+                        <p className="mt-1 text-xs leading-5 text-[#7d6a41]">These are review-only recovery evidence. A positive AI suggestion will remain pending for a manager; it is never an automatic delivery or count.</p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={importRecoveryFrameMutation.isPending}
+                        onClick={() => void importRecoveredRecordingFrames()}
+                        className="inline-flex items-center justify-center rounded-full bg-[#52665f] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#43554f] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {importRecoveryFrameMutation.isPending ? "Importing recovery evidence…" : `Import ${recoveryImportBatch.items.length} recovered frame${recoveryImportBatch.items.length === 1 ? "" : "s"}`}
+                      </button>
+                    </div>
+                    <p className="mt-4 text-xs leading-5 text-[#6d5a31]">IDs: {recoveryImportBatch.items.map(item => item.capture.cup_event_id).join(", ")}</p>
+                    {recoveryImportProgress ? <p className="mt-3 text-xs font-medium text-[#52665f]">Imported {recoveryImportProgress.imported} of {recoveryImportProgress.total}. Persisted dashboard IDs: {recoveryImportProgress.eventIds.join(", ") || "none yet"}.</p> : null}
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
 
             <div className="mt-6 grid gap-5">
               {handoffVisualEventsQuery.isLoading ? (
