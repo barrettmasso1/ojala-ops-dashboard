@@ -1477,8 +1477,8 @@ export default function ManagerDashboard() {
                     <input
                       type="date"
                       value={selectedDate}
-                      max={maxBusinessDate}
-                      onChange={event => setSelectedDate(event.target.value > maxBusinessDate ? maxBusinessDate : event.target.value)}
+                      max={isHandoffReviewRoute ? undefined : maxBusinessDate}
+                      onChange={event => setSelectedDate(isHandoffReviewRoute ? event.target.value : event.target.value > maxBusinessDate ? maxBusinessDate : event.target.value)}
                       className="h-12 w-full rounded-full border border-[#ddd4c7] bg-[#fcfaf6] pl-11 pr-4 text-sm text-[#24332f] shadow-sm outline-none transition focus:border-[#52665f] focus:ring-4 focus:ring-[#52665f]/10"
                     />
                   </div>
