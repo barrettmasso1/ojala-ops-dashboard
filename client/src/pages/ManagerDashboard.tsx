@@ -3292,6 +3292,7 @@ export default function ManagerDashboard() {
                 handoffVisualEvents.map(event => {
                   const status = event.analysisStatus as HandoffVisualStatus;
                   const canReview = status === "pending_review" || status === "approved_by_ai" || status === "discarded";
+                  const humanReview = event.humanReviewContext;
                   return (
                     <article key={event.id} className="overflow-hidden rounded-[1.6rem] border border-[#e4dccf] bg-[#fcfaf6] shadow-sm">
                       <div className="grid gap-0 lg:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)]">
@@ -3306,7 +3307,7 @@ export default function ManagerDashboard() {
                           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                             <div>
                               <p className="text-xs uppercase tracking-[0.22em] text-[#8a9089]">{event.cameraName} · {event.businessDate}</p>
-                              <p className="mt-2 text-sm text-[#66706a]">Captured {formatDateTime(event.capturedAt)} · Event {event.cupEventId}</p>
+                              <p className="mt-2 text-sm text-[#66706a]">Record #{event.id} · Local capture {formatDateTime(event.capturedAt, timeZone)} · Event {event.cupEventId}</p>
                               <p className="mt-1 text-xs font-medium uppercase tracking-[0.12em] text-[#68716c]">{handoffEvidenceOriginLabel(event.evidenceOrigin)}</p>
                             </div>
                             <span className={`w-max rounded-full border px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] ${handoffVisualStatusClass(status)}`}>{handoffVisualStatusLabel(status)}</span>
@@ -3320,6 +3321,19 @@ export default function ManagerDashboard() {
                           </div>
 
                           <p className="mt-4 rounded-2xl border border-[#e5ddd0] bg-white/75 px-4 py-3 text-sm leading-6 text-[#56635d]">{event.analysisReason || "Awaiting analysis."}</p>
+                          {humanReview ? (
+                            <section className="mt-3 rounded-2xl border border-[#d8e2da] bg-[#f4f8f3] px-4 py-3 text-sm leading-6 text-[#43554f]" aria-label={`Human review guidance for record ${event.id}`}>
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium uppercase tracking-[0.12em] text-[#52665f]">
+                                <span>Human review brief</span>
+                                <span>{humanReview.sceneId} · {humanReview.videoFile}</span>
+                                <span>{humanReview.classification === "candidate_positive" ? "Candidate positive — decision required" : "Ambiguous — preserve pending"}</span>
+                              </div>
+                              <p className="mt-2"><span className="font-medium">Scene window:</span> {humanReview.localWindow}</p>
+                              <p className="mt-1"><span className="font-medium">Why this needs review:</span> {humanReview.uncertaintyReason}</p>
+                              {humanReview.duplicateGroup ? <p className="mt-1 font-medium text-[#805f28]">Duplicate group: {humanReview.duplicateGroup}. Multiple frames in this group must never be counted as multiple cups.</p> : null}
+                              <p className="mt-1"><span className="font-medium">Reviewer decision:</span> {humanReview.decisionPrompt}</p>
+                            </section>
+                          ) : null}
                           {event.evidenceOrigin === "recording_extracted_frame" && event.aiSuggestedStatus ? (
                             <p className="mt-3 rounded-2xl border border-[#eadcb6] bg-[#fff9e9] px-4 py-3 text-sm leading-6 text-[#86672a]">
                               AI suggestion: {handoffVisualStatusLabel(event.aiSuggestedStatus as HandoffVisualStatus)}. This recovered frame remains manager-review evidence and is not an automatic Frigate success.

@@ -644,6 +644,26 @@ describe("operations router", () => {
     }));
   });
 
+  it("returns date-specific human-review context only through the admin visual queue", async () => {
+    dbMocks.listHandoffVisualEvents.mockResolvedValue([{
+      id: 1,
+      storeId: 1,
+      businessDate: "2026-10-14",
+      cameraName: "handoff",
+      cupEventId: "rec-20261014-1792025013.917396-9t059b",
+    }]);
+    const caller = appRouter.createCaller(createContext("admin", 1));
+
+    const events = await caller.dashboard.handoffVisualEvents({ businessDate: "2026-10-14", status: "pending_review" });
+
+    expect(events[0]?.humanReviewContext).toMatchObject({
+      sceneId: "scene-05",
+      videoFile: "scene-05.mp4",
+      classification: "candidate_positive",
+    });
+    expect(dbMocks.listHandoffVisualEvents).toHaveBeenCalledWith(expect.objectContaining({ storeId: 1 }));
+  });
+
   it("returns a non-disclosing not-found error for a forged cross-store visual record ID", async () => {
     dbMocks.reviewHandoffVisualEvent.mockRejectedValueOnce(new Error("Handoff visual event was not found in this store"));
     const caller = appRouter.createCaller(createContext("admin", 2));

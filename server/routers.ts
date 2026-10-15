@@ -62,6 +62,7 @@ import { normalizeFrigateEventAt } from "./frigateEventOrder";
 import { storeAdminRouter } from "./storeAdminRouter";
 import { analyzeHandoffVisualImage, getHandoffVisualRetryDelayMs } from "./handoffVisualAnalysis";
 import { applyEvidenceOriginPolicy, type HandoffEvidenceOrigin } from "./handoffEvidenceOrigin";
+import { getHandoffHumanReviewContext } from "./handoffHumanReviewContext";
 import { decodeHandoffImageDataUrl, handoffCaptureMetadataJson, handoffImageExtension, parseHandoffCaptureMetadata } from "./handoffVisualPayload";
 import { storageGetSignedUrl, storagePut } from "./storage";
 import { getBusinessDate } from "../shared/businessDate";
@@ -1081,12 +1082,21 @@ export const appRouter = router({
         status: z.enum(["all", "pending_review", "approved_by_ai", "discarded", "approved_by_manager", "discarded_by_manager"]).default("all"),
         limit: z.number().int().min(1).max(200).default(60),
       }).optional())
-      .query(async ({ ctx, input }) => listHandoffVisualEvents({
-        storeId: ctx.user.storeId,
-        businessDate: input?.businessDate,
-        status: input?.status ?? "all",
-        limit: input?.limit ?? 60,
-      })),
+      .query(async ({ ctx, input }) => {
+        const events = await listHandoffVisualEvents({
+          storeId: ctx.user.storeId,
+          businessDate: input?.businessDate,
+          status: input?.status ?? "all",
+          limit: input?.limit ?? 60,
+        });
+        return events.map(event => ({
+          ...event,
+          humanReviewContext: getHandoffHumanReviewContext({
+            businessDate: event.businessDate,
+            cupEventId: event.cupEventId,
+          }),
+        }));
+      }),
     reviewHandoffVisualEvent: adminProcedure
       .input(z.object({
         id: z.number().int().positive(),
