@@ -789,6 +789,10 @@ export default function ManagerDashboard() {
 
   useEffect(() => {
     if (!isAdmin || dailyQuery.isLoading || trendQuery.isLoading) return;
+    // Handoff Review must remain available for a recovery date even when no
+    // sales/closing report exists for it. The overview alone falls back to
+    // the latest sales date for a useful default dashboard snapshot.
+    if (!isOverviewRoute) return;
     if (selectedDate !== maxBusinessDate) return;
     if ((dailyQuery.data?.reportCount ?? 0) > 0) return;
 
@@ -800,6 +804,7 @@ export default function ManagerDashboard() {
     dailyQuery.data?.reportCount,
     dailyQuery.isLoading,
     isAdmin,
+    isOverviewRoute,
     maxBusinessDate,
     selectedDate,
     trendQuery.data,
