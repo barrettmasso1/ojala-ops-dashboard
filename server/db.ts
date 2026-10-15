@@ -2528,6 +2528,22 @@ export async function upsertFrigateCupCount(input: {
   };
 }
 
+/** Admin recovery is insert-or-verify only: it cannot overwrite an existing
+ * daily count, including during a concurrent automatic push. */
+export async function importReviewedFrigateCupCount(input: Parameters<typeof upsertFrigateCupCount>[0]) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  requireStoreId(input.storeId);
+  await db.insert(frigateCupCounts).values(input).onDuplicateKeyUpdate({ set: { id: sql`\`id\`` } });
+  const current = await getFrigateCupCountForDate(input.businessDate, input.cameraName, input.storeId);
+  if (!current || current.sourceEventId !== input.sourceEventId
+    || current.cupsDetected !== input.cupsDetected
+    || current.sourceEventAt?.getTime() !== input.sourceEventAt.getTime()) {
+    return null;
+  }
+  return current;
+}
+
 export async function getFrigateCupCountForDate(businessDate: string, cameraName = "handoff", storeId = 1) {
   const db = await getDb();
   if (!db) return null;
