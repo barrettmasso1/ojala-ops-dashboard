@@ -51,6 +51,7 @@ import {
   updateSubmissionHistoryForm,
  updateSubmissionHistoryGelato,
   upsertFrigateCupCount,
+  importReviewedFrigateCupCount,
   upsertUser,
 } from "./db";
 import { extractGelatoPhotos } from "./gelatoPhotoPilot";
@@ -65,6 +66,8 @@ import { decodeHandoffImageDataUrl, handoffCaptureMetadataJson, handoffImageExte
 import { storageGetSignedUrl, storagePut } from "./storage";
 import { getBusinessDate } from "../shared/businessDate";
 import { isHandoffCaptureZoneCoherent, parseStoredHandoffZoneGeometry } from "./handoffZoneGeometry";
+import { prepareReviewedCountImport } from "./reviewedCountImport";
+import { REVIEWED_COUNT_IMPORT_LIMIT } from "../shared/reviewedCountImport";
 
 const PHASE1_OJALA_STORE_ID = 1;
 
@@ -1002,6 +1005,28 @@ export const appRouter = router({
         }).optional()
       )
       .query(async ({ ctx, input }) => listSubmissionHistoryEntries(input?.businessDate, ctx.user.storeId)),
+    importReviewedCameraCount: adminProcedure
+      .input(z.object({ importJson: z.string().min(2).max(REVIEWED_COUNT_IMPORT_LIMIT), evidenceReviewed: z.literal(true) }).strict())
+      .mutation(async ({ ctx, input }) => {
+        const store = await getActiveStoreById(ctx.user.storeId);
+        if (!store) throw new TRPCError({ code: "FORBIDDEN", message: "The current store is not active" });
+        let prepared: ReturnType<typeof prepareReviewedCountImport>;
+        try {
+          prepared = prepareReviewedCountImport(input.importJson, { storeId: store.id, userId: ctx.user.id, timezone: store.timezone });
+        } catch (error) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Invalid reviewed count" });
+        }
+        const saved = await importReviewedFrigateCupCount(prepared.row);
+        if (!saved) throw new TRPCError({ code: "CONFLICT", message: "An existing count differs from this record. No existing count was overwritten; reconcile it before retrying." });
+        return {
+          success: true, transport: "authenticated_admin_import" as const,
+          storeId: saved.storeId, businessDate: saved.businessDate, cameraName: saved.cameraName,
+          cupsDetected: saved.cupsDetected, coverage: prepared.coverage,
+          sourceEventId: saved.sourceEventId, sourceEventAt: saved.sourceEventAt,
+          recordSha256: prepared.recordSha256, receivedAt: saved.receivedAt,
+          automaticPushVerified: false,
+        };
+      }),
     importRecordingExtractedHandoffFrame: adminProcedure
       .input(z.object({
         caseReference: z.string().regex(/^[A-Za-z0-9._-]{8,128}$/),

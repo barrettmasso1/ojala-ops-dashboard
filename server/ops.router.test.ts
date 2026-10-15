@@ -44,6 +44,7 @@ const dbMocks = vi.hoisted(() => ({
   updateSubmissionHistoryForm: vi.fn(),
   updateSubmissionHistoryGelato: vi.fn(),
   upsertFrigateCupCount: vi.fn(),
+  importReviewedFrigateCupCount: vi.fn(),
   upsertUser: vi.fn(),
 }));
 
@@ -137,6 +138,58 @@ function createContext(role: Role | null, storeId = 1): TrpcContext {
 }
 
 describe("operations router", () => {
+  const reviewedCountImport = (storeId = 1) => JSON.stringify({
+    schemaVersion: 1, intendedProcedure: "dashboard.importReviewedCameraCount",
+    recordJson: JSON.stringify({
+      storeId, cameraName: "handoff", businessDate: "2026-07-18", status: "approved",
+      countBasis: "reviewed_unique_physical_cups", cupsDetected: 1, uniqueCupIds: ["fixture-cup"],
+      reviewedBy: "Test reviewer", approvedAt: "2026-07-19T02:00:00.123456Z", coverage: "partial",
+      gapsDescription: "Only one scene reviewed", evidenceReferences: [{ path: "fixture.mp4", sha256: "a".repeat(64) }],
+    }),
+  });
+
+  it.each([null, "user"] as const)("blocks reviewed-count import for %s", async role => {
+    await expect(appRouter.createCaller(createContext(role)).dashboard.importReviewedCameraCount({
+      importJson: reviewedCountImport(), evidenceReviewed: true,
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMocks.importReviewedFrigateCupCount).not.toHaveBeenCalled();
+  });
+
+  it("imports only for the authenticated store and returns a read-back receipt", async () => {
+    dbMocks.importReviewedFrigateCupCount.mockImplementation(async row => ({ ...row, receivedAt: new Date() }));
+    const result = await appRouter.createCaller(createContext("admin")).dashboard.importReviewedCameraCount({
+      importJson: reviewedCountImport(), evidenceReviewed: true,
+    });
+    expect(result).toMatchObject({ success: true, storeId: 1, cupsDetected: 1,
+      coverage: "partial", transport: "authenticated_admin_import", automaticPushVerified: false });
+    expect(dbMocks.importReviewedFrigateCupCount).toHaveBeenCalledWith(expect.objectContaining({ storeId: 1 }));
+    expect(dbMocks.createEndOfDayReport).not.toHaveBeenCalled();
+    expect(dbMocks.updateInventoryCount).not.toHaveBeenCalled();
+    expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();
+  });
+
+  it("rejects a forged tenant or inactive store before writing", async () => {
+    const caller = appRouter.createCaller(createContext("admin"));
+    await expect(caller.dashboard.importReviewedCameraCount({ importJson: reviewedCountImport(2), evidenceReviewed: true })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    dbMocks.getActiveStoreById.mockResolvedValueOnce(null);
+    await expect(caller.dashboard.importReviewedCameraCount({ importJson: reviewedCountImport(), evidenceReviewed: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMocks.importReviewedFrigateCupCount).not.toHaveBeenCalled();
+  });
+
+  it("reports conflicting stored counts without acknowledging the import", async () => {
+    dbMocks.importReviewedFrigateCupCount.mockResolvedValueOnce(null);
+    await expect(appRouter.createCaller(createContext("admin")).dashboard.importReviewedCameraCount({
+      importJson: reviewedCountImport(), evidenceReviewed: true,
+    })).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("requires an explicit evidence attestation", async () => {
+    await expect(appRouter.createCaller(createContext("admin")).dashboard.importReviewedCameraCount({
+      importJson: reviewedCountImport(), evidenceReviewed: false as unknown as true,
+    })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(dbMocks.importReviewedFrigateCupCount).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     notificationMocks.notifyOwner.mockResolvedValue(true);

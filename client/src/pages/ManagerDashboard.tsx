@@ -1,6 +1,7 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import DailyOperationsPanel from "@/components/DailyOperationsPanel";
+import ReviewedCountImport from "@/components/ReviewedCountImport";
 import { buildDailyOperations } from "@/lib/dailyOperations";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getLoginUrl } from "@/const";
@@ -1539,6 +1540,7 @@ export default function ManagerDashboard() {
         {isOverviewRoute ? (
           <>
             {!dailyQuery.isLoading && !dailyQuery.error && dailyOperations && <DailyOperationsPanel view={dailyOperations} timeZone={timeZone} />}
+            {isAdmin && <ReviewedCountImport key={selectedDate} businessDate={selectedDate} />}
             <SurfaceCard>
               <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                 <div>
