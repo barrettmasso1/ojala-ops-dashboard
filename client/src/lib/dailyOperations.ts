@@ -48,11 +48,15 @@ export function buildDailyOperations(input: DailyOperationsInput, selectedDate: 
   let cameraMessage = "No camera count received for this date. This does not mean zero cups.";
   let gaps = "";
   let receivedAt: string | Date | null = null;
+  let cameraCoverage = "No camera evidence received";
+  let cameraReviewStatus = "Awaiting a camera record";
   if (record) {
     if (!matchingDay || record.businessDate !== selectedDate
       || record.cameraName !== "handoff" || !isCount(record.cupsDetected)) {
       state = "invalid";
       cameraMessage = "The camera record does not match this date/camera or contains an invalid count.";
+      cameraCoverage = "Invalid record";
+      cameraReviewStatus = "Record needs correction";
     } else {
       cameraCount = record.cupsDetected;
       receivedAt = record.receivedAt ?? null;
@@ -64,14 +68,22 @@ export function buildDailyOperations(input: DailyOperationsInput, selectedDate: 
       // Partial evidence is useful and remains visible; it is never a daily total.
       if (source.coverage === "partial") {
         state = "partial";
+        cameraCoverage = gaps ? "Partial coverage; gaps reported" : "Partial coverage";
+        cameraReviewStatus = reviewed ? "Reviewed evidence; full-day review remains open" : "Review pending";
         cameraMessage = reviewed
           ? "Reviewed cups in partial evidence. The daily total is still unknown."
           : "Partial camera evidence; the counting method still needs review.";
       } else if (source.coverage === "complete" && reviewed && !gaps) {
         state = "reviewed";
+        cameraCoverage = "Full coverage reported";
+        cameraReviewStatus = "Reviewed unique physical cups";
         cameraMessage = "Reviewed unique cups; the source reports full coverage. This is not a certified delivery or sale.";
       } else {
         state = "unclassified";
+        cameraCoverage = source.coverage === "complete"
+          ? gaps ? "Full coverage reported, with gaps" : "Full coverage reported"
+          : "Coverage not declared";
+        cameraReviewStatus = "Method or coverage needs review";
         cameraMessage = gaps && source.coverage === "complete"
           ? "The source reports complete coverage but also lists gaps. Review before comparing."
           : "Camera record received. Confirm unique-cup counting and coverage before comparing.";
@@ -104,11 +116,13 @@ export function buildDailyOperations(input: DailyOperationsInput, selectedDate: 
     state,
     cameraLabel,
     cameraMessage,
+    cameraCoverage,
+    cameraReviewStatus,
     gaps,
     receivedAt,
     difference,
     differenceMessage,
-    manualReference: "Independent manual tally is not connected to this view yet.",
+    manualReference: "Camera-observed cups are a reported physical count, kept separate from sales, cup sizes, service mode, and ounces.",
   };
 }
 

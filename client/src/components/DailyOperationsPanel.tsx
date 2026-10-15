@@ -1,17 +1,17 @@
 import { Link } from "wouter";
 import type { DailyOperationsView } from "@/lib/dailyOperations";
 
-function receivedLabel(value: string | Date | null) {
+function receivedLabel(value: string | Date | null, timeZone: string) {
   if (!value) return "Not available";
   const date = value instanceof Date ? value : new Date(value);
   if (!Number.isFinite(date.getTime())) return "Not available";
   return new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Mazatlan",
+    timeZone,
     month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
   }).format(date);
 }
 
-export default function DailyOperationsPanel({ view }: { view: DailyOperationsView }) {
+export default function DailyOperationsPanel({ view, timeZone }: { view: DailyOperationsView; timeZone: string }) {
   return (
     <section aria-labelledby="daily-operations-title" className="rounded-[2rem] border border-[#ded5c8] bg-white/90 p-6 shadow-sm md:p-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -29,9 +29,14 @@ export default function DailyOperationsPanel({ view }: { view: DailyOperationsVi
           <p className="mt-3 text-sm leading-6 text-[#65716b]">{view.salesCount === null ? "No valid closing count for this date." : "Reported containers across sizes. No automatic POS connection is implied."}</p>
         </div>
         <div className="rounded-2xl bg-[#f7f2ea] p-5">
-          <h3 className="text-sm text-[#52665f]">Camera evidence</h3>
+          <h3 className="text-sm text-[#52665f]">Vasos observados por cámara</h3>
           <p className="mt-3 text-3xl font-semibold text-[#1f2b27]">{view.cameraValue}</p>
           <p className="mt-3 text-sm leading-6 text-[#65716b]">{view.cameraMessage}</p>
+          <dl className="mt-4 space-y-2 text-sm leading-6 text-[#65716b]">
+            <div><dt className="inline font-medium text-[#52665f]">Cobertura: </dt><dd className="inline">{view.cameraCoverage}</dd></div>
+            <div><dt className="inline font-medium text-[#52665f]">Estado de revisión: </dt><dd className="inline">{view.cameraReviewStatus}</dd></div>
+            <div><dt className="inline font-medium text-[#52665f]">Última recepción: </dt><dd className="inline">{receivedLabel(view.receivedAt, timeZone)} · {timeZone}</dd></div>
+          </dl>
         </div>
         <div className="rounded-2xl bg-[#f7f2ea] p-5">
           <h3 className="text-sm text-[#52665f]">Difference to review</h3>
@@ -41,8 +46,8 @@ export default function DailyOperationsPanel({ view }: { view: DailyOperationsVi
       </div>
       {view.gaps && <p className="mt-4 rounded-xl border border-[#e5d3a8] bg-[#fff7e5] p-4 text-sm leading-6 text-[#735825]"><strong>Coverage notes: </strong>{view.gaps}</p>}
       <div className="mt-5 flex flex-col gap-2 text-sm text-[#65716b]">
-        <p>Last camera upload: {receivedLabel(view.receivedAt)} · America/Mazatlan. Upload time does not establish that the camera is online.</p>
         <p>{view.manualReference}</p>
+        <p>Any future size and service-mode breakdown must keep unknown size and unknown here/to-go classification separate. Only evidence-backed nominal cup sizes may be converted to classified ounces.</p>
       </div>
       <div className="mt-6 flex flex-wrap gap-3">
         <Link href="/portal/closing" className="rounded-full bg-[#52665f] px-5 py-3 text-sm font-medium text-white">Open closing form</Link>

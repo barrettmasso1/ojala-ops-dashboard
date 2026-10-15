@@ -25,10 +25,25 @@ describe("daily operations evidence boundaries", () => {
   });
   it("shows partial evidence without turning it into a full-day comparison", () => {
     const view = buildDailyOperations(sample({ frigateCounts: camera("partial", { gaps: "Morning recording unavailable" }) }), day);
-    expect(view).toMatchObject({ cameraCount: 18, cameraValue: "18 (partial)", state: "partial", difference: null, gaps: "Morning recording unavailable" });
+    expect(view).toMatchObject({
+      cameraCount: 18,
+      cameraValue: "18 (partial)",
+      state: "partial",
+      difference: null,
+      gaps: "Morning recording unavailable",
+      cameraCoverage: "Partial coverage; gaps reported",
+      cameraReviewStatus: "Reviewed evidence; full-day review remains open",
+    });
   });
   it("compares physical counts across sizes without converting cups to ounces", () => {
-    expect(buildDailyOperations(sample({ frigateCounts: camera() }), day)).toMatchObject({ salesCount: 20, cameraCount: 18, difference: -2, state: "reviewed" });
+    expect(buildDailyOperations(sample({ frigateCounts: camera() }), day)).toMatchObject({
+      salesCount: 20,
+      cameraCount: 18,
+      difference: -2,
+      state: "reviewed",
+      cameraCoverage: "Full coverage reported",
+      cameraReviewStatus: "Reviewed unique physical cups",
+    });
   });
   it("preserves a reviewed zero camera count and its signed difference", () => {
     expect(buildDailyOperations(sample({ frigateCounts: { ...camera(), cupsDetected: 0 } }), day)).toMatchObject({ cameraCount: 0, difference: -20, state: "reviewed" });
@@ -37,6 +52,13 @@ describe("daily operations evidence boundaries", () => {
     for (const sourceDetail of ["legacy data", JSON.stringify({ basis: "frigate_tracks", coverage: "complete" }), "{bad", "null", "[]"]) {
       expect(buildDailyOperations(sample({ frigateCounts: { ...camera(), sourceDetail } }), day)).toMatchObject({ cameraCount: 18, cameraValue: "18 (unverified)", state: "unclassified", difference: null });
     }
+  });
+  it("keeps absent camera evidence distinct from a received zero", () => {
+    expect(buildDailyOperations(sample(), day)).toMatchObject({
+      cameraCoverage: "No camera evidence received",
+      cameraReviewStatus: "Awaiting a camera record",
+      receivedAt: null,
+    });
   });
   it("does not treat a review label without provenance metadata as reviewed", () => {
     expect(buildDailyOperations(sample({ frigateCounts: camera("complete", { recordSha256: "" }) }), day)).toMatchObject({ state: "unclassified", difference: null });
