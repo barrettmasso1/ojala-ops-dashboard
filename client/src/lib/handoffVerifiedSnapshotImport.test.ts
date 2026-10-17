@@ -4,7 +4,7 @@ import { parseVerifiedSnapshotImportJson } from "./handoffVerifiedSnapshotImport
 
 const frameBytes = Buffer.from("verified-snapshot-fixture");
 const frameHash = createHash("sha256").update(frameBytes).digest("hex");
-const zoneHash = "3f9c98b00a0fc36f1a3009fcaf3340910ff157f774d7531e6ac4353a12bce0e1";
+const zoneHash = "0c5239aac1c6d946af3a6f07319c91afcb1565acf58cb0433e18680c86e8d772";
 
 function verifiedSnapshotExport(overrides: Record<string, unknown> = {}) {
   return JSON.stringify({
@@ -68,5 +68,12 @@ describe("verified snapshot import", () => {
   it("rejects an import for a date other than the manager-selected date", async () => {
     await expect(parseVerifiedSnapshotImportJson(verifiedSnapshotExport(), "2026-10-15"))
       .rejects.toThrow("select that same business date");
+  });
+
+  it("rejects the original worker object hash paired with a converted point list", async () => {
+    const value = JSON.parse(verifiedSnapshotExport());
+    value.items[0].capture.zone_config_sha256 = "3f9c98b00a0fc36f1a3009fcaf3340910ff157f774d7531e6ac4353a12bce0e1";
+    await expect(parseVerifiedSnapshotImportJson(JSON.stringify(value), "2026-10-16"))
+      .rejects.toThrow("canonical polygon");
   });
 });

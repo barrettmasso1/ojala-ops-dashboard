@@ -13,6 +13,12 @@ export type VerifiedSnapshotImportCapture = {
 export type VerifiedSnapshotImportItem = {
   imageDataUrl: string;
   capture: VerifiedSnapshotImportCapture;
+  normalizationProof?: {
+    adapter: "beelink_object_v3";
+    sourceMetadataJson: string;
+    sourceMetadataSha256: string;
+    sourceZoneCanonicalJson: string;
+  };
 };
 
 export type VerifiedSnapshotImportBatch = {
@@ -84,8 +90,11 @@ function parseCapture(value: unknown): VerifiedSnapshotImportCapture {
     const x = asFiniteNumber(item.x, `Zone point ${index + 1} x is invalid`);
     const y = asFiniteNumber(item.y, `Zone point ${index + 1} y is invalid`);
     if (x < 0 || x > 1 || y < 0 || y > 1) throw new Error(`Zone point ${index + 1} must be normalized between 0 and 1`);
-    return { x, y };
+    return { x: Number(x.toFixed(6)), y: Number(y.toFixed(6)) };
   });
+  if (new Set(zoneGeometry.map(point => `${point.x}:${point.y}`)).size !== zoneGeometry.length) {
+    throw new Error("Verified snapshot zone points must be distinct");
+  }
 
   const dimensions = asRecord(source.image_dimensions, "Verified snapshot image_dimensions are required");
   const width = asFiniteNumber(dimensions.width, "Verified snapshot image width is invalid");
@@ -150,13 +159,30 @@ export async function parseVerifiedSnapshotImportJson(text: string, selectedBusi
     const item = asRecord(entry, `Verified snapshot item ${index + 1} is invalid`);
     const imageDataUrl = asString(item.imageDataUrl, `Verified snapshot item ${index + 1} image is required`);
     const capture = parseCapture(item.capture);
+    const zoneHash = await sha256(new TextEncoder().encode(JSON.stringify(capture.zone_geometry)));
+    if (zoneHash !== capture.zone_config_sha256) {
+      throw new Error("Zone fingerprint does not match the canonical polygon; regenerate this import with the audited Beelink exporter");
+    }
     if (eventIds.has(capture.cup_event_id)) throw new Error("Every verified snapshot must use a distinct cup_event_id");
     eventIds.add(capture.cup_event_id);
     const submittedHash = await sha256(bytesFromDataUrl(imageDataUrl));
     if (submittedHash !== capture.image_sha256) {
       throw new Error(`Verified snapshot ${capture.cup_event_id} does not match its declared image_sha256`);
     }
-    return { imageDataUrl, capture };
+    let normalizationProof: VerifiedSnapshotImportItem["normalizationProof"];
+    if (item.normalizationProof !== undefined) {
+      const proof = asRecord(item.normalizationProof, "Invalid normalization proof");
+      if (proof.adapter !== "beelink_object_v3") throw new Error("Unsupported normalization adapter");
+      const sourceMetadataJson = asString(proof.sourceMetadataJson, "Original sidecar is required");
+      const sourceMetadataSha256 = asString(proof.sourceMetadataSha256, "Original sidecar hash is required");
+      const sourceZoneCanonicalJson = asString(proof.sourceZoneCanonicalJson, "Original zone bytes are required");
+      if (sourceMetadataJson.length > 65_536 || sourceZoneCanonicalJson.length > 8_192
+          || await sha256(new TextEncoder().encode(sourceMetadataJson)) !== sourceMetadataSha256) {
+        throw new Error("Original sidecar checksum or size is invalid");
+      }
+      normalizationProof = { adapter: "beelink_object_v3", sourceMetadataJson, sourceMetadataSha256, sourceZoneCanonicalJson };
+    }
+    return { imageDataUrl, capture, ...(normalizationProof ? { normalizationProof } : {}) };
   }));
 
   return { businessDate, packageReference, items };

@@ -28,6 +28,7 @@ const dbMocks = vi.hoisted(() => ({
   listReadyMadeGelatoWeights: vi.fn(),
   removeChecklistQuestion: vi.fn(),
   reserveHandoffVisualEvent: vi.fn(),
+  normalizePendingVerifiedCaptureMetadata: vi.fn(),
   bindHandoffVisualEventZone: vi.fn(),
   queueHandoffVisualForZoneConfiguration: vi.fn(),
   queueHandoffVisualForZoneMismatch: vi.fn(),
@@ -107,6 +108,22 @@ const visualCaptureV3 = (cupEventId: string, zoneGeometry = JSON.parse(visualZon
   zone_config_sha256: createHash("sha256").update(JSON.stringify(zoneGeometry)).digest("hex"),
   image_dimensions: { width: 1920, height: 1080 },
 });
+
+function normalizationFixture() {
+  const capture = visualCaptureV3("normalize-fixture-001");
+  const sourceZone = { coordinate_system: "normalized", membership_rule: "box_bottom_center", name: "handoff_zone",
+    polygon: capture.zone_geometry.map((p: {x:number;y:number}) => [p.x,p.y]), reference_height:1080,reference_width:1920 };
+  const sourceZoneCanonicalJson = JSON.stringify(sourceZone);
+  const oldHash=createHash("sha256").update(sourceZoneCanonicalJson).digest("hex");
+  const sourceMetadataJson=JSON.stringify({...capture,zone_geometry:sourceZone,zone_config_sha256:oldHash});
+  const proof={adapter:"beelink_object_v3" as const,sourceMetadataJson,
+    sourceMetadataSha256:createHash("sha256").update(sourceMetadataJson).digest("hex"),sourceZoneCanonicalJson};
+  const event={id:360001,storeId:1,analysisStatus:"pending_review",imageKey:"existing.jpg",analysisAttempts:0,
+    imageSha256:visualImageSha256,capturedAt:new Date(capture.captured_at_utc),evidenceOrigin:"verified_snapshot",
+    captureMetadataJson:JSON.stringify({...capture,zone_config_sha256:oldHash}),
+    zoneId:visualZone.id,zoneGeometryVersion:1,zoneGeometryJson:visualZone.polygonJson};
+  return {capture,proof,event};
+}
 
 function createContext(role: Role | null, storeId = 1): TrpcContext {
   const user: AuthenticatedUser | null = role
@@ -517,6 +534,58 @@ describe("operations router", () => {
       "image/jpeg",
     );
     expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();
+  });
+
+  it("repairs the known pending serialization mismatch in place with a retained audit", async () => {
+    const f=normalizationFixture();
+    dbMocks.reserveHandoffVisualEvent.mockResolvedValue({event:f.event,created:false});
+    dbMocks.normalizePendingVerifiedCaptureMetadata.mockImplementation(async input=>({
+      ...f.event,captureMetadataJson:input.correctedMetadataJson}));
+    await appRouter.createCaller(createContext("admin")).dashboard.importVerifiedSnapshotHandoffFrame({
+      packageReference:"fixture.zip",capture:f.capture,imageDataUrl:visualImageDataUrl,normalizationProof:f.proof});
+    expect(dbMocks.normalizePendingVerifiedCaptureMetadata).toHaveBeenCalledWith(expect.objectContaining({
+      id:360001,storeId:1,expectedMetadataJson:f.event.captureMetadataJson}));
+    const audit=JSON.parse(dbMocks.normalizePendingVerifiedCaptureMetadata.mock.calls[0][0].correctedMetadataJson).normalization_audit;
+    expect(audit.previousCaptureMetadataJson).toBe(f.event.captureMetadataJson);
+    expect(audit.sourceMetadataJson).toBe(f.proof.sourceMetadataJson);
+    expect(handoffVisualMocks.analyzeHandoffVisualImage).toHaveBeenCalledTimes(1);
+    expect(storageMocks.storagePut).not.toHaveBeenCalled();
+    expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();
+  });
+
+  it("does not change metadata or analyze when a manager already reviewed the capture", async () => {
+    const f=normalizationFixture();
+    dbMocks.reserveHandoffVisualEvent.mockResolvedValue({event:{...f.event,analysisStatus:"approved_by_manager"},created:false});
+    const result=await appRouter.createCaller(createContext("admin")).dashboard.importVerifiedSnapshotHandoffFrame({
+      packageReference:"fixture.zip",capture:f.capture,imageDataUrl:visualImageDataUrl,normalizationProof:f.proof});
+    expect(result.status).toBe("approved_by_manager");
+    expect(dbMocks.normalizePendingVerifiedCaptureMetadata).not.toHaveBeenCalled();
+    expect(handoffVisualMocks.analyzeHandoffVisualImage).not.toHaveBeenCalled();
+  });
+
+  it("requires proof instead of silently replacing a stored zone hash on replay", async () => {
+    const f=normalizationFixture();
+    dbMocks.reserveHandoffVisualEvent.mockResolvedValue({event:f.event,created:false});
+    await expect(appRouter.createCaller(createContext("admin")).dashboard.importVerifiedSnapshotHandoffFrame({
+      packageReference:"fixture.zip",capture:f.capture,imageDataUrl:visualImageDataUrl})).rejects.toMatchObject({code:"CONFLICT"});
+    expect(handoffVisualMocks.analyzeHandoffVisualImage).not.toHaveBeenCalled();
+  });
+
+  it("stops reanalysis if the pending row changes during its normalization", async () => {
+    const f=normalizationFixture();
+    dbMocks.reserveHandoffVisualEvent.mockResolvedValue({event:f.event,created:false});
+    dbMocks.normalizePendingVerifiedCaptureMetadata.mockResolvedValue(null);
+    await expect(appRouter.createCaller(createContext("admin")).dashboard.importVerifiedSnapshotHandoffFrame({
+      packageReference:"fixture.zip",capture:f.capture,imageDataUrl:visualImageDataUrl,normalizationProof:f.proof})).rejects.toMatchObject({code:"CONFLICT"});
+    expect(handoffVisualMocks.analyzeHandoffVisualImage).not.toHaveBeenCalled();
+  });
+
+  it("rejects altered proof before any DB reservation", async () => {
+    const f=normalizationFixture();
+    await expect(appRouter.createCaller(createContext("admin")).dashboard.importVerifiedSnapshotHandoffFrame({
+      packageReference:"fixture.zip",capture:f.capture,imageDataUrl:visualImageDataUrl,
+      normalizationProof:{...f.proof,sourceMetadataSha256:"0".repeat(64)}})).rejects.toMatchObject({code:"BAD_REQUEST"});
+    expect(dbMocks.reserveHandoffVisualEvent).not.toHaveBeenCalled();
   });
 
   it("does not allow a non-admin session to import a verified snapshot", async () => {

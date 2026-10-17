@@ -37,6 +37,7 @@ import {
   listRecipesWithCosts,
   removeChecklistQuestion,
   reserveHandoffVisualEvent,
+  normalizePendingVerifiedCaptureMetadata,
   reviewHandoffVisualEvent,
   saveChecklistQuestion,
   saveAttendanceEntry,
@@ -69,6 +70,7 @@ import { getBusinessDate } from "../shared/businessDate";
 import { isHandoffCaptureZoneCoherent, parseStoredHandoffZoneGeometry } from "./handoffZoneGeometry";
 import { prepareReviewedCountImport } from "./reviewedCountImport";
 import { REVIEWED_COUNT_IMPORT_LIMIT } from "../shared/reviewedCountImport";
+import { metadataWithNormalizationAudit, validateVerifiedZoneNormalization } from "./handoffZoneNormalization";
 
 const PHASE1_OJALA_STORE_ID = 1;
 
@@ -420,6 +422,27 @@ async function processHandoffVisualEvent(input: {
   // manager decision and never updates sales, deliveries, or cup counts.
   if (event.analysisStatus !== "pending_review") {
     return { eventId: event.id, status: event.analysisStatus, disposition: "already_processed" as const, retryable: false };
+  }
+
+  if (!reserved.created && input.metadata.normalizationAudit && event.captureMetadataJson) {
+    const corrected = metadataWithNormalizationAudit(event.captureMetadataJson,
+      handoffCaptureMetadataJson(input.metadata), input.metadata.normalizationAudit);
+    if (corrected) {
+      const updated = await normalizePendingVerifiedCaptureMetadata({ id: event.id, storeId: input.storeId,
+        expectedMetadataJson: event.captureMetadataJson, correctedMetadataJson: corrected });
+      if (!updated) throw new TRPCError({ code: "CONFLICT", message: "Capture changed during normalization; reread before retrying" });
+      event = updated;
+    }
+  }
+  // A retry may not silently swap the saved geometry/hash while the evidence
+  // still advertises its old metadata. Explicit admin proof is required above.
+  if (!reserved.created && input.metadata.schemaVersion === 3 && event.captureMetadataJson) {
+    const saved = JSON.parse(event.captureMetadataJson);
+    const incoming = JSON.parse(handoffCaptureMetadataJson(input.metadata));
+    if (JSON.stringify(saved.zone_geometry) !== JSON.stringify(incoming.zone_geometry)
+        || saved.zone_config_sha256 !== incoming.zone_config_sha256) {
+      throw new TRPCError({ code: "CONFLICT", message: "A replay cannot replace stored zone metadata without verified normalization proof" });
+    }
   }
 
   if (!event.imageKey) {
@@ -1079,6 +1102,12 @@ export const appRouter = router({
     importVerifiedSnapshotHandoffFrame: adminProcedure
       .input(z.object({
         packageReference: z.string().regex(/^[A-Za-z0-9._-]{8,160}$/),
+        normalizationProof: z.object({
+          adapter: z.literal("beelink_object_v3"),
+          sourceMetadataJson: z.string().min(2).max(65_536),
+          sourceMetadataSha256: z.string().regex(/^[a-f0-9]{64}$/),
+          sourceZoneCanonicalJson: z.string().min(2).max(8_192),
+        }).optional(),
         imageDataUrl: z.string().min(32).max(12 * 1024 * 1024),
         capture: z.object({
           schema_version: z.literal(3),
@@ -1109,6 +1138,9 @@ export const appRouter = router({
             zoneConfigSha256: input.capture.zone_config_sha256,
             imageDimensions: input.capture.image_dimensions,
           });
+          if (input.normalizationProof) {
+            metadata.normalizationAudit = validateVerifiedZoneNormalization(input.normalizationProof, metadata);
+          }
         } catch (error) {
           throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Invalid verified snapshot metadata" });
         }
