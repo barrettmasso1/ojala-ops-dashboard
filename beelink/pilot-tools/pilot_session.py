@@ -98,13 +98,15 @@ def verify_session_storage(root):
     if not config.exists():
         if logical.is_symlink():
             raise ValueError('relocated_session_storage_config_missing')
-        return
+        return logical
     data = json.loads(config.read_text())
     mount = Path(data['mountPoint'])
     expected = Path(data['sessionRootPath'])
     if (not mount.is_absolute() or not expected.is_absolute()
             or not expected.is_relative_to(mount) or expected == mount
-            or not os.path.ismount(mount) or logical.resolve(strict=True) != expected):
+            or not os.path.ismount(mount) or expected.resolve(strict=True) != expected):
+        raise ValueError('session_mount_unavailable_or_changed')
+    if data.get('mode') != 'external_direct' and logical.resolve(strict=True) != expected:
         raise ValueError('session_mount_unavailable_or_changed')
     result = subprocess.run(['findmnt','-J','-T',str(expected),'-o','TARGET,UUID'],
                             capture_output=True,text=True,check=True,timeout=3)
@@ -113,6 +115,7 @@ def verify_session_storage(root):
             or not data.get('filesystemUuid')
             or rows[0].get('uuid') != data['filesystemUuid']):
         raise ValueError('session_filesystem_identity_mismatch')
+    return expected
 
 
 def collect(day, root=BASE):
@@ -122,7 +125,7 @@ def collect(day, root=BASE):
     if start > now:
         raise ValueError('Future date cannot contain observed evidence')
     try:
-        verify_session_storage(root)
+        storage_root = verify_session_storage(root)
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
         report = {'status':'blocked_storage_unavailable','businessDate':day,
                   'checkedAt':now.isoformat(),'sourceDatabaseMode':'not_opened',
@@ -131,6 +134,8 @@ def collect(day, root=BASE):
         return report
     out = root/'local-simulations'/'sessions'/day
     out.mkdir(parents=True, exist_ok=True, mode=0o700)
+    storage_out = storage_root/'sessions'/day
+    storage_out.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (out/'collect.lock').open('a') as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -138,7 +143,7 @@ def collect(day, root=BASE):
             return {'status': 'already_running', 'businessDate': day}
         atomic(out/'session.json', template(day), replace=False)
         stamp = now.strftime('%Y%m%dT%H%M%S')
-        evidence = out/'evidence'/stamp
+        evidence = storage_out/'evidence'/stamp
         evidence.mkdir(parents=True, mode=0o700)
         errors = []
         report = {'version': VERSION, 'checkedAt': now.isoformat(), 'businessDate': day,
@@ -146,12 +151,13 @@ def collect(day, root=BASE):
                   'productionEligible': False, 'rawTracksAreDeliveries': False,
                   'manualCups': None, 'cameraReviewedCups': None, 'posCups': None,
                   'windowStart': start.isoformat(), 'windowEnd': min(now,end).isoformat(),
-                  'errors': errors, 'evidenceDirectory': str(evidence)}
+                  'errors': errors, 'evidenceDirectory': str(evidence),
+                  'sessionControlDirectory':str(out), 'evidenceStorageDirectory':str(storage_out)}
         secrets = []
         cfg = read_json(root/'scripts'/'push_config.json', {})
         for key in ('apiKey', 'token'):
             if cfg.get(key): secrets.append(cfg[key])
-        if shutil.disk_usage(out).free < MIN_FREE:
+        if shutil.disk_usage(storage_out).free < MIN_FREE:
             report['status'] = 'blocked_low_disk'
             atomic(out/'latest-collection.json', report)
             atomic(root/'pilot-tools'/'pilot-session-storage-status.json',report)
@@ -172,7 +178,7 @@ def collect(day, root=BASE):
                 'WHERE camera=? AND end_time>? AND start_time<? ORDER BY start_time',
                 ('handoff',start.timestamp(),min(end,now).timestamp()))]
             atomic(evidence/'source-recordings.json', segments)
-            snapshot = out/'frigate-readonly-snapshot.sqlite3'
+            snapshot = storage_out/'frigate-readonly-snapshot.sqlite3'
             tmp = snapshot.with_suffix('.tmp.sqlite3')
             if tmp.is_symlink() or snapshot.is_symlink(): raise ValueError('snapshot symlink')
             with closing(sqlite3.connect(tmp)) as dest:
@@ -182,6 +188,7 @@ def collect(day, root=BASE):
             os.chmod(tmp,0o600)
             os.replace(tmp,snapshot)
             report['databaseSnapshotSha256'] = digest(snapshot)
+            report['databaseSnapshotPath'] = str(snapshot)
         except (sqlite3.Error, OSError, ValueError) as exc:
             errors.append('frigate_read:'+type(exc).__name__)
         finally:
@@ -225,7 +232,7 @@ def collect(day, root=BASE):
             data = read_json(path)
             if data is not None:
                 (evidence/(label+'.json')).write_text(clean_log(json.dumps(data,indent=2),secrets)+'\n')
-        report['diskFreeBytes'] = shutil.disk_usage(out).free
+        report['diskFreeBytes'] = shutil.disk_usage(storage_out).free
         report['status'] = 'evidence_saved' if not errors else 'evidence_incomplete'
         atomic(evidence/'collection-result.json',report)
         atomic(evidence/'sha256-manifest.json', {p.name:digest(p) for p in evidence.iterdir() if p.is_file()})
