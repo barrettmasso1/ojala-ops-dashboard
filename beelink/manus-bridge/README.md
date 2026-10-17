@@ -42,8 +42,13 @@ python3 /home/ojala/frigate/manus-bridge/manus_bridge.py status
 Create a **new Manus API key** in `https://manus.im/app#settings/developers`, named
 `Ojala Beelink`. This is not `FRIGATE_API_KEY`. Manus API keys have full access to
 the owner's Manus account; agent execution consumes Manus credits. The masked
-`configure_private.py` dialog validates read-only identity/task access, saves the
-key with mode 600, and schedules collection at 22:15 plus bounded delivery checks.
+`configure_private.py` dialog validates identity/task access, narrows sharing of
+the existing Ojala conversation to private using the documented `task.update`
+API when necessary, and independently reads privacy back before saving the key
+with mode 600 or scheduling collection at 22:15 plus bounded delivery checks.
+This disables public/team sharing of that conversation, not access to the
+published dashboard. A private audit receipt records the previous and verified
+visibility. Only setup changes privacy; delivery still blocks shared tasks.
 It does not change the existing direct sender hold. Keep the API key out of chat,
 GitHub, screenshots and logs. No credentials are put in process arguments.
 

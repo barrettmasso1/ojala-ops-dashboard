@@ -22,7 +22,8 @@ def setup_error_code(error):
         return f'api_http_{error.code}'
     safe = {'invalid_api_key', 'wrong_task', 'task_must_be_private', 'cannot_read_crontab',
             'host_timezone_requires_check', 'cannot_install_bridge_cron',
-            'api_network_or_response_error', 'api_response_not_ok'}
+            'api_network_or_response_error', 'api_response_not_ok',
+            'task_visibility_unknown', 'task_privacy_update_not_verified'}
     return str(error) if isinstance(error, b.BridgeError) and str(error) in safe else 'setup_step_failed'
 
 
@@ -39,6 +40,23 @@ def gui_environment():
     return env
 
 
+def ensure_task_private(api):
+    """Use the supported API to narrow sharing, then independently read it back."""
+    task = api.call('task.detail', {'task_id': b.TASK})['task']
+    b.require(task['id'] == b.TASK, 'wrong_task')
+    previous = task.get('share_visibility')
+    b.require(previous in {'private', 'team', 'public'} and task.get('status') != 'deleted',
+              'task_visibility_unknown')
+    changed = previous != 'private'
+    if changed:
+        api.call('task.update', {'task_id': b.TASK, 'share_visibility': 'private'}, post=True)
+        task = api.call('task.detail', {'task_id': b.TASK})['task']
+        b.require(task['id'] == b.TASK, 'wrong_task')
+        b.require(task.get('share_visibility') == 'private', 'task_privacy_update_not_verified')
+    return {'taskId': b.TASK, 'previousVisibility': previous,
+            'currentVisibility': 'private', 'changed': changed}
+
+
 def configure():
     os.umask(0o077)
     env = gui_environment()
@@ -49,6 +67,8 @@ def configure():
         '--text=Crea una API Key en Manus > Settings > Developers, con nombre Ojala Beelink.\n'
                'Esta clave permite acceso a tu cuenta Manus y consume créditos al ejecutar tareas.\n'
                'Pégala aquí. Se guardará solo en esta Beelink con permisos privados.\n'
+               'El asistente pondrá la conversación Ojala en privada mediante la API oficial.\n'
+               'El enlace público de la conversación dejará de compartirse; el dashboard no cambia.\n'
                'No es la clave Frigate. No la pegues en el chat.'],
         env=env, capture_output=True, text=True)
     if result.returncode:
@@ -60,10 +80,11 @@ def configure():
         phase = 'authenticate'; setup_state('checking', phase)
         api = b.ManusApi(key)
         api.call('user.me')
-        phase = 'check_task_access'; setup_state('checking', phase)
-        task = api.call('task.detail', {'task_id': b.TASK})['task']
-        b.require(task['id'] == b.TASK, 'wrong_task')
-        b.require(task.get('share_visibility') == 'private', 'task_must_be_private')
+        phase = 'make_task_private'; setup_state('checking', phase)
+        privacy = ensure_task_private(api)
+        b.private_json(b.BASE/'manus-bridge/state/task-privacy-receipt.json', {
+            **privacy, 'verifiedAt': datetime.now(timezone.utc).isoformat(),
+        })
         b.private_json(b.BASE/'manus-bridge/config.private.json', {'manusApiKey': key})
         del key
         phase = 'install_schedule'; setup_state('checking', phase)
@@ -80,7 +101,7 @@ def configure():
         db = b.queue_db(state)
         db.execute("DELETE FROM controls WHERE key='api_auth_hold'")
         db.execute("UPDATE batches SET status='retry',next_at=0 WHERE status='blocked' "
-                   "AND last_error IN ('api_http_401','api_http_403')")
+                   "AND last_error IN ('api_http_401','api_http_403','task_must_be_private')")
         db.commit()
         db.close()
         lines += [f'15 22 * * * /usr/bin/python3 {bridge} collect >> {log} 2>&1 # ojala-manus-api-bridge',
@@ -102,6 +123,8 @@ def configure():
             'api_http_401': 'Manus rechazó la clave API. Debe ser una API Key de Manus, no Frigate.',
             'api_http_403': 'La API de Manus rechazó el acceso con esa credencial.',
             'task_must_be_private': 'La tarea Ojala debe tener su visibilidad en privada antes de enviar evidencia.',
+            'task_privacy_update_not_verified': 'Se solicitó privacidad, pero Manus todavía no la confirmó al consultar la tarea.',
+            'task_visibility_unknown': 'Manus no devolvió un estado de privacidad válido para esta tarea.',
             'wrong_task': 'La clave no dio acceso a la tarea Ojala esperada.',
         }.get(code, 'La configuración se detuvo; se guardó el código de diagnóstico sin credenciales.')
         subprocess.run(['zenity', '--error', '--width=580', '--text=No se completó la activación.\n'
