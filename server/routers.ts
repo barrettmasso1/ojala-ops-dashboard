@@ -22,6 +22,7 @@ import {
   getAttendanceTimeBook,
   getDailyOperationsSnapshot,
   getActiveHandoffCameraZone,
+  getLatestHandoffCameraEvidenceDate,
   listHandoffVisualEvents,
   getSubmissionStatusForBusinessDate,
   getInventoryAlerts,
@@ -982,6 +983,8 @@ export const appRouter = router({
         })
       )
       .query(async ({ ctx, input }) => getDailyOperationsSnapshot(input.businessDate, ctx.user.storeId)),
+    latestHandoffCameraEvidenceDate: adminProcedure
+      .query(async ({ ctx }) => getLatestHandoffCameraEvidenceDate(ctx.user.storeId)),
     salesTrend: adminProcedure
       .input(
         z.object({

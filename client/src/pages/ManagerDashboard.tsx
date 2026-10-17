@@ -2,7 +2,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import DailyOperationsPanel from "@/components/DailyOperationsPanel";
 import ReviewedCountImport from "@/components/ReviewedCountImport";
-import { buildDailyOperations } from "@/lib/dailyOperations";
+import { buildDailyOperations, selectLatestAvailableOperationalDate } from "@/lib/dailyOperations";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getLoginUrl } from "@/const";
 import { normalizeGelatoFlavorName } from "@/lib/gelatoFlavorAliases";
@@ -796,25 +796,33 @@ export default function ManagerDashboard() {
     { enabled: isAdmin, refetchOnWindowFocus: false }
   );
   const trendQuery = trpc.dashboard.salesTrend.useQuery({ days: 28 }, { enabled: isAdmin, refetchOnWindowFocus: false });
+  const latestHandoffCameraEvidenceDateQuery = trpc.dashboard.latestHandoffCameraEvidenceDate.useQuery(undefined, { enabled: isAdmin, refetchOnWindowFocus: false });
 
   useEffect(() => {
-    if (!isAdmin || dailyQuery.isLoading || trendQuery.isLoading) return;
+    if (!isAdmin || dailyQuery.isLoading || trendQuery.isLoading || latestHandoffCameraEvidenceDateQuery.isLoading) return;
     // Handoff Review must remain available for a recovery date even when no
-    // sales/closing report exists for it. The overview alone falls back to
-    // the latest sales date for a useful default dashboard snapshot.
+    // sales/closing report exists for it. The overview's automatic landing
+    // date prioritizes the latest real operational evidence (camera or sales)
+    // instead of silently landing on an older sales-only day with no camera row.
     if (!isOverviewRoute) return;
     if (selectedDate !== maxBusinessDate) return;
     if ((dailyQuery.data?.reportCount ?? 0) > 0) return;
 
     const latestDateWithSales = trendQuery.data?.at(-1)?.businessDate;
-    if (latestDateWithSales && latestDateWithSales < maxBusinessDate) {
-      setSelectedDate(latestDateWithSales);
+    const latestAvailableDate = selectLatestAvailableOperationalDate(maxBusinessDate, [
+      latestDateWithSales,
+      latestHandoffCameraEvidenceDateQuery.data,
+    ]);
+    if (latestAvailableDate && latestAvailableDate < maxBusinessDate) {
+      setSelectedDate(latestAvailableDate);
     }
   }, [
     dailyQuery.data?.reportCount,
     dailyQuery.isLoading,
     isAdmin,
     isOverviewRoute,
+    latestHandoffCameraEvidenceDateQuery.data,
+    latestHandoffCameraEvidenceDateQuery.isLoading,
     maxBusinessDate,
     selectedDate,
     trendQuery.data,

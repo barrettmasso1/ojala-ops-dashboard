@@ -16,6 +16,7 @@ const dbMocks = vi.hoisted(() => ({
   getAttendanceTimeBook: vi.fn(),
   getActiveHandoffCameraZone: vi.fn(),
   getDailyOperationsSnapshot: vi.fn(),
+  getLatestHandoffCameraEvidenceDate: vi.fn(),
   getInventoryAlerts: vi.fn(),
   getRecentNotes: vi.fn(),
   getSalesTrend: vi.fn(),
@@ -1804,5 +1805,16 @@ describe("operations router", () => {
     await expect(employeeCaller.dashboard.daily({ businessDate: "2026-04-21" })).rejects.toMatchObject({
       code: "FORBIDDEN",
     });
+  });
+
+  it("returns the latest handoff-evidence date only for the authenticated store admin", async () => {
+    dbMocks.getLatestHandoffCameraEvidenceDate.mockResolvedValue("2026-10-16");
+
+    await expect(appRouter.createCaller(createContext("admin", 2)).dashboard.latestHandoffCameraEvidenceDate())
+      .resolves.toBe("2026-10-16");
+    expect(dbMocks.getLatestHandoffCameraEvidenceDate).toHaveBeenCalledWith(2);
+
+    await expect(appRouter.createCaller(createContext("user", 1)).dashboard.latestHandoffCameraEvidenceDate())
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 });

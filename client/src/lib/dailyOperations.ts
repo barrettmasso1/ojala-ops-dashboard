@@ -26,6 +26,19 @@ const isCount = (value: unknown): value is number =>
 // presentation does not silently discard valid partial-coverage provenance.
 const MAX_CAMERA_SOURCE_DETAIL_BYTES = 60_000;
 
+/**
+ * Chooses an existing operational date without inventing evidence. The dashboard
+ * uses this only for its automatic landing-date fallback; a manager-selected
+ * date remains untouched. Future and malformed dates are excluded.
+ */
+export function selectLatestAvailableOperationalDate(maxBusinessDate: string, candidates: Array<string | null | undefined>) {
+  const validDate = /^\d{4}-\d{2}-\d{2}$/;
+  const available = candidates.filter((date): date is string =>
+    typeof date === "string" && validDate.test(date) && date <= maxBusinessDate
+  );
+  return available.sort().at(-1) ?? null;
+}
+
 function parseSource(value?: string | null): Record<string, unknown> {
   if (!value || value.length > MAX_CAMERA_SOURCE_DETAIL_BYTES) return {};
   try {

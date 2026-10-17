@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDailyOperations, type DailyOperationsInput } from "./dailyOperations";
+import { buildDailyOperations, selectLatestAvailableOperationalDate, type DailyOperationsInput } from "./dailyOperations";
 
 const day = "2026-10-07";
 function sample(overrides: Partial<DailyOperationsInput> = {}): DailyOperationsInput {
@@ -15,6 +15,11 @@ function camera(coverage = "complete", extras = {}) {
 }
 
 describe("daily operations evidence boundaries", () => {
+  it("prefers the latest real camera-or-sales evidence for the automatic landing date", () => {
+    expect(selectLatestAvailableOperationalDate("2026-10-17", ["2026-10-10", "2026-10-16"])).toBe("2026-10-16");
+    expect(selectLatestAvailableOperationalDate("2026-10-17", ["2026-10-10", "2026-10-18", "not-a-date"])).toBe("2026-10-10");
+  });
+
   it("keeps an absent camera count unknown instead of creating zero", () => {
     expect(buildDailyOperations(sample(), day)).toMatchObject({ salesCount: 20, cameraCount: null, difference: null, state: "missing" });
   });

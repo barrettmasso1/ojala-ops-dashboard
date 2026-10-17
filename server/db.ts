@@ -2562,6 +2562,21 @@ export async function getFrigateCupCountForDate(businessDate: string, cameraName
   return rows[0] ?? null;
 }
 
+/** Read-only helper for the dashboard's automatic landing-date fallback. */
+export async function getLatestHandoffCameraEvidenceDate(storeId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  requireStoreId(storeId);
+
+  const rows = await db.select({ businessDate: frigateCupCounts.businessDate })
+    .from(frigateCupCounts)
+    .where(and(eq(frigateCupCounts.storeId, storeId), eq(frigateCupCounts.cameraName, "handoff")))
+    .orderBy(desc(frigateCupCounts.businessDate), desc(frigateCupCounts.id))
+    .limit(1);
+
+  return rows[0]?.businessDate ?? null;
+}
+
 export async function getActiveHandoffCameraZone(input: { storeId: number; cameraName: string }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
