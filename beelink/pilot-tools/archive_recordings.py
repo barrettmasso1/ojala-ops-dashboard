@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import shutil
 import sqlite3
+import subprocess
 import time
 
 BASE = Path('/home/ojala/frigate')
@@ -46,6 +47,29 @@ def atomic_json(path, value):
         os.fsync(f.fileno())
     os.replace(tmp, path)
     sync_dir(path.parent)
+
+
+def verify_storage(root, archive):
+    """Fail closed before writing if a relocated archive lost its mounted disk."""
+    config = root / 'pilot-tools' / 'archive-storage.json'
+    if not config.exists():
+        if archive.is_symlink():
+            raise ValueError('relocated_archive_storage_config_missing')
+        return
+    data = json.loads(config.read_text())
+    mount = Path(data['mountPoint'])
+    expected = Path(data['archivePath'])
+    if (not mount.is_absolute() or not expected.is_absolute()
+            or not expected.is_relative_to(mount) or expected == mount
+            or not os.path.ismount(mount) or archive.resolve(strict=True) != expected):
+        raise ValueError('archive_mount_unavailable_or_changed')
+    result = subprocess.run(['findmnt', '-J', '-T', str(expected), '-o', 'TARGET,UUID'],
+                            capture_output=True, text=True, check=True, timeout=3)
+    rows = json.loads(result.stdout).get('filesystems', [])
+    if (len(rows) != 1 or rows[0].get('target') != str(mount)
+            or not data.get('filesystemUuid')
+            or rows[0].get('uuid') != data['filesystemUuid']):
+        raise ValueError('archive_filesystem_identity_mismatch')
 
 
 def recording_paths(root, archive, path):
@@ -98,6 +122,18 @@ def copy_checked(source, target):
 def archive_once(root=BASE, now=None, max_bytes=MAX_BYTES, min_free=MIN_FREE):
     now = time.time() if now is None else now
     archive = root / 'pilot-archive' / 'forward-20260929'
+    try:
+        verify_storage(root, archive)
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
+        report = {'status': 'paused_storage_unavailable',
+                  'checked_at_utc': dt.datetime.fromtimestamp(now, dt.timezone.utc).isoformat(),
+                  'last_error_type': type(exc).__name__, 'copied_segments': 0,
+                  'source_database_mode': 'not_opened', 'physical_cups': None,
+                  'automatic_deletion': False}
+        status_dir = root / 'pilot-tools'
+        status_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        atomic_json(status_dir / 'archive-storage-status.json', report)
+        return report
     archive.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(archive, 0o700)
     lock = (archive / 'run.lock').open('a')
@@ -170,6 +206,8 @@ def archive_once(root=BASE, now=None, max_bytes=MAX_BYTES, min_free=MIN_FREE):
         if index:
             index.close()
         atomic_json(archive / 'status.json', report)
+        if (root / 'pilot-tools' / 'archive-storage.json').exists():
+            atomic_json(root / 'pilot-tools' / 'archive-storage-status.json', report)
         lock.close()
     return report
 
@@ -180,4 +218,5 @@ if __name__ == '__main__':
     args = ap.parse_args()
     outcome = archive_once(args.root)
     print(json.dumps(outcome))
-    raise SystemExit(2 if outcome['status'] in ('error','incomplete','paused_storage_limit') else 0)
+    raise SystemExit(2 if outcome['status'] in ('error','incomplete','paused_storage_limit',
+                                              'paused_storage_unavailable') else 0)
