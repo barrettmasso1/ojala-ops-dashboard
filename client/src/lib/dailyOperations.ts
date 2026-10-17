@@ -39,6 +39,27 @@ export function selectLatestAvailableOperationalDate(maxBusinessDate: string, ca
   return available.sort().at(-1) ?? null;
 }
 
+/**
+ * The overview can choose a useful operational day only at initial load. Once
+ * an administrator has deliberately selected a date, keep that date even when
+ * it has no closing report or camera row yet.
+ */
+export function shouldAutoFallbackToLatestOperationalDate(input: {
+  isOverviewRoute: boolean;
+  hasExplicitDateSelection: boolean;
+  selectedDate: string;
+  maxBusinessDate: string;
+  reportCount: number;
+  latestAvailableDate: string | null;
+}) {
+  return input.isOverviewRoute
+    && !input.hasExplicitDateSelection
+    && input.selectedDate === input.maxBusinessDate
+    && input.reportCount === 0
+    && input.latestAvailableDate !== null
+    && input.latestAvailableDate < input.maxBusinessDate;
+}
+
 function parseSource(value?: string | null): Record<string, unknown> {
   if (!value || value.length > MAX_CAMERA_SOURCE_DETAIL_BYTES) return {};
   try {

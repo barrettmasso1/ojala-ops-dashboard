@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDailyOperations, selectLatestAvailableOperationalDate, type DailyOperationsInput } from "./dailyOperations";
+import { buildDailyOperations, selectLatestAvailableOperationalDate, shouldAutoFallbackToLatestOperationalDate, type DailyOperationsInput } from "./dailyOperations";
 
 const day = "2026-10-07";
 function sample(overrides: Partial<DailyOperationsInput> = {}): DailyOperationsInput {
@@ -18,6 +18,20 @@ describe("daily operations evidence boundaries", () => {
   it("prefers the latest real camera-or-sales evidence for the automatic landing date", () => {
     expect(selectLatestAvailableOperationalDate("2026-10-17", ["2026-10-10", "2026-10-16"])).toBe("2026-10-16");
     expect(selectLatestAvailableOperationalDate("2026-10-17", ["2026-10-10", "2026-10-18", "not-a-date"])).toBe("2026-10-10");
+  });
+
+  it("uses the operational fallback only for the initial automatic date", () => {
+    const initialFallback = {
+      isOverviewRoute: true,
+      hasExplicitDateSelection: false,
+      selectedDate: "2026-10-17",
+      maxBusinessDate: "2026-10-17",
+      reportCount: 0,
+      latestAvailableDate: "2026-10-16",
+    };
+    expect(shouldAutoFallbackToLatestOperationalDate(initialFallback)).toBe(true);
+    expect(shouldAutoFallbackToLatestOperationalDate({ ...initialFallback, hasExplicitDateSelection: true })).toBe(false);
+    expect(shouldAutoFallbackToLatestOperationalDate({ ...initialFallback, isOverviewRoute: false })).toBe(false);
   });
 
   it("keeps an absent camera count unknown instead of creating zero", () => {

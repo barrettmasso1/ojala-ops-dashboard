@@ -2,7 +2,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import DailyOperationsPanel from "@/components/DailyOperationsPanel";
 import ReviewedCountImport from "@/components/ReviewedCountImport";
-import { buildDailyOperations, selectLatestAvailableOperationalDate } from "@/lib/dailyOperations";
+import { buildDailyOperations, selectLatestAvailableOperationalDate, shouldAutoFallbackToLatestOperationalDate } from "@/lib/dailyOperations";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getLoginUrl } from "@/const";
 import { normalizeGelatoFlavorName } from "@/lib/gelatoFlavorAliases";
@@ -692,6 +692,7 @@ export default function ManagerDashboard() {
   const currentPacificDateLabel = useMemo(() => formatBusinessCalendarDate(liveNow, "en-US", timeZone), [liveNow, timeZone]);
   const currentPacificTimeLabel = useMemo(() => formatBusinessTime(liveNow, "en-US", timeZone), [liveNow, timeZone]);
   const currentPacificDateTimeLabel = useMemo(() => `${currentPacificDateLabel} · ${currentPacificTimeLabel}`, [currentPacificDateLabel, currentPacificTimeLabel]);
+  const [hasExplicitDateSelection, setHasExplicitDateSelection] = useState(false);
   const [inventoryDashboardView, setInventoryDashboardView] = useState<ManagerInventoryView>("product");
   const [inventoryForm, setInventoryForm] = useState({
     id: undefined as number | undefined,
@@ -744,6 +745,7 @@ export default function ManagerDashboard() {
     if (!storeContext.data) return;
     const today = getBusinessDate(new Date(), storeContext.data.timezone);
     setSelectedDate(today);
+    setHasExplicitDateSelection(false);
     setHoursRangeEnd(today);
     setHoursRangeStart(getPacificSundayWeekStart(today));
   }, [storeContext.data?.timezone]);
@@ -804,21 +806,27 @@ export default function ManagerDashboard() {
     // sales/closing report exists for it. The overview's automatic landing
     // date prioritizes the latest real operational evidence (camera or sales)
     // instead of silently landing on an older sales-only day with no camera row.
-    if (!isOverviewRoute) return;
-    if (selectedDate !== maxBusinessDate) return;
-    if ((dailyQuery.data?.reportCount ?? 0) > 0) return;
+    // It must never override a date the administrator intentionally selected.
 
     const latestDateWithSales = trendQuery.data?.at(-1)?.businessDate;
     const latestAvailableDate = selectLatestAvailableOperationalDate(maxBusinessDate, [
       latestDateWithSales,
       latestHandoffCameraEvidenceDateQuery.data,
     ]);
-    if (latestAvailableDate && latestAvailableDate < maxBusinessDate) {
+    if (latestAvailableDate && shouldAutoFallbackToLatestOperationalDate({
+      isOverviewRoute,
+      hasExplicitDateSelection,
+      selectedDate,
+      maxBusinessDate,
+      reportCount: dailyQuery.data?.reportCount ?? 0,
+      latestAvailableDate,
+    })) {
       setSelectedDate(latestAvailableDate);
     }
   }, [
     dailyQuery.data?.reportCount,
     dailyQuery.isLoading,
+    hasExplicitDateSelection,
     isAdmin,
     isOverviewRoute,
     latestHandoffCameraEvidenceDateQuery.data,
@@ -1554,7 +1562,13 @@ export default function ManagerDashboard() {
                       type="date"
                       value={selectedDate}
                       max={isHandoffReviewRoute ? undefined : maxBusinessDate}
-                      onChange={event => setSelectedDate(isHandoffReviewRoute ? event.target.value : event.target.value > maxBusinessDate ? maxBusinessDate : event.target.value)}
+                      onChange={event => {
+                        const nextDate = isHandoffReviewRoute
+                          ? event.target.value
+                          : event.target.value > maxBusinessDate ? maxBusinessDate : event.target.value;
+                        setHasExplicitDateSelection(true);
+                        setSelectedDate(nextDate);
+                      }}
                       className="h-12 w-full rounded-full border border-[#ddd4c7] bg-[#fcfaf6] pl-11 pr-4 text-sm text-[#24332f] shadow-sm outline-none transition focus:border-[#52665f] focus:ring-4 focus:ring-[#52665f]/10"
                     />
                   </div>
