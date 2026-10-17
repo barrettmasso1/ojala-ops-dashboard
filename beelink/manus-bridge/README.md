@@ -119,3 +119,11 @@ The private API setup now records a sanitized `setup-state.json`: waiting,
 cancelled, configured or failed with a safe error code. This distinguishes a
 missing key from API rejection or a task-privacy problem without exposing the key
 or response. No schedule is marked configured until installation succeeds.
+
+The masked input distinguishes empty, masked/truncated, whitespace and invalid
+header characters. It trims outer copy formatting only, never joins internal
+token fragments, and imposes no undocumented minimum token length. Manus verifies
+the actual credential with `user.me`. Once authenticated, it is saved in a
+mode-600 pending setup file and reused after a later setup failure. Workers do not
+read that file; it is removed after verified private-task setup promotes the key
+to the normal configuration. Local input corrections remain in the dialog.
