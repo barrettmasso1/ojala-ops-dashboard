@@ -93,3 +93,24 @@ This review package is not a verified-snapshot or count-import payload. Attach i
 to the existing authorized review task, preserving the original event identities;
 do not repeat completed image analysis or create daily counts from clip totals.
 Five focused tests cover interval union, missing time, overlaps and playback splits.
+
+## Confirm the concrete October 16 partial proposal
+
+`approve_manus_partial.py` verifies the existing two-cup draft, the exact source
+ZIP and referenced hashes, prepares two temporal original-video anchors, then
+opens the relevant video and asks the actual local operator to confirm the two
+distinct filled cups with person and zone membership. The operator enters their
+own name. Cancellation leaves the count unapproved; this flow never supplies a
+reviewer's name on their behalf.
+
+Only after that confirmation does it generate a partial review ledger, validate
+and export the count through the existing local validators, and prepare an import
+envelope. It keeps original evidence unchanged and refuses to replace an existing
+approved record. It stages the new evidence/count package but makes no network
+request and does not release the direct Frigate hold. This is a specific approval
+of two units, not a full-day count or a substitute for the staff closing form.
+
+The private API setup now records a sanitized `setup-state.json`: waiting,
+cancelled, configured or failed with a safe error code. This distinguishes a
+missing key from API rejection or a task-privacy problem without exposing the key
+or response. No schedule is marked configured until installation succeeds.
