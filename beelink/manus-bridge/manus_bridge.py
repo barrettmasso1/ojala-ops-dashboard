@@ -254,7 +254,11 @@ class ManusApi:
 
     def call(self, method, params=None, post=False):
         require(method in {'user.me', 'task.detail', 'task.listMessages', 'file.upload',
-                           'file.detail', 'task.sendMessage'}, 'unsupported_api_method')
+                           'file.detail', 'task.sendMessage', 'task.update'}, 'unsupported_api_method')
+        if method == 'task.update':
+            # Setup may narrow sharing of this one authorized task only.
+            require(post and params == {'task_id': TASK, 'share_visibility': 'private'},
+                    'unsupported_task_update')
         url = API + method
         data = canonical(params or {}) if post else None
         if params and not post:
