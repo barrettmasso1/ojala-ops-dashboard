@@ -301,7 +301,8 @@ def read_key(config):
             and info.st_mode & 0o077 == 0, 'private_config_permissions_required')
     value = json.loads(config.read_text())
     key = value.get('manusApiKey')
-    require(isinstance(key, str) and len(key) >= 20 and not any(c.isspace() for c in key), 'invalid_api_key')
+    # Manus documents no minimum token length; authentication belongs to its API.
+    require(isinstance(key, str) and key and all(33 <= ord(c) <= 126 for c in key), 'invalid_api_key')
     return key
 
 

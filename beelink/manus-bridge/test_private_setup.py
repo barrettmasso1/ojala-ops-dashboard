@@ -1,10 +1,43 @@
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+from pathlib import Path
+import tempfile
 import configure_private as c
 import manus_bridge as b
 
 
 class SetupTest(unittest.TestCase):
+    def test_outer_copy_formatting_preserves_the_token(self):
+        for raw in ['  token-123\n', '\ufefftoken-123\u200b', '"token-123"', '“token-123”']:
+            self.assertEqual(c.parse_key_entry(raw), 'token-123')
+
+    def test_input_problems_are_distinct_and_never_reveal_input(self):
+        for raw, code in [('', 'api_key_empty'), ('***abcd', 'api_key_masked'),
+                          ('abc...def', 'api_key_masked'), ('Ojala Beelink', 'api_key_whitespace'),
+                          ('abc\ndef', 'api_key_whitespace'), ('abc\u200bdef', 'api_key_characters')]:
+            with self.subTest(code=code), self.assertRaisesRegex(b.BridgeError, '^'+code+'$'):
+                c.parse_key_entry(raw)
+
+    def test_length_is_validated_by_api_not_an_invented_minimum(self):
+        self.assertEqual(c.parse_key_entry('short-token'), 'short-token')
+
+    def test_only_authenticated_key_is_saved_privately_and_readable_by_worker(self):
+        with tempfile.TemporaryDirectory() as temp, patch.object(b, 'BASE', Path(temp)):
+            api = Mock()
+            c.remember_authenticated_key(api, 'short-token')
+            path = Path(temp)/'manus-bridge/setup-authenticated-key.private.json'
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(b.read_key(path), 'short-token')
+            api.call.assert_called_once_with('user.me')
+
+    def test_rejected_authentication_does_not_save_key(self):
+        with tempfile.TemporaryDirectory() as temp, patch.object(b, 'BASE', Path(temp)):
+            api = Mock()
+            api.call.side_effect = b.ApiError(401)
+            with self.assertRaises(b.ApiError):
+                c.remember_authenticated_key(api, 'test-not-a-real-secret')
+            self.assertFalse((Path(temp)/'manus-bridge/setup-authenticated-key.private.json').exists())
+
     def api(self, before, after=None):
         api = Mock()
         api.call.side_effect = [
