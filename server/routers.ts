@@ -1076,6 +1076,54 @@ export const appRouter = router({
 
         return { success: true, ...result } as const;
       }),
+    importVerifiedSnapshotHandoffFrame: adminProcedure
+      .input(z.object({
+        packageReference: z.string().regex(/^[A-Za-z0-9._-]{8,160}$/),
+        imageDataUrl: z.string().min(32).max(12 * 1024 * 1024),
+        capture: z.object({
+          schema_version: z.literal(3),
+          camera: z.literal("handoff"),
+          cup_zone: z.literal("handoff_zone"),
+          cup_event_id: z.string().min(8).max(128).refine(value => !value.startsWith("rec-"), "Verified snapshots cannot use a recovery event ID"),
+          captured_at_utc: z.string().min(20).max(40),
+          image_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+          zone_geometry: z.array(z.object({ x: z.number(), y: z.number() })).min(3).max(16),
+          zone_config_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+          image_dimensions: z.object({ width: z.number().int(), height: z.number().int() }),
+        }),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const store = await getActiveStoreById(ctx.user.storeId);
+        if (!store) throw new TRPCError({ code: "FORBIDDEN", message: "The current store is not active" });
+
+        let metadata: ReturnType<typeof parseHandoffCaptureMetadata>;
+        try {
+          metadata = parseHandoffCaptureMetadata({
+            camera: input.capture.camera,
+            cupZone: input.capture.cup_zone,
+            cupEventId: input.capture.cup_event_id,
+            capturedAtUtc: input.capture.captured_at_utc,
+            imageSha256: input.capture.image_sha256,
+            schemaVersion: input.capture.schema_version,
+            zoneGeometry: input.capture.zone_geometry,
+            zoneConfigSha256: input.capture.zone_config_sha256,
+            imageDimensions: input.capture.image_dimensions,
+          });
+        } catch (error) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Invalid verified snapshot metadata" });
+        }
+
+        const result = await processHandoffVisualEvent({
+          storeId: store.id,
+          storeTimeZone: store.timezone,
+          metadata,
+          imageDataUrl: input.imageDataUrl,
+          evidenceOrigin: "verified_snapshot",
+          sourceDetail: `official_administrative_snapshot:${input.packageReference}`,
+        });
+
+        return { success: true, transport: "authenticated_admin_verified_snapshot_import" as const, automaticPushVerified: false, ...result } as const;
+      }),
     handoffVisualEvents: adminProcedure
       .input(z.object({
         businessDate: optionalBusinessDateSchema,

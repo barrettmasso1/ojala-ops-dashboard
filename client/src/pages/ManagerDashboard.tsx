@@ -10,6 +10,7 @@ import { getHistoryGelatoRowVolumeBreakdown } from "@/lib/historyGelato";
 import { buildManagerReconciliationSnapshot, MANAGER_INVENTORY_TABS, type ManagerInventoryView } from "@/lib/managerReconciliation";
 import { buildShopifyVarianceSnapshot, summarizeShopifySalesCsv, type ShopifySalesImportSummary } from "@/lib/shopifySalesCsv";
 import { parseRecoveryImportJson, type RecoveryImportBatch } from "@/lib/handoffRecoveryImport";
+import { parseVerifiedSnapshotImportJson, type VerifiedSnapshotImportBatch } from "@/lib/handoffVerifiedSnapshotImport";
 import { trpc } from "@/lib/trpc";
 import { applyAnalyzedPhotoPanSetup, getAnalyzedPhotoCombinedGrossWeightKg, getAnalyzedPhotoPanSetup } from "./EmployeePortal";
 import { formatBusinessCalendarDate, formatBusinessTime, getBusinessDate, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, PACIFIC_TIME_ZONE } from "../../../shared/businessDate";
@@ -731,6 +732,10 @@ export default function ManagerDashboard() {
   const [recoveryImportFileName, setRecoveryImportFileName] = useState("");
   const [recoveryImportError, setRecoveryImportError] = useState<string | null>(null);
   const [recoveryImportProgress, setRecoveryImportProgress] = useState<{ imported: number; total: number; eventIds: number[] } | null>(null);
+  const [verifiedSnapshotImportBatch, setVerifiedSnapshotImportBatch] = useState<VerifiedSnapshotImportBatch | null>(null);
+  const [verifiedSnapshotImportFileName, setVerifiedSnapshotImportFileName] = useState("");
+  const [verifiedSnapshotImportError, setVerifiedSnapshotImportError] = useState<string | null>(null);
+  const [verifiedSnapshotImportProgress, setVerifiedSnapshotImportProgress] = useState<{ imported: number; total: number; eventIds: number[] } | null>(null);
 
   const isAdmin = user?.role === "admin";
   const maxBusinessDate = getBusinessDate(liveNow, timeZone);
@@ -780,6 +785,10 @@ export default function ManagerDashboard() {
     setRecoveryImportFileName("");
     setRecoveryImportError(null);
     setRecoveryImportProgress(null);
+    setVerifiedSnapshotImportBatch(null);
+    setVerifiedSnapshotImportFileName("");
+    setVerifiedSnapshotImportError(null);
+    setVerifiedSnapshotImportProgress(null);
   }, [selectedDate]);
 
   const dailyQuery = trpc.dashboard.daily.useQuery(
@@ -904,6 +913,7 @@ export default function ManagerDashboard() {
     onError: error => toast.error(error.message),
   });
   const importRecoveryFrameMutation = trpc.dashboard.importRecordingExtractedHandoffFrame.useMutation();
+  const importVerifiedSnapshotMutation = trpc.dashboard.importVerifiedSnapshotHandoffFrame.useMutation();
 
   const updateSubmissionGelatoMutation = trpc.dashboard.updateSubmissionGelato.useMutation({
     onSuccess: async () => {
@@ -1240,6 +1250,57 @@ export default function ManagerDashboard() {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to import a recovered recording frame.";
       setRecoveryImportError(`${message} Earlier items remain safely deduplicated; retrying the same manifest will not create duplicate event IDs.`);
+      toast.error(message);
+      await utils.dashboard.handoffVisualEvents.invalidate({ businessDate: selectedDate, status: "all", limit: 100 });
+    }
+  }
+
+  async function handleVerifiedSnapshotImportFileUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const batch = await parseVerifiedSnapshotImportJson(await file.text(), selectedDate);
+      setVerifiedSnapshotImportBatch(batch);
+      setVerifiedSnapshotImportFileName(file.name);
+      setVerifiedSnapshotImportError(null);
+      setVerifiedSnapshotImportProgress(null);
+      toast.success(`${batch.items.length} original verified snapshot${batch.items.length === 1 ? "" : "s"} verified locally. Review the import before saving.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to read the verified snapshot import.";
+      setVerifiedSnapshotImportBatch(null);
+      setVerifiedSnapshotImportFileName(file.name);
+      setVerifiedSnapshotImportError(message);
+      setVerifiedSnapshotImportProgress(null);
+      toast.error(message);
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  async function importVerifiedSnapshots() {
+    if (!verifiedSnapshotImportBatch || verifiedSnapshotImportBatch.businessDate !== selectedDate) {
+      setVerifiedSnapshotImportError("Choose the same business date shown by the verified snapshot import before saving.");
+      return;
+    }
+
+    const eventIds: number[] = [];
+    setVerifiedSnapshotImportError(null);
+    setVerifiedSnapshotImportProgress({ imported: 0, total: verifiedSnapshotImportBatch.items.length, eventIds });
+    try {
+      for (const item of verifiedSnapshotImportBatch.items) {
+        const result = await importVerifiedSnapshotMutation.mutateAsync({
+          packageReference: verifiedSnapshotImportBatch.packageReference,
+          ...item,
+        });
+        eventIds.push(result.eventId);
+        setVerifiedSnapshotImportProgress({ imported: eventIds.length, total: verifiedSnapshotImportBatch.items.length, eventIds: [...eventIds] });
+      }
+      toast.success(`${eventIds.length} original verified snapshot${eventIds.length === 1 ? "" : "s"} saved with its automatic-capture provenance. No sales, deliveries, inventory, or camera counts changed.`);
+      await utils.dashboard.handoffVisualEvents.invalidate({ businessDate: selectedDate, status: "all", limit: 100 });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to import an original verified snapshot.";
+      setVerifiedSnapshotImportError(`${message} Earlier items remain safely deduplicated; retrying the same manifest will not create duplicate event IDs.`);
       toast.error(message);
       await utils.dashboard.handoffVisualEvents.invalidate({ businessDate: selectedDate, status: "all", limit: 100 });
     }
@@ -3239,6 +3300,47 @@ export default function ManagerDashboard() {
                 <div className="flex items-center gap-2"><Camera className="h-4 w-4 text-[#52665f]" /> No sales, deliveries, or inventory updates</div>
               </div>
             </div>
+
+            {isAdmin ? (
+              <section className="mt-6 rounded-[1.5rem] border border-[#d8e2da] bg-[#f4f8f3]/70 p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="max-w-3xl">
+                    <p className="text-xs uppercase tracking-[0.22em] text-[#52665f]">Admin-only verified-snapshot import</p>
+                    <h3 className="mt-2 font-serif text-2xl text-[#24332f]">Original Beelink snapshots</h3>
+                    <p className="mt-3 text-sm leading-6 text-[#43554f]">Import only a verified-snapshot JSON generated from an official administrative evidence package for the selected date. Every image hash, original event ID, capture timestamp, and active handoff-zone fingerprint are checked before the protected mutation runs. The server derives the signed-in store; this import records evidence only and does not prove the paused automatic push.</p>
+                  </div>
+                  <div className="flex w-full max-w-sm flex-col gap-3 lg:items-end">
+                    <label className="inline-flex cursor-pointer items-center justify-center rounded-full border border-[#52665f] bg-[#52665f] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#43554f]">
+                      Choose verified-snapshot JSON
+                      <input type="file" accept="application/json,.json" className="sr-only" onChange={handleVerifiedSnapshotImportFileUpload} />
+                    </label>
+                    <p className="text-xs leading-5 text-[#52665f]">Selected date: {selectedDate}. This preserves <code>verified_snapshot</code> provenance and cannot write sales, deliveries, inventory, or Camera cup count.</p>
+                  </div>
+                </div>
+                {verifiedSnapshotImportFileName ? <p className="mt-4 text-xs leading-5 text-[#52665f]">Verified snapshot file: {verifiedSnapshotImportFileName}</p> : null}
+                {verifiedSnapshotImportError ? <p className="mt-4 rounded-xl border border-[#e7c7c2] bg-[#fff4f2] px-4 py-3 text-sm leading-6 text-[#8a4343]">{verifiedSnapshotImportError}</p> : null}
+                {verifiedSnapshotImportBatch ? (
+                  <div className="mt-5 rounded-[1.25rem] border border-[#d8e2da] bg-white/80 p-4">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-[#24332f]">{verifiedSnapshotImportBatch.items.length} original verified snapshot{verifiedSnapshotImportBatch.items.length === 1 ? "" : "s"} verified for {verifiedSnapshotImportBatch.businessDate}</p>
+                        <p className="mt-1 text-xs leading-5 text-[#52665f]">Package: {verifiedSnapshotImportBatch.packageReference}. Administrative import keeps the original automatic-capture provenance, but does not verify an automatic push acknowledgement.</p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={importVerifiedSnapshotMutation.isPending}
+                        onClick={() => void importVerifiedSnapshots()}
+                        className="inline-flex items-center justify-center rounded-full bg-[#52665f] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#43554f] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {importVerifiedSnapshotMutation.isPending ? "Importing verified snapshots…" : `Import ${verifiedSnapshotImportBatch.items.length} verified snapshot${verifiedSnapshotImportBatch.items.length === 1 ? "" : "s"}`}
+                      </button>
+                    </div>
+                    <p className="mt-4 text-xs leading-5 text-[#52665f]">Original IDs: {verifiedSnapshotImportBatch.items.map(item => item.capture.cup_event_id).join(", ")}</p>
+                    {verifiedSnapshotImportProgress ? <p className="mt-3 text-xs font-medium text-[#52665f]">Imported {verifiedSnapshotImportProgress.imported} of {verifiedSnapshotImportProgress.total}. Persisted dashboard IDs: {verifiedSnapshotImportProgress.eventIds.join(", ") || "none yet"}.</p> : null}
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
 
             {isAdmin ? (
               <section className="mt-6 rounded-[1.5rem] border border-[#eadcb6] bg-[#fff9e9]/65 p-5">

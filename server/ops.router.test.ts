@@ -487,6 +487,49 @@ describe("operations router", () => {
     expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();
   });
 
+  it("imports an original verified snapshot for the authenticated store without creating a camera count", async () => {
+    const caller = appRouter.createCaller(createContext("admin", 1));
+
+    const result = await caller.dashboard.importVerifiedSnapshotHandoffFrame({
+      packageReference: "OJALA_EVIDENCIA_16OCT_1743.zip",
+      capture: visualCaptureV3("1792184419.505434-vz87p4"),
+      imageDataUrl: visualImageDataUrl,
+    });
+
+    expect(result).toEqual({
+      success: true,
+      transport: "authenticated_admin_verified_snapshot_import",
+      automaticPushVerified: false,
+      eventId: 610,
+      status: "approved_by_ai",
+      disposition: "analyzed",
+      retryable: false,
+    });
+    expect(dbMocks.reserveHandoffVisualEvent).toHaveBeenCalledWith(expect.objectContaining({
+      storeId: 1,
+      evidenceOrigin: "verified_snapshot",
+      sourceDetail: "official_administrative_snapshot:OJALA_EVIDENCIA_16OCT_1743.zip",
+      cupEventId: "1792184419.505434-vz87p4",
+    }));
+    expect(storageMocks.storagePut).toHaveBeenCalledWith(
+      expect.stringContaining("frigate-handoff-verified/store-1/handoff/1792184419.505434-vz87p4-"),
+      expect.any(Buffer),
+      "image/jpeg",
+    );
+    expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();
+  });
+
+  it("does not allow a non-admin session to import a verified snapshot", async () => {
+    const caller = appRouter.createCaller(createContext("user", 1));
+
+    await expect(caller.dashboard.importVerifiedSnapshotHandoffFrame({
+      packageReference: "OJALA_EVIDENCIA_16OCT_1743.zip",
+      capture: visualCaptureV3("1792184419.505434-vz87p4"),
+      imageDataUrl: visualImageDataUrl,
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMocks.reserveHandoffVisualEvent).not.toHaveBeenCalled();
+  });
+
   it("does not allow a non-admin session to import a recovered recording frame", async () => {
     const caller = appRouter.createCaller(createContext("user", 1));
 
