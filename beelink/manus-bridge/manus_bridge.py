@@ -237,7 +237,7 @@ def stage(manifest, files, state):
                    (batch_id, manifest['businessDate'], str(package), sha, 'queued'))
         db.commit()
         return {'batchId': batch_id, 'status': 'queued', 'snapshots': len(manifest['events']),
-                'packageBytes': package.stat().st_size, 'cupsDetected': None}
+                'packageBytes': package.stat().st_size, 'cupsDetected': manifest.get('cupsDetected')}
     finally:
         db.close()
 
@@ -343,7 +343,10 @@ def prompt(row, count_included=False):
             'Cloudflare. Esta vía es administrativa mediante API oficial, no prueba del '
             'envío Frigate directo. Guarda y adjunta un receipt.json con batchId, '
             'packageSha256, storeId, businessDate, filas visuales leídas de vuelta '
-            '(id/cupEventId/source/status), countRow, readBackAt y limitaciones. '
+            'en visualRows (id/cupEventId/source/status), countRow, readBackAt con zona horaria, '
+            'automaticPushVerified=false y limitaciones. Usa receipt.json como nombre del adjunto. '
+            'countRow debe incluir id, storeId, businessDate, cameraName, cupsDetected, coverage, '
+            'recordSha256, sourceEventId, sourceEventAt y receivedAt. '
             'Si falta sesión administrativa conserva el paquete y reporta el bloqueo, '
             'sin afirmar recepción en el dashboard.')
 
@@ -441,7 +444,9 @@ def reconcile(db, api):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['collect', 'send', 'reconcile', 'status', 'check-key'])
+    parser.add_argument('action', choices=['collect', 'send', 'reconcile', 'receipts', 'status', 'check-key'])
+    parser.add_argument('--recheck-receipts', action='store_true',
+                        help='Revalidate existing administrative receipts without resending data')
     parser.add_argument('--date', default=datetime.now(TZ).date().isoformat())
     parser.add_argument('--base', type=Path, default=BASE)
     args = parser.parse_args()
@@ -469,6 +474,11 @@ def main():
                               'taskPrivate': task.get('share_visibility') == 'private'}
                 elif args.action == 'reconcile':
                     result = reconcile(db, api)
+                    from receipt_collector import collect_receipts
+                    result['receipts'] = collect_receipts(db, api, state)
+                elif args.action == 'receipts':
+                    from receipt_collector import collect_receipts
+                    result = collect_receipts(db, api, state, recheck=args.recheck_receipts)
                 else:
                     result = deliver_one(db, api)
         finally:
