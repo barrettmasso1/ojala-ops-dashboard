@@ -178,6 +178,11 @@ def main():
     except Exception as exc:
         report["status"]="guard_error";report["error_type"]=type(exc).__name__
     finally:
+        try:
+            from fps_monitor import check_report
+            report['fps_alert'] = check_report(report, BASE)
+        except Exception as exc:
+            report['fps_alert_error_type'] = type(exc).__name__
         write_json(STATUS,report)
         history=BASE/"health_reports"
         history.mkdir(exist_ok=True)
