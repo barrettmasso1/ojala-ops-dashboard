@@ -12,8 +12,10 @@ It uses the documented `https://api.manus.ai/v2` file and task APIs.
   deduplicates repeated collection. Source queues, counts and receipts are untouched.
 - Uploads to Manus using its returned presigned S3 destination, then continues the
   existing Ojala task. It requires that task to be private and idle.
-- Asks Manus to use the existing authenticated administrative importer, retain
-  `pending_review`, preserve prior decisions, and produce a read-back receipt.
+- Asks Manus to use the existing authenticated administrative importer, preserve
+  its visual-only AI/review states and prior decisions, and produce a read-back receipt.
+  Existing human-approved counts and their dashboard receipt take priority over
+  further visual review; they must not wait for an unnecessary new importer mode.
 - Distinguishes `awaiting_dashboard_receipt` from actual receipt. Neither upload
   nor agent acceptance sets `productionContractVerified` or acknowledges Frigate.
 - Existing approved counts accompany the package only when the exact record is
