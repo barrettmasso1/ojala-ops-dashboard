@@ -68,3 +68,28 @@ Official contracts: [authentication](https://open.manus.ai/docs/v2/authenticatio
 [file.detail](https://open.manus.ai/docs/v2/file.detail),
 [task.sendMessage](https://open.manus.ai/docs/v2/task.sendMessage),
 [task.listMessages](https://open.manus.ai/docs/v2/task.listMessages).
+
+## Longer context for a review that cannot resolve short clips
+
+`export_review_context.py` expands each original capture to 60 seconds before and
+120 seconds after, merging overlapping requested intervals. It reads the archive
+SQLite in read-only mode, checks the original package and segment hashes, and
+copies original MP4s into a private package. It does not enqueue or upload it.
+
+```
+python3 export_review_context.py ORIGINAL.zip \
+  /home/ojala/frigate/pilot-archive/forward-20260929 /private/REVIEW_CONTEXT
+```
+
+The output includes original segments, stream-copy playback derivatives, the
+source package hash, per-segment wall-clock mappings, and every timestamp gap.
+Playback splits at gaps or overlaps larger than 0.5 seconds; even smaller gaps
+remain explicit in the manifest. Joined playback is not an original continuous
+recording and must not conceal missing time. These candidate windows do not
+establish whole-day coverage. Counts remain `null`, including when no unit has yet
+been confirmed. A reviewer must distinguish unknown/unresolved from a true zero.
+
+This review package is not a verified-snapshot or count-import payload. Attach it
+to the existing authorized review task, preserving the original event identities;
+do not repeat completed image analysis or create daily counts from clip totals.
+Five focused tests cover interval union, missing time, overlaps and playback splits.
