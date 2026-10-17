@@ -2740,6 +2740,35 @@ export async function queueHandoffVisualForZoneMismatch(input: { id: number; sto
   return getHandoffVisualEventById(input);
 }
 
+/** Audited, admin-requested correction of a pending verified capture only.
+ * Preserves row identity, image, source, review decision, zone and every count.
+ * CAS + lease checks prevent racing a review or an active analysis.
+ */
+export async function normalizePendingVerifiedCaptureMetadata(input: {
+  id: number;
+  storeId: number;
+  expectedMetadataJson: string;
+  correctedMetadataJson: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const now = new Date();
+  const result = await db.update(frigateHandoffVisualEvents).set({
+    captureMetadataJson: input.correctedMetadataJson,
+    nextRetryAt: now,
+  }).where(and(
+    eq(frigateHandoffVisualEvents.id, input.id),
+    eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
+    eq(frigateHandoffVisualEvents.evidenceOrigin, "verified_snapshot"),
+    eq(frigateHandoffVisualEvents.analysisStatus, "pending_review"),
+    eq(frigateHandoffVisualEvents.captureMetadataJson, input.expectedMetadataJson),
+    or(isNull(frigateHandoffVisualEvents.analysisLeaseUntil), lte(frigateHandoffVisualEvents.analysisLeaseUntil, now)),
+  ));
+  const header = Array.isArray(result) ? result[0] : result;
+  if (Number((header as { affectedRows?: number } | undefined)?.affectedRows ?? 0) !== 1) return null;
+  return getHandoffVisualEventById(input);
+}
+
 export async function attachHandoffVisualImage(input: {
   id: number;
   storeId: number;

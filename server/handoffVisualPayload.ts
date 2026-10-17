@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { parseHandoffZoneGeometry, serializeHandoffZoneGeometry, type HandoffZoneGeometry } from "./handoffZoneGeometry";
+import type { VerifiedZoneNormalizationAudit } from "./handoffZoneNormalization";
 
 const ACCEPTED_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_HANDOFF_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -23,6 +24,7 @@ export type HandoffCaptureMetadata = {
   capturedZoneGeometry?: HandoffZoneGeometry;
   capturedZoneConfigSha256?: string;
   imageDimensions?: { width: number; height: number };
+  normalizationAudit?: VerifiedZoneNormalizationAudit;
 };
 
 function hasExpectedImageSignature(buffer: Buffer, mimeType: DecodedHandoffImage["mimeType"]) {
@@ -111,7 +113,7 @@ export function parseHandoffCaptureMetadata(input: {
 }
 
 export function handoffCaptureMetadataJson(metadata: HandoffCaptureMetadata) {
-  return JSON.stringify({
+  const serialized = JSON.stringify({
     schema_version: metadata.schemaVersion,
     camera: metadata.camera,
     cup_zone: metadata.cupZone,
@@ -121,7 +123,10 @@ export function handoffCaptureMetadataJson(metadata: HandoffCaptureMetadata) {
     ...(metadata.capturedZoneGeometry ? { zone_geometry: JSON.parse(serializeHandoffZoneGeometry(metadata.capturedZoneGeometry)) } : {}),
     ...(metadata.capturedZoneConfigSha256 ? { zone_config_sha256: metadata.capturedZoneConfigSha256 } : {}),
     ...(metadata.imageDimensions ? { image_dimensions: metadata.imageDimensions } : {}),
+    ...(metadata.normalizationAudit ? { normalization_audit: metadata.normalizationAudit } : {}),
   });
+  if (Buffer.byteLength(serialized, "utf8") > 60_000) throw new Error("Capture metadata audit exceeds storage limit");
+  return serialized;
 }
 
 export function handoffImageExtension(mimeType: DecodedHandoffImage["mimeType"]) {
