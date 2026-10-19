@@ -96,7 +96,11 @@ false_positive/pending, unitIds:[supported physical-unit IDs only],
 evidenceIds:[actual evidence reference IDs]}}],
 dailyReview:{{scope:"confirmed_units_in_partial_evidence",completed:true,
 gaps:[specific unreviewed intervals, ambiguous cases and incomplete candidate coverage]}}.
-Every candidate ID must appear in exactly one case. Use only original MP4 references;
+Every candidate ID must appear in exactly one case. For EACH candidate in a case,
+at least one case.evidenceIds reference must point to an original MP4 listed in that
+exact manifest.events[].segments entry. Grouping duplicate candidates is allowed,
+but the references must cover every candidate, not just the first or last. Separate
+duplicate cases may point to the same physical-unit ID. Use only original MP4 references;
 timestamps must fall inside that segment's manifest startTime/endTime AND this local
 business date. Multiple observations within the same segment are allowed, with actual
 different frame times. Never fabricate times or confirmation flags to satisfy the schema.
