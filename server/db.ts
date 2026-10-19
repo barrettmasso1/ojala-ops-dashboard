@@ -2970,7 +2970,9 @@ export async function getHandoffVisualEvidenceOverview(input: {
       approvedByManager: sql<number>`SUM(CASE WHEN ${frigateHandoffVisualEvents.analysisStatus} = 'approved_by_manager' THEN 1 ELSE 0 END)`,
       discardedByAi: sql<number>`SUM(CASE WHEN ${frigateHandoffVisualEvents.analysisStatus} = 'discarded' THEN 1 ELSE 0 END)`,
       discardedByManager: sql<number>`SUM(CASE WHEN ${frigateHandoffVisualEvents.analysisStatus} = 'discarded_by_manager' THEN 1 ELSE 0 END)`,
-      latestReceivedAt: sql<Date | null>`MAX(${frigateHandoffVisualEvents.receivedAt})`,
+      // Convert MAX(receivedAt) to an epoch before it crosses the SQL driver,
+      // then return a Date so tRPC/SuperJSON preserve one unambiguous UTC instant.
+      latestReceivedAtEpoch: sql<number | null>`UNIX_TIMESTAMP(MAX(${frigateHandoffVisualEvents.receivedAt}))`,
     })
     .from(frigateHandoffVisualEvents)
     .where(where);
@@ -2991,7 +2993,9 @@ export async function getHandoffVisualEvidenceOverview(input: {
       discardedByAi: Number(aggregate?.discardedByAi ?? 0),
       discardedByManager: Number(aggregate?.discardedByManager ?? 0),
     },
-    latestReceivedAt: aggregate?.latestReceivedAt ?? null,
+    latestReceivedAt: aggregate?.latestReceivedAtEpoch == null
+      ? null
+      : new Date(Number(aggregate.latestReceivedAtEpoch) * 1000),
     thumbnails: thumbnails.map(event => {
       const row = handoffVisualPublicRow(event);
       return {

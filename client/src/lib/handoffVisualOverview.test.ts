@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Router, useSearch } from "wouter";
 import { buildDailyOperations } from "./dailyOperations";
 import { buildHandoffVisualEvidencePresentation, handoffReviewHref, requestedDashboardBusinessDate } from "./handoffVisualOverview";
 
@@ -62,6 +65,21 @@ describe("handoff visual evidence overview", () => {
   it("carries the selected business date into Handoff Review without inventing a filter", () => {
     expect(handoffReviewHref("2026-10-18")).toBe("/dashboard/handoff-review?date=2026-10-18");
     expect(requestedDashboardBusinessDate("/dashboard/handoff-review?date=2026-10-18")).toBe("2026-10-18");
+    expect(requestedDashboardBusinessDate("date=2026-10-18")).toBe("2026-10-18");
     expect(requestedDashboardBusinessDate("/dashboard/handoff-review?review=20261018")).toBeNull();
+  });
+
+  it("reads a direct Handoff Review date through Wouter useSearch rather than the pathname", () => {
+    function RequestedDateProbe() {
+      return createElement("output", null, requestedDashboardBusinessDate(useSearch()) ?? "missing");
+    }
+
+    const markup = renderToStaticMarkup(createElement(
+      Router,
+      { ssrPath: "/dashboard/handoff-review", ssrSearch: "date=2026-10-18" },
+      createElement(RequestedDateProbe),
+    ));
+
+    expect(markup).toContain("2026-10-18");
   });
 });

@@ -40,7 +40,7 @@ import {
   YAxis,
 } from "recharts";
 import { toast } from "sonner";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 
 function todayValue() {
   return getPacificBusinessDate();
@@ -747,6 +747,7 @@ function renderFlavorWeightCell(value: string, photo?: SubmissionHistoryPhoto) {
 
 export default function ManagerDashboard() {
   const [location, setLocation] = useLocation();
+  const search = useSearch();
   const isInventoryWorkspaceRoute = location.startsWith("/dashboard/inventory");
   const isTimeBookRoute = location.startsWith("/dashboard/time-book");
   const isCookbookRoute = location.startsWith("/cookbook");
@@ -754,7 +755,7 @@ export default function ManagerDashboard() {
   const isHistoryRoute = location.startsWith("/dashboard/history") || location.startsWith("/dashboard/analysis");
   const isHandoffReviewRoute = location.startsWith("/dashboard/handoff-review");
   const isOverviewRoute = !isInventoryWorkspaceRoute && !isTimeBookRoute && !isCookbookRoute && !isFormsRoute && !isHistoryRoute && !isHandoffReviewRoute;
-  const requestedBusinessDate = requestedDashboardBusinessDate(location);
+  const requestedBusinessDate = requestedDashboardBusinessDate(search);
   const redirectPath = isInventoryWorkspaceRoute
     ? "/dashboard/inventory"
     : isTimeBookRoute
@@ -835,13 +836,13 @@ export default function ManagerDashboard() {
   useEffect(() => {
     if (!storeContext.data) return;
     const today = getBusinessDate(new Date(), storeContext.data.timezone);
-    const requestedDate = requestedDashboardBusinessDate(location);
+    const requestedDate = requestedDashboardBusinessDate(search);
     const requestedDateIsUsable = requestedDate !== null && requestedDate <= today;
     setSelectedDate(requestedDateIsUsable ? requestedDate : today);
     setHasExplicitDateSelection(requestedDateIsUsable);
     setHoursRangeEnd(today);
     setHoursRangeStart(getPacificSundayWeekStart(today));
-  }, [location, storeContext.data?.timezone]);
+  }, [search, storeContext.data?.timezone]);
 
   useEffect(() => {
     if (!loading && user && !isAdmin) {
@@ -1596,7 +1597,7 @@ export default function ManagerDashboard() {
               { label: "Samples given (oz)", value: formatWholeOunces((daily as any)?.sampleOuncesTotal ?? 0), helper: "Reported samples given to customers, factored into variance." },
               { label: "Waste (oz)", value: formatWholeOunces((daily as any)?.wasteOuncesTotal ?? 0), helper: "Reported waste (spills, quality pulls), factored into variance." },
               {
-                label: "Conteo diario de vasos",
+                label: "Conteo de vasos por cámara",
                 value: dailyOperations?.cameraValue ?? "—",
                 helper: dailyOperations
                   ? `${dailyOperations.cameraMessage} Cobertura del conteo: ${dailyOperations.cameraCoverage}. Revisión del conteo: ${dailyOperations.cameraReviewStatus}. Recepción del conteo: ${formatDateTime(dailyOperations.receivedAt, timeZone)} · ${timeZone}.`
@@ -1712,7 +1713,7 @@ export default function ManagerDashboard() {
                       <div key={card.label} className="min-w-0 rounded-2xl bg-white/80 px-5 py-4 shadow-sm md:px-6 md:py-5">
                         <p className="text-[0.95rem] leading-snug text-[#6f776f] md:text-base" title={card.label}>{card.label}</p>
                         <p className={getSnapshotValueClassName(card.value)} title={"valueTitle" in card ? card.valueTitle : card.value}>{card.value}</p>
-                        {card.label === "Conteo diario de vasos" && <p className="mt-3 text-sm leading-6 text-[#65716b]">{card.helper}</p>}
+                        {card.label === "Conteo de vasos por cámara" && <p className="mt-3 text-sm leading-6 text-[#65716b]">{card.helper}</p>}
                       </div>
                     ))}
                   </div>

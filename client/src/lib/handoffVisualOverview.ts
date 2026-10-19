@@ -75,10 +75,14 @@ export function handoffReviewHref(businessDate: string) {
   return `/dashboard/handoff-review?date=${encodeURIComponent(businessDate)}`;
 }
 
-/** Only accepts the ordinary YYYY-MM-DD query value used by the dashboard. */
-export function requestedDashboardBusinessDate(location: string) {
-  const queryIndex = location.indexOf("?");
-  if (queryIndex < 0) return null;
-  const value = new URLSearchParams(location.slice(queryIndex + 1)).get("date");
+/**
+ * Only accepts the ordinary YYYY-MM-DD query value used by the dashboard.
+ * Wouter's useSearch() returns the query string without a leading question
+ * mark, while accepting a full URL here keeps this helper easy to test.
+ */
+export function requestedDashboardBusinessDate(search: string) {
+  const queryIndex = search.indexOf("?");
+  const query = queryIndex >= 0 ? search.slice(queryIndex + 1) : search.replace(/^\?/, "");
+  const value = new URLSearchParams(query).get("date");
   return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
 }
