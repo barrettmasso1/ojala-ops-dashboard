@@ -61,7 +61,8 @@ def read_source(row, bridge_state):
 
 def request_prompt(job, manifest):
     return f"""OJALA_PHYSICAL_REVIEW:{job['id']}
-Owner-authorized automated video review. POLICY {POLICY}. This is review ONLY:
+Owner-authorized automated video review. POLICY {POLICY}. Review directly within
+this task; do not launch additional agents or a separate orchestration. This is review ONLY:
 DO NOT import a count, change production, generate sales or retry Cloudflare.
 The existing local validator and sender will handle an accepted record later.
 Batch {job['batchId']}; ZIP SHA256 {job['packageSha256']}; Store 1; handoff;
