@@ -11,6 +11,7 @@ import { buildManagerReconciliationSnapshot, MANAGER_INVENTORY_TABS, type Manage
 import { buildShopifyVarianceSnapshot, summarizeShopifySalesCsv, type ShopifySalesImportSummary } from "@/lib/shopifySalesCsv";
 import { parseRecoveryImportJson, type RecoveryImportBatch } from "@/lib/handoffRecoveryImport";
 import { parseVerifiedSnapshotImportJson, type VerifiedSnapshotImportBatch } from "@/lib/handoffVerifiedSnapshotImport";
+import { buildHandoffVisualEvidencePresentation, handoffReviewHref, requestedDashboardBusinessDate } from "@/lib/handoffVisualOverview";
 import { trpc } from "@/lib/trpc";
 import { applyAnalyzedPhotoPanSetup, getAnalyzedPhotoCombinedGrossWeightKg, getAnalyzedPhotoPanSetup } from "./EmployeePortal";
 import { formatBusinessCalendarDate, formatBusinessTime, getBusinessDate, getPacificBusinessDate, getPacificSundayWeekStart, getPacificWeekStart, PACIFIC_TIME_ZONE } from "../../../shared/businessDate";
@@ -39,7 +40,7 @@ import {
   YAxis,
 } from "recharts";
 import { toast } from "sonner";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 
 function todayValue() {
   return getPacificBusinessDate();
@@ -548,6 +549,95 @@ function StatePanel({
   );
 }
 
+function HandoffVisualEvidenceOverviewPanel({
+  presentation,
+  businessDate,
+  timeZone,
+}: {
+  presentation: ReturnType<typeof buildHandoffVisualEvidencePresentation>;
+  businessDate: string;
+  timeZone: string;
+}) {
+  if (presentation.state === "loading") {
+    return (
+      <SurfaceCard>
+        <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Visual evidence</p>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-32 animate-pulse rounded-2xl bg-[#f4ede2]" />)}
+        </div>
+      </SurfaceCard>
+    );
+  }
+
+  if (presentation.state === "error") {
+    return (
+      <SurfaceCard>
+        <StatePanel title="Unable to load visual evidence" description="The visual evidence summary is temporarily unavailable. No image count is being treated as zero." tone="error" />
+      </SurfaceCard>
+    );
+  }
+
+  const { summary } = presentation;
+  const statuses = [
+    { label: "AI approved", value: summary.statusCounts.approvedByAi },
+    { label: "Manager approved", value: summary.statusCounts.approvedByManager },
+    { label: "Discarded", value: summary.statusCounts.discardedByAi + summary.statusCounts.discardedByManager },
+    { label: "Pending review", value: summary.statusCounts.pendingReview },
+  ];
+
+  return (
+    <SurfaceCard>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Visual evidence</p>
+          <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Handoff images for {businessDate}</h2>
+          <p className="mt-3 max-w-3xl text-sm leading-7 text-[#66706a]">Images and AI labels are visual evidence only. They do not equal unique physical cups, sales, deliveries, or a daily camera count.</p>
+        </div>
+        <Link href={handoffReviewHref(businessDate)} className="inline-flex w-fit items-center rounded-full border border-[#52665f] px-5 py-3 text-sm font-medium text-[#43554f] transition hover:bg-[#f4f8f3]">
+          Open Handoff Review
+        </Link>
+      </div>
+
+      {presentation.state === "empty" ? (
+        <div className="mt-6">
+          <StatePanel title="No visual images received for this date" description="No persisted handoff image records were found for the selected store and date. This does not imply zero physical cups." tone="warning" />
+        </div>
+      ) : (
+        <>
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="rounded-2xl border border-[#e5ddd0] bg-[#fbf7f0] p-5 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.18em] text-[#8b9088]">Images received</p>
+              <p className="mt-3 font-serif text-3xl text-[#1f2b27]">{summary.total}</p>
+              <p className="mt-2 text-sm leading-6 text-[#6f776f]">Persisted handoff images for this store and selected date.</p>
+            </div>
+            {statuses.map(status => (
+              <div key={status.label} className="rounded-2xl border border-[#e5ddd0] bg-[#fbf7f0] p-5 shadow-sm">
+                <p className="text-xs uppercase tracking-[0.18em] text-[#8b9088]">{status.label}</p>
+                <p className="mt-3 font-serif text-3xl text-[#1f2b27]">{status.value}</p>
+                <p className="mt-2 text-sm leading-6 text-[#6f776f]">Visual-review status only.</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-5 text-sm leading-6 text-[#65716b]">Última recepción de imágenes: {formatDateTime(summary.latestReceivedAt, timeZone)} · {timeZone}. This uses the persisted receipt timestamp, not the capture timestamp.</p>
+          {summary.thumbnails.length > 0 ? (
+            <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              {summary.thumbnails.map(thumbnail => (
+                <article key={thumbnail.id} className="overflow-hidden rounded-[1.4rem] border border-[#e5ddd0] bg-[#fcfaf6] shadow-sm">
+                  {thumbnail.imageUrl ? <img src={thumbnail.imageUrl} alt={`Handoff evidence ${thumbnail.cupEventId}`} loading="lazy" decoding="async" className="aspect-[4/3] w-full bg-[#f4ede2] object-cover" /> : null}
+                  <div className="p-4">
+                    <p className="truncate text-sm font-medium text-[#24332f]" title={thumbnail.cupEventId}>{thumbnail.cupEventId}</p>
+                    <p className="mt-2 text-xs leading-5 text-[#68716b]">{handoffVisualStatusLabel(thumbnail.analysisStatus)} · {handoffEvidenceOriginLabel(thumbnail.evidenceOrigin)}</p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : null}
+        </>
+      )}
+    </SurfaceCard>
+  );
+}
+
 function inventoryFieldClassName() {
   return "h-11 rounded-2xl border border-[#dbd2c5] bg-[#fcfaf6] px-4 text-sm text-[#24332f] shadow-sm outline-none transition focus:border-[#52665f] focus:ring-4 focus:ring-[#52665f]/10";
 }
@@ -664,6 +754,7 @@ export default function ManagerDashboard() {
   const isHistoryRoute = location.startsWith("/dashboard/history") || location.startsWith("/dashboard/analysis");
   const isHandoffReviewRoute = location.startsWith("/dashboard/handoff-review");
   const isOverviewRoute = !isInventoryWorkspaceRoute && !isTimeBookRoute && !isCookbookRoute && !isFormsRoute && !isHistoryRoute && !isHandoffReviewRoute;
+  const requestedBusinessDate = requestedDashboardBusinessDate(location);
   const redirectPath = isInventoryWorkspaceRoute
     ? "/dashboard/inventory"
     : isTimeBookRoute
@@ -686,13 +777,13 @@ export default function ManagerDashboard() {
   const timeZone = storeContext.data?.timezone ?? PACIFIC_TIME_ZONE;
   const utils = trpc.useUtils();
   const [liveNow, setLiveNow] = useState(() => new Date());
-  const [selectedDate, setSelectedDate] = useState(todayValue());
+  const [selectedDate, setSelectedDate] = useState(() => requestedBusinessDate ?? todayValue());
   const [hoursRangeStart, setHoursRangeStart] = useState(() => getPacificSundayWeekStart(todayValue()));
   const [hoursRangeEnd, setHoursRangeEnd] = useState(todayValue());
   const currentPacificDateLabel = useMemo(() => formatBusinessCalendarDate(liveNow, "en-US", timeZone), [liveNow, timeZone]);
   const currentPacificTimeLabel = useMemo(() => formatBusinessTime(liveNow, "en-US", timeZone), [liveNow, timeZone]);
   const currentPacificDateTimeLabel = useMemo(() => `${currentPacificDateLabel} · ${currentPacificTimeLabel}`, [currentPacificDateLabel, currentPacificTimeLabel]);
-  const [hasExplicitDateSelection, setHasExplicitDateSelection] = useState(false);
+  const [hasExplicitDateSelection, setHasExplicitDateSelection] = useState(() => requestedBusinessDate !== null);
   const [inventoryDashboardView, setInventoryDashboardView] = useState<ManagerInventoryView>("product");
   const [inventoryForm, setInventoryForm] = useState({
     id: undefined as number | undefined,
@@ -744,11 +835,13 @@ export default function ManagerDashboard() {
   useEffect(() => {
     if (!storeContext.data) return;
     const today = getBusinessDate(new Date(), storeContext.data.timezone);
-    setSelectedDate(today);
-    setHasExplicitDateSelection(false);
+    const requestedDate = requestedDashboardBusinessDate(location);
+    const requestedDateIsUsable = requestedDate !== null && requestedDate <= today;
+    setSelectedDate(requestedDateIsUsable ? requestedDate : today);
+    setHasExplicitDateSelection(requestedDateIsUsable);
     setHoursRangeEnd(today);
     setHoursRangeStart(getPacificSundayWeekStart(today));
-  }, [storeContext.data?.timezone]);
+  }, [location, storeContext.data?.timezone]);
 
   useEffect(() => {
     if (!loading && user && !isAdmin) {
@@ -848,6 +941,10 @@ export default function ManagerDashboard() {
   const handoffVisualEventsQuery = trpc.dashboard.handoffVisualEvents.useQuery(
     { businessDate: selectedDate, status: "all", limit: 100 },
     { enabled: isAdmin && isHandoffReviewRoute, refetchOnWindowFocus: false }
+  );
+  const handoffVisualEvidenceOverviewQuery = trpc.dashboard.handoffVisualEvidenceOverview.useQuery(
+    { businessDate: selectedDate },
+    { enabled: isAdmin && isOverviewRoute, refetchOnWindowFocus: false }
   );
   const selectedDayStaffQuery = trpc.timeclock.todayStatus.useQuery(
     { businessDate: selectedDate },
@@ -1324,6 +1421,11 @@ export default function ManagerDashboard() {
 
   const daily = dailyQuery.data;
   const dailyOperations = daily ? buildDailyOperations(daily, selectedDate) : null;
+  const handoffVisualEvidencePresentation = buildHandoffVisualEvidencePresentation({
+    isLoading: handoffVisualEvidenceOverviewQuery.isLoading,
+    hasError: Boolean(handoffVisualEvidenceOverviewQuery.error),
+    summary: handoffVisualEvidenceOverviewQuery.data,
+  });
   const reconciliationSnapshot = buildManagerReconciliationSnapshot(daily);
   const shopifyVarianceSnapshot = useMemo(() => {
     if (!reconciliationSnapshot.gelato || !shopifyImportSummary) return null;
@@ -1494,11 +1596,11 @@ export default function ManagerDashboard() {
               { label: "Samples given (oz)", value: formatWholeOunces((daily as any)?.sampleOuncesTotal ?? 0), helper: "Reported samples given to customers, factored into variance." },
               { label: "Waste (oz)", value: formatWholeOunces((daily as any)?.wasteOuncesTotal ?? 0), helper: "Reported waste (spills, quality pulls), factored into variance." },
               {
-                label: "Vasos observados por cámara",
+                label: "Conteo diario de vasos",
                 value: dailyOperations?.cameraValue ?? "—",
                 helper: dailyOperations
-                  ? `${dailyOperations.cameraMessage} Cobertura: ${dailyOperations.cameraCoverage}. Revisión: ${dailyOperations.cameraReviewStatus}. Última recepción: ${formatDateTime(dailyOperations.receivedAt, timeZone)} · ${timeZone}.`
-                  : "Sin evidencia de cámara recibida para esta fecha; esto no significa cero vasos.",
+                  ? `${dailyOperations.cameraMessage} Cobertura del conteo: ${dailyOperations.cameraCoverage}. Revisión del conteo: ${dailyOperations.cameraReviewStatus}. Recepción del conteo: ${formatDateTime(dailyOperations.receivedAt, timeZone)} · ${timeZone}.`
+                  : "Conteo diario de vasos pendiente. Cobertura del conteo: no disponible.",
               },
               { label: "For-here cups sold", value: formatCount(totalForHereCups), helper: "All dine-in cups sold across sizes." },
               { label: "To-go cups sold", value: formatCount(totalToGoCups), helper: "All to-go cups sold across sizes." },
@@ -1610,7 +1712,7 @@ export default function ManagerDashboard() {
                       <div key={card.label} className="min-w-0 rounded-2xl bg-white/80 px-5 py-4 shadow-sm md:px-6 md:py-5">
                         <p className="text-[0.95rem] leading-snug text-[#6f776f] md:text-base" title={card.label}>{card.label}</p>
                         <p className={getSnapshotValueClassName(card.value)} title={"valueTitle" in card ? card.valueTitle : card.value}>{card.value}</p>
-                        {card.label === "Vasos observados por cámara" && <p className="mt-3 text-sm leading-6 text-[#65716b]">{card.helper}</p>}
+                        {card.label === "Conteo diario de vasos" && <p className="mt-3 text-sm leading-6 text-[#65716b]">{card.helper}</p>}
                       </div>
                     ))}
                   </div>
@@ -1623,6 +1725,7 @@ export default function ManagerDashboard() {
         {isOverviewRoute ? (
           <>
             {!dailyQuery.isLoading && !dailyQuery.error && dailyOperations && <DailyOperationsPanel view={dailyOperations} timeZone={timeZone} />}
+            {isAdmin && <HandoffVisualEvidenceOverviewPanel presentation={handoffVisualEvidencePresentation} businessDate={selectedDate} timeZone={timeZone} />}
             {isAdmin && <ReviewedCountImport key={selectedDate} businessDate={selectedDate} />}
             <SurfaceCard>
               <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">

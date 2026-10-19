@@ -17,8 +17,8 @@ export default function DailyOperationsPanel({ view, timeZone }: { view: DailyOp
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-[#65716b]">Daily operations · {view.businessDate}</p>
-          <h2 id="daily-operations-title" className="mt-3 font-serif text-3xl text-[#1f2b27]">Sales &amp; camera evidence</h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-[#65716b]">Use available evidence while keeping missing data and review work visible.</p>
+          <h2 id="daily-operations-title" className="mt-3 font-serif text-3xl text-[#1f2b27]">Sales &amp; physical camera count</h2>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-[#65716b]">Daily physical counts and visual evidence are separate. Images and AI labels do not become cups, sales, or deliveries.</p>
         </div>
         <span className="w-fit rounded-full bg-[#f1e8da] px-4 py-2 text-sm font-medium text-[#52665f]">{view.cameraLabel}</span>
       </div>
@@ -29,13 +29,13 @@ export default function DailyOperationsPanel({ view, timeZone }: { view: DailyOp
           <p className="mt-3 text-sm leading-6 text-[#65716b]">{view.salesCount === null ? "No valid closing count for this date." : "Reported containers across sizes. No automatic POS connection is implied."}</p>
         </div>
         <div className="rounded-2xl bg-[#f7f2ea] p-5">
-          <h3 className="text-sm text-[#52665f]">Vasos observados por cámara</h3>
+          <h3 className="text-sm text-[#52665f]">Conteo diario de vasos</h3>
           <p className="mt-3 text-3xl font-semibold text-[#1f2b27]">{view.cameraValue}</p>
           <p className="mt-3 text-sm leading-6 text-[#65716b]">{view.cameraMessage}</p>
           <dl className="mt-4 space-y-2 text-sm leading-6 text-[#65716b]">
-            <div><dt className="inline font-medium text-[#52665f]">Cobertura: </dt><dd className="inline">{view.cameraCoverage}</dd></div>
-            <div><dt className="inline font-medium text-[#52665f]">Estado de revisión: </dt><dd className="inline">{view.cameraReviewStatus}</dd></div>
-            <div><dt className="inline font-medium text-[#52665f]">Última recepción: </dt><dd className="inline">{receivedLabel(view.receivedAt, timeZone)} · {timeZone}</dd></div>
+            <div><dt className="inline font-medium text-[#52665f]">Cobertura del conteo: </dt><dd className="inline">{view.cameraCoverage}</dd></div>
+            <div><dt className="inline font-medium text-[#52665f]">Estado de revisión del conteo: </dt><dd className="inline">{view.cameraReviewStatus}</dd></div>
+            <div><dt className="inline font-medium text-[#52665f]">Recepción del conteo: </dt><dd className="inline">{receivedLabel(view.receivedAt, timeZone)} · {timeZone}</dd></div>
           </dl>
         </div>
         <div className="rounded-2xl bg-[#f7f2ea] p-5">

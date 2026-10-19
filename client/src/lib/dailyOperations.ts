@@ -84,11 +84,11 @@ export function buildDailyOperations(input: DailyOperationsInput, selectedDate: 
   const record = input.frigateCounts;
   let state: CameraEvidenceState = "missing";
   let cameraCount: number | null = null;
-  let cameraMessage = "No camera count received for this date. This does not mean zero cups.";
+  let cameraMessage = "Conteo diario de vasos pendiente. No se ha recibido un registro físico de conteo para esta fecha.";
   let gaps = "";
   let receivedAt: string | Date | null = null;
-  let cameraCoverage = "No camera evidence received";
-  let cameraReviewStatus = "Awaiting a camera record";
+  let cameraCoverage = "No disponible";
+  let cameraReviewStatus = "Awaiting a physical camera-count record";
   if (record) {
     if (!matchingDay || record.businessDate !== selectedDate
       || record.cameraName !== "handoff" || !isCount(record.cupsDetected)) {
@@ -139,7 +139,7 @@ export function buildDailyOperations(input: DailyOperationsInput, selectedDate: 
       ? "Waiting for the sales closing record for this date."
       : "Waiting for a reviewed camera count with complete coverage.";
   const cameraLabel = {
-    missing: "Awaiting data",
+    missing: "Conteo pendiente",
     invalid: "Check record",
     unclassified: "Method unconfirmed",
     partial: "Partial evidence",

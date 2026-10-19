@@ -86,10 +86,11 @@ describe("daily operations evidence boundaries", () => {
       expect(buildDailyOperations(sample({ frigateCounts: { ...camera(), sourceDetail } }), day)).toMatchObject({ cameraCount: 18, cameraValue: "18 (unverified)", state: "unclassified", difference: null });
     }
   });
-  it("keeps absent camera evidence distinct from a received zero", () => {
+  it("keeps an absent physical camera count distinct from a received zero and from visual images", () => {
     expect(buildDailyOperations(sample(), day)).toMatchObject({
-      cameraCoverage: "No camera evidence received",
-      cameraReviewStatus: "Awaiting a camera record",
+      cameraMessage: "Conteo diario de vasos pendiente. No se ha recibido un registro físico de conteo para esta fecha.",
+      cameraCoverage: "No disponible",
+      cameraReviewStatus: "Awaiting a physical camera-count record",
       receivedAt: null,
     });
   });

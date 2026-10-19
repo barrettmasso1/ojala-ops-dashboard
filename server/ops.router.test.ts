@@ -16,6 +16,7 @@ const dbMocks = vi.hoisted(() => ({
   getAttendanceTimeBook: vi.fn(),
   getActiveHandoffCameraZone: vi.fn(),
   getDailyOperationsSnapshot: vi.fn(),
+  getHandoffVisualEvidenceOverview: vi.fn(),
   getLatestHandoffCameraEvidenceDate: vi.fn(),
   getInventoryAlerts: vi.fn(),
   getRecentNotes: vi.fn(),
@@ -755,6 +756,26 @@ describe("operations router", () => {
       storeId: 2,
       reviewedByUserId: 99,
     }));
+  });
+
+  it("scopes the overview visual-evidence aggregate to the authenticated store and selected date", async () => {
+    dbMocks.getHandoffVisualEvidenceOverview.mockResolvedValue({
+      total: 12,
+      statusCounts: { pendingReview: 1, approvedByAi: 8, approvedByManager: 0, discardedByAi: 3, discardedByManager: 0 },
+      latestReceivedAt: new Date("2026-10-18T22:41:19.000Z"),
+      thumbnails: [],
+    });
+
+    await expect(appRouter.createCaller(createContext("admin", 2)).dashboard.handoffVisualEvidenceOverview({ businessDate: "2026-10-18" }))
+      .resolves.toMatchObject({ total: 12 });
+    expect(dbMocks.getHandoffVisualEvidenceOverview).toHaveBeenCalledWith({
+      storeId: 2,
+      businessDate: "2026-10-18",
+      cameraName: "handoff",
+    });
+
+    await expect(appRouter.createCaller(createContext("user", 1)).dashboard.handoffVisualEvidenceOverview({ businessDate: "2026-10-18" }))
+      .rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("returns date-specific human-review context only through the admin visual queue", async () => {

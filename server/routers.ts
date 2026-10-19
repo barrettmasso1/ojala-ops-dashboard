@@ -22,6 +22,7 @@ import {
   getAttendanceTimeBook,
   getDailyOperationsSnapshot,
   getActiveHandoffCameraZone,
+  getHandoffVisualEvidenceOverview,
   getLatestHandoffCameraEvidenceDate,
   listHandoffVisualEvents,
   getSubmissionStatusForBusinessDate,
@@ -1179,6 +1180,15 @@ export const appRouter = router({
             cupEventId: event.cupEventId,
           }),
         }));
+      }),
+    handoffVisualEvidenceOverview: adminProcedure
+      .input(z.object({ businessDate: requiredBusinessDateSchema }))
+      .query(async ({ ctx, input }) => {
+        return getHandoffVisualEvidenceOverview({
+          storeId: ctx.user.storeId,
+          businessDate: input.businessDate,
+          cameraName: "handoff",
+        });
       }),
     reviewHandoffVisualEvent: adminProcedure
       .input(z.object({

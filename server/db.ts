@@ -2941,6 +2941,71 @@ export async function listHandoffVisualEvents(input: {
   return rows.map(handoffVisualPublicRow);
 }
 
+/**
+ * Overview-only visual-evidence summary. This is intentionally separate from
+ * frigateCupCounts: a verified image or an AI evidence label never supplies a
+ * physical daily cup count. The aggregate has no pagination and is scoped to
+ * the authenticated store, selected business date, and handoff camera.
+ */
+export async function getHandoffVisualEvidenceOverview(input: {
+  storeId: number;
+  businessDate: string;
+  cameraName?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const storeId = requireStoreId(input.storeId);
+  const cameraName = input.cameraName ?? "handoff";
+  const where = and(
+    eq(frigateHandoffVisualEvents.storeId, storeId),
+    eq(frigateHandoffVisualEvents.businessDate, input.businessDate),
+    eq(frigateHandoffVisualEvents.cameraName, cameraName),
+  );
+
+  const [aggregate] = await db
+    .select({
+      total: count(),
+      pendingReview: sql<number>`SUM(CASE WHEN ${frigateHandoffVisualEvents.analysisStatus} = 'pending_review' THEN 1 ELSE 0 END)`,
+      approvedByAi: sql<number>`SUM(CASE WHEN ${frigateHandoffVisualEvents.analysisStatus} = 'approved_by_ai' THEN 1 ELSE 0 END)`,
+      approvedByManager: sql<number>`SUM(CASE WHEN ${frigateHandoffVisualEvents.analysisStatus} = 'approved_by_manager' THEN 1 ELSE 0 END)`,
+      discardedByAi: sql<number>`SUM(CASE WHEN ${frigateHandoffVisualEvents.analysisStatus} = 'discarded' THEN 1 ELSE 0 END)`,
+      discardedByManager: sql<number>`SUM(CASE WHEN ${frigateHandoffVisualEvents.analysisStatus} = 'discarded_by_manager' THEN 1 ELSE 0 END)`,
+      latestReceivedAt: sql<Date | null>`MAX(${frigateHandoffVisualEvents.receivedAt})`,
+    })
+    .from(frigateHandoffVisualEvents)
+    .where(where);
+
+  const thumbnails = await db
+    .select()
+    .from(frigateHandoffVisualEvents)
+    .where(where)
+    .orderBy(desc(frigateHandoffVisualEvents.receivedAt), desc(frigateHandoffVisualEvents.id))
+    .limit(4);
+
+  return {
+    total: Number(aggregate?.total ?? 0),
+    statusCounts: {
+      pendingReview: Number(aggregate?.pendingReview ?? 0),
+      approvedByAi: Number(aggregate?.approvedByAi ?? 0),
+      approvedByManager: Number(aggregate?.approvedByManager ?? 0),
+      discardedByAi: Number(aggregate?.discardedByAi ?? 0),
+      discardedByManager: Number(aggregate?.discardedByManager ?? 0),
+    },
+    latestReceivedAt: aggregate?.latestReceivedAt ?? null,
+    thumbnails: thumbnails.map(event => {
+      const row = handoffVisualPublicRow(event);
+      return {
+        id: row.id,
+        cupEventId: row.cupEventId,
+        analysisStatus: row.analysisStatus,
+        evidenceOrigin: row.evidenceOrigin,
+        receivedAt: row.receivedAt,
+        imageUrl: row.imageUrl,
+      };
+    }),
+  };
+}
+
 export async function reviewHandoffVisualEvent(input: {
   id: number;
   storeId: number;
