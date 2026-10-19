@@ -272,7 +272,7 @@ def receive_jobs(db, api, base, jobs):
                                    dashboardReceived=False,recordSha256=b.digest(json.dumps(record,sort_keys=True).encode()))
                     results.append({'jobId':job['id'],'status':job['status'],'cupsDetected':job.get('cupCount')})
                 except (b.BridgeError,ValueError,KeyError,TypeError,OSError) as e:
-                    update_job(path,job,status='review_validation_failed',
+                    update_job(path,job,status='validated' if job.get('status')=='validated' else 'review_validation_failed',
                                reason=str(e) if isinstance(e,b.BridgeError) else 'invalid_review_response')
                     results.append({'jobId':job['id'],'status':job['status'],'reason':job['reason']})
                 break
@@ -318,8 +318,9 @@ def dispatch(db, api, base, day, replay=False):
             {'type':'file','file_id':row['file_id']}]}},post=True)
         need(response.get('task_id')==b.TASK and response.get('request_id'),'invalid_review_task_ack')
         update_job(path,job,status='awaiting_review',requestId=response['request_id'])
-    except b.BridgeError:
+    except b.BridgeError as error:
         # Persist dispatching, then reconcile attachments; never blindly resend.
+        update_job(path,job,reason=str(error))
         return {'status':'dispatching','jobId':ident,'reason':'review_dispatch_uncertain'}
     return {'status':job['status'],'jobId':ident,'day':day,'productionWritten':False}
 

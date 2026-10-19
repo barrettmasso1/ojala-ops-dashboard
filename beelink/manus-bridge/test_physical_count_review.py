@@ -210,4 +210,20 @@ class PhysicalReviewTests(unittest.TestCase):
         d=copy.deepcopy(self.doc);d['ledger']['cases'][0]['evidenceIds']=['invented-reference']
         with self.assertRaisesRegex(b.BridgeError,'candidate_video_reference_missing'):self.normalize(d)
 
+    def test_staging_failure_retains_validated_work_for_recovery(self):
+        jobs=self.state/'physical-reviews';path=jobs/self.job['id']/'state.json'
+        job=dict(self.job,status='awaiting_review')
+        b.private_json(path,job)
+        class API:
+            def call(inner,method,args):
+                if method=='task.detail':return {'task':{'id':b.TASK,'share_visibility':'private'}}
+                return {'messages':[{'timestamp':str(time.time()*1000),'type':'assistant_message',
+                    'assistant_message':{'attachments':[{'filename':'physical-review-'+job['id']+'.json'}]}}]}
+        with patch.object(p,'download_attachment',return_value=json.dumps(self.doc).encode()), \
+             patch.object(p,'publish_record',side_effect=b.BridgeError('local_staging_interrupted')):
+            p.receive_jobs(self.db,API(),self.base,jobs)
+        saved=json.loads(path.read_text())
+        self.assertEqual(saved['status'],'validated')
+        self.assertTrue((Path(saved['ledgerDirectory'])/'record.json').exists())
+
 if __name__=='__main__':unittest.main()
