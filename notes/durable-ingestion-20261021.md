@@ -79,3 +79,31 @@ No complete daily physical-cup total, no new live capture-to-cloud acceptance,
 no end-to-end delivery latency, no full-shift thermal certification, and no
 repair to Cloudflare can be inferred from these unit/integration tests.
 The approximately 90% manual agreement remains the user's prior reported result.
+
+## Railway deployment handoff
+
+`deploy/railway-receiver-plan.json` describes one service, not an applied resource.
+The Railway app installation was confirmed on October 21, but its project/deploy
+actions were not exposed by this ChatGPT session. No Railway project, paid
+resource, domain, variable, or deployment has been created by this work.
+There is no Railway CLI login on the Beelink either; no tokens were requested or
+read from another application.
+
+Use `RAILWAY_DOCKERFILE_PATH=Dockerfile.receiver` and configure `/healthz` as the
+healthcheck. The application uses Railway's runtime PORT; no port is hardcoded.
+For initial validation keep HANDOFF_DEFERRED_ANALYSIS_WORKER=disabled. This lets
+authenticated evidence persist and return a receipt without starting analysis.
+Once scope, storage and the original-event receipt are verified, enable the worker.
+The same database and storage must remain the source read by the existing dashboard.
+
+Do not create a fresh Railway database merely to obtain a green health check.
+No source upload, Docker layer, Git commit, status report or chat message may
+contain the production database URL, Forge key or camera credentials. Configure
+those privately in the hosting secret manager after binding to the published
+application, and do not claim readiness before database/storage reachability is verified.
+
+Primary deployment references consulted:
+- https://docs.railway.com/builds/dockerfiles
+- https://docs.railway.com/variables
+- https://docs.railway.com/deployments/healthchecks
+- https://docs.railway.com/networking/domains/working-with-domains
