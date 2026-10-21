@@ -618,7 +618,7 @@ function HandoffVisualEvidenceOverviewPanel({
               </div>
             ))}
           </div>
-          <p className="mt-5 text-sm leading-6 text-[#65716b]">Última recepción de imágenes: {formatDateTime(summary.latestReceivedAt, timeZone)} · {timeZone}. This uses the persisted receipt timestamp, not the capture timestamp.</p>
+          <p className="mt-5 text-sm leading-6 text-[#65716b]">Última recepción de imágenes: {formatDateTime(summary.latestReceivedAt, timeZone)} · {timeZone}. This uses the persisted receipt timestamp, not the capture timestamp. La vista se actualiza automáticamente cada 30 segundos.</p>
           {summary.thumbnails.length > 0 ? (
             <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               {summary.thumbnails.map(thumbnail => (
@@ -658,6 +658,7 @@ function classifyDifference(value: number) {
 
 const AWAITING_CLOSING_FORM_LABEL = "Awaiting closing form";
 const AWAITING_CLOSING_TEXT = "Awaiting closing";
+const LIVE_CAMERA_REFRESH_MS = 30_000;
 const FLAVOR_PREVIEW_VIEWPORT_MARGIN_PX = 16;
 const FLAVOR_PREVIEW_OFFSET_PX = 12;
 const FLAVOR_PREVIEW_MAX_WIDTH_PX = 352;
@@ -889,10 +890,20 @@ export default function ManagerDashboard() {
 
   const dailyQuery = trpc.dashboard.daily.useQuery(
     { businessDate: selectedDate },
-    { enabled: isAdmin, refetchOnWindowFocus: false }
+    {
+      enabled: isAdmin,
+      refetchOnWindowFocus: true,
+      refetchInterval: isAdmin && isOverviewRoute ? LIVE_CAMERA_REFRESH_MS : false,
+      refetchIntervalInBackground: true,
+    }
   );
   const trendQuery = trpc.dashboard.salesTrend.useQuery({ days: 28 }, { enabled: isAdmin, refetchOnWindowFocus: false });
-  const latestHandoffCameraEvidenceDateQuery = trpc.dashboard.latestHandoffCameraEvidenceDate.useQuery(undefined, { enabled: isAdmin, refetchOnWindowFocus: false });
+  const latestHandoffCameraEvidenceDateQuery = trpc.dashboard.latestHandoffCameraEvidenceDate.useQuery(undefined, {
+    enabled: isAdmin,
+    refetchOnWindowFocus: true,
+    refetchInterval: isAdmin && isOverviewRoute ? LIVE_CAMERA_REFRESH_MS : false,
+    refetchIntervalInBackground: true,
+  });
 
   useEffect(() => {
     if (!isAdmin || dailyQuery.isLoading || trendQuery.isLoading || latestHandoffCameraEvidenceDateQuery.isLoading) return;
@@ -941,11 +952,21 @@ export default function ManagerDashboard() {
   const submissionHistoryQuery = trpc.dashboard.submissionHistory.useQuery({ businessDate: selectedDate }, { enabled: isAdmin, refetchOnWindowFocus: false });
   const handoffVisualEventsQuery = trpc.dashboard.handoffVisualEvents.useQuery(
     { businessDate: selectedDate, status: "all", limit: 100 },
-    { enabled: isAdmin && isHandoffReviewRoute, refetchOnWindowFocus: false }
+    {
+      enabled: isAdmin && isHandoffReviewRoute,
+      refetchOnWindowFocus: true,
+      refetchInterval: isAdmin && isHandoffReviewRoute ? LIVE_CAMERA_REFRESH_MS : false,
+      refetchIntervalInBackground: true,
+    }
   );
   const handoffVisualEvidenceOverviewQuery = trpc.dashboard.handoffVisualEvidenceOverview.useQuery(
     { businessDate: selectedDate },
-    { enabled: isAdmin && isOverviewRoute, refetchOnWindowFocus: false }
+    {
+      enabled: isAdmin && isOverviewRoute,
+      refetchOnWindowFocus: true,
+      refetchInterval: isAdmin && isOverviewRoute ? LIVE_CAMERA_REFRESH_MS : false,
+      refetchIntervalInBackground: true,
+    }
   );
   const selectedDayStaffQuery = trpc.timeclock.todayStatus.useQuery(
     { businessDate: selectedDate },
