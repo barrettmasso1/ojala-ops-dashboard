@@ -1,5 +1,6 @@
 import hashlib,json,shutil,tempfile,types,unittest
 from pathlib import Path
+from contextlib import closing
 from unittest.mock import patch
 import manus_bridge as b
 import realtime_visual_bridge as rt
@@ -104,17 +105,17 @@ class ThermalTests(unittest.TestCase):
   with patch.object(ps.subprocess,'run',return_value=types.SimpleNamespace(stdout='false')),patch.object(ps,'temperature_c',return_value=70),patch.object(ps.shutil,'disk_usage',return_value=types.SimpleNamespace(free=20*2**30)):
    self.assertEqual(ps.offline_preflight(Path('/'))['temperatureC'],70)
 
-if __name__=='__main__':unittest.main()
+
 
 class SnapshotAndScheduleTests(unittest.TestCase):
  def test_atomic_snapshot_and_repeat(self):
   import sqlite3
   with tempfile.TemporaryDirectory() as d:
    src=Path(d)/'source.sqlite3';dst=Path(d)/'copy.sqlite3'
-   with sqlite3.connect(src) as db:db.execute('CREATE TABLE evidence(id INTEGER)');db.execute('INSERT INTO evidence VALUES(7)')
+   with closing(sqlite3.connect(src)) as db:db.execute('CREATE TABLE evidence(id INTEGER)');db.execute('INSERT INTO evidence VALUES(7)');db.commit()
    ps.snapshot_atomic(src,dst);digest=hashlib.sha256(dst.read_bytes()).hexdigest();ps.snapshot_atomic(src,dst)
    self.assertEqual(hashlib.sha256(dst.read_bytes()).hexdigest(),digest)
-   with sqlite3.connect(dst) as db:self.assertEqual(db.execute('SELECT id FROM evidence').fetchone()[0],7)
+   with closing(sqlite3.connect(dst)) as db:self.assertEqual(db.execute('SELECT id FROM evidence').fetchone()[0],7)
  def test_corrupt_existing_snapshot_not_trusted(self):
   import sqlite3
   with tempfile.TemporaryDirectory() as d:
@@ -154,3 +155,5 @@ class ReceiptCounterTests(unittest.TestCase):
   self.assertEqual(self.run_case('awaiting_dashboard_receipt',False)['waiting'],1)
  def test_no_pending_updates_current_status(self):
   self.assertEqual(self.run_case('admin_receipt_verified',False)['waiting'],0)
+
+if __name__=='__main__':unittest.main()
