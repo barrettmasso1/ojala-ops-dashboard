@@ -12,6 +12,7 @@ import cv2
 import numpy as np
 import openvino as ov
 import yaml
+from offline_search_region import candidate_allowed
 
 TZ=ZoneInfo("America/Mazatlan")
 
@@ -56,7 +57,7 @@ def iou(a,b):
     aa=max(1e-9,(a[2]-a[0])*(a[3]-a[1])); bb=max(1e-9,(b[2]-b[0])*(b[3]-b[1]))
     return inter/(aa+bb-inter)
 
-def detect_cups(frame,compiled,threshold,poly,refw,refh,min_area,max_area):
+def detect_cups(frame,compiled,threshold,poly,refw,refh,min_area,max_area,search_area="handoff_zone"):
     h,w=frame.shape[:2]
     img,scale,dx,dy=letterbox(frame)
     rgb=cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
@@ -74,8 +75,9 @@ def detect_cups(frame,compiled,threshold,poly,refw,refh,min_area,max_area):
         x1=(cx-bw/2-dx)/scale/w; y1=(cy-bh/2-dy)/scale/h
         x2=(cx+bw/2-dx)/scale/w; y2=(cy+bh/2-dy)/scale/h
         box=[max(0,x1),max(0,y1),min(1,x2),min(1,y2)]
-        if not in_zone(box,poly,refw,refh,min_area,max_area): continue
-        det.append({"score":score,"box":box})
+        inside=in_zone(box,poly,refw,refh,min_area,max_area)
+        if not candidate_allowed(box,refw,refh,min_area,max_area,inside,search_area): continue
+        det.append({"score":score,"box":box,"inHandoffZone":inside})
     det.sort(key=lambda d:d["score"],reverse=True)
     kept=[]
     for d in det:
@@ -117,6 +119,7 @@ def main():
     ap.add_argument("--cup-model",required=True)
     ap.add_argument("--person-model",required=True)
     ap.add_argument("--output",required=True)
+    ap.add_argument("--search-area",choices=["handoff_zone","full_frame"],default="handoff_zone")
     ap.add_argument("--limit",type=int,default=20)
     ap.add_argument("--context-seconds",type=int,default=15)
     ap.add_argument("--sample-step-seconds",type=int,default=5)
@@ -149,7 +152,7 @@ def main():
             if frame is None:
                 decode_errors+=1; continue
             scanned+=1
-            cups=detect_cups(frame,cup,a.cup_threshold,poly,refw,refh,min_area,max_area)
+            cups=detect_cups(frame,cup,a.cup_threshold,poly,refw,refh,min_area,max_area,a.search_area)
             if not cups: continue
             people=detect_people(frame,person)
             if not people: continue
@@ -163,7 +166,7 @@ def main():
                 cv2.putText(draw,f"cup {d['score']:.2f}",(p1[0],max(18,p1[1]-5)),cv2.FONT_HERSHEY_SIMPLEX,0.55,(255,255,255),2)
             cv2.imwrite(str(path),draw,[int(cv2.IMWRITE_JPEG_QUALITY),90])
             hits.append({"at":stamp.isoformat(),"image":name,"imageSha256":sha(path),"source":source,
-                         "cups":[{"score":round(d["score"],4),"box":[round(x,5) for x in d["box"]]} for d in cups],
+                         "cups":[{"score":round(d["score"],4),"box":[round(x,5) for x in d["box"]],"inHandoffZone":d["inHandoffZone"]} for d in cups],
                          "people":[{"score":round(p["score"],4),"box":[round(x,5) for x in p["box"]]} for p in people]})
         if hits:
             candidates.append({"windowIndex":wi,"startLocal":w["startLocal"],"endLocal":w["endLocal"],
@@ -173,12 +176,14 @@ def main():
     report={"schemaVersion":1,"businessDate":audit["businessDate"],"mode":"offline_recovery_review_only",
             "readOnlySources":True,"productionModified":False,"productionThresholdModified":False,
             "cupModelSha256":sha(Path(a.cup_model)),"cupThresholdOffline":a.cup_threshold,
+            "searchArea":a.search_area,"geometryGateApplied":a.search_area=="handoff_zone",
+            "fullShiftReviewCompleted":False,"dailyUniqueCupCount":None,
             "contextSeconds":a.context_seconds,"sampleStepSeconds":a.sample_step_seconds,
             "windowsRequested":min(a.limit,len(audit["topWindows"])),"framesScanned":scanned,
             "decodeErrors":decode_errors,"sourceSegmentsHashVerified":len(verified),
             "candidateWindows":len(candidates),"candidates":candidates,
             "limitations":["Low-threshold detections are review candidates, not physical cups.",
-                           "Person+cup+zone is a gate for review, not proof of delivery.",
+                           "Person and cup are only review candidates; outside-zone candidates do not change production geometry.",
                            "Deduplication across time is required before any count can be created."]}
     (out/"report.json").write_text(json.dumps(report,indent=2)+"\n")
     print(json.dumps({"report":str(out/"report.json"),"framesScanned":scanned,"candidateWindows":len(candidates),
