@@ -39,3 +39,19 @@ Backups y hashes previos: /home/ojala/frigate/pilot-reports/2026-10-21/hardening
 Pruebas: hardening-v1/full-regression-final.log. Prueba fisica: bounded-camera-check.json. Conciliacion: manus-bridge/state/effective-delivery-status.json.
 
 No publicar datos personales, claves, URLs privadas, RTSP, fotos o paquetes de video en este repositorio. Los cambios son codigo y documentacion; no son una migracion ni un nuevo despliegue de la interfaz.
+
+
+## Follow-up completion after manual camera sessions
+
+The installed supervisor now reconciles already staged batches even after a
+manual session ends outside the normal Fri-Sun window. It does not restart
+Frigate and does not collect new snapshots in this follow-up-only state.
+Uncertain dispatches continue to use reconciliation, not blind resend.
+Corrupt pending-queue state fails closed. Existing explicit transport holds
+remain in effect. The current Python regression suite passes 113 tests.
+
+An incremental acceptance check uses one immutable original snapshot from
+2026-10-09, not a fresh live capture or a simulated sale. Its local immutable
+attempt record is under pilot-reports/2026-10-21/incremental-acceptance/.
+Task acceptance alone is not final dashboard receipt. Private receipts, images,
+credentials and active databases are intentionally excluded from this commit.
