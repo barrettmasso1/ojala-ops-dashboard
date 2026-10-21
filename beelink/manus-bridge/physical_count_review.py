@@ -34,7 +34,7 @@ def save_new(path, content):
         f.write(content); f.flush(); os.fsync(f.fileno())
 
 def read_source(row, bridge_state):
-    path = b.within(Path(row['path']), bridge_state)
+    path = b.package_path(row, bridge_state)
     need(path.stat().st_size <= b.MAX_PACKAGE, 'review_package_too_large')
     need(b.digest(path.read_bytes()) == row['sha256'], 'review_package_hash_mismatch')
     with zipfile.ZipFile(path) as z:

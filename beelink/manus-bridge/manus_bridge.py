@@ -29,6 +29,7 @@ API = 'https://api.manus.ai/v2/'
 TASK = 'bA6Dz0FRJW5d772yUd0S2B'
 TZ = ZoneInfo('America/Mazatlan')
 MAX_PACKAGE = 200 * 1024 * 1024
+TASK_BUSY_BACKOFF_SECONDS = 300
 
 
 class BridgeError(Exception):
@@ -82,13 +83,23 @@ def within(path, root):
     return resolved
 
 
-def assemble(day, base=BASE):
+def package_path(row, state):
+    from package_storage import resolve_package_path, StorageError
+    try:
+        return resolve_package_path(row, Path(state))
+    except StorageError as exc:
+        raise BridgeError(exc.code) from None
+
+
+def assemble(day, base=BASE, *, include_count=True, exclude_event_ids=None, max_events=None):
     """Read-only collection. Images never leave this host except via Manus API."""
     require(datetime.strptime(day, '%Y-%m-%d').strftime('%Y-%m-%d') == day, 'invalid_date')
     sender = load_module(base/'handoff-visual-sender/handoff_visual_sender.py', 'visual_validation')
     image_root = base/'config/verified_snapshots/handoff'
     sender.VERIFIED_SNAPSHOT_DIR = image_root
     files, events, skipped = {}, [], 0
+    excluded = set(exclude_event_ids or ())
+    require(max_events is None or (type(max_events) is int and 1 <= max_events <= 25), 'invalid_event_limit')
     archive_root = base/'pilot-archive/forward-20260929'
     db_path = archive_root/'index.sqlite3'
     archive = sqlite3.connect(db_path.as_uri()+'?mode=ro', uri=True) if db_path.exists() else None
@@ -103,6 +114,8 @@ def assemble(day, base=BASE):
                 at = datetime.fromisoformat(metadata['captured_at_utc'].replace('Z', '+00:00'))
                 if at.astimezone(TZ).date().isoformat() != day:
                     continue
+                if metadata['cup_event_id'] in excluded:
+                    continue
                 sidecar = within(sender.sidecar_path(image), image_root)
                 raw_sidecar = sidecar.read_bytes()
                 source = json.loads(raw_sidecar)
@@ -114,8 +127,7 @@ def assemble(day, base=BASE):
                 image_bytes = within(image, image_root).read_bytes()
                 require(digest(image_bytes) == sha, 'image_changed_during_collection')
                 image_name, meta_name = 'snapshots/'+image.name, 'snapshots/'+sidecar.name
-                files[image_name] = image_bytes
-                files[meta_name] = raw_sidecar
+                event_files = {image_name: image_bytes, meta_name: raw_sidecar}
                 start = source.get('cup_event_start', at.timestamp())
                 require(isinstance(start, (float, int)) and abs(start-at.timestamp()) < 600,
                         'invalid_event_window')
@@ -132,12 +144,15 @@ def assemble(day, base=BASE):
                         content = segment.read_bytes()
                         require(digest(content) == expected, 'archive_hash_mismatch')
                         target = 'segments/'+relative
-                        files[target] = content
+                        event_files[target] = content
                         segments.append({'path': target, 'startTime': begin, 'endTime': end})
                 events.append({'cupEventId': event_id, 'capturedAt': metadata['captured_at_utc'],
                                'image': image_name, 'metadata': meta_name, 'source': 'verified_snapshot',
                                'reviewStatus': 'pending_review', 'segments': segments,
                                'requestedWindow': [window_start, window_end]})
+                files.update(event_files)
+                if max_events is not None and len(events) >= max_events:
+                    break
             except (BridgeError, sender.SenderError, ValueError, OSError, KeyError):
                 # A partial package must visibly report exclusions; never log raw metadata.
                 skipped += 1
@@ -146,7 +161,7 @@ def assemble(day, base=BASE):
             archive.close()
     # Preserve an existing reviewed count only after rechecking its complete
     # ledger/evidence chain. Never manufacture one from snapshot cardinality.
-    count_info = attach_reviewed_count(day, base, files)
+    count_info = attach_reviewed_count(day, base, files) if include_count else None
     manifest = {'schemaVersion': 1, 'storeId': 1, 'cameraName': 'handoff', 'businessDate': day,
                 'transport': 'manus_official_api_administrative_review', 'coverage': 'partial',
                 'countRecordIncluded': bool(count_info), 'countRecord': count_info,
@@ -383,9 +398,10 @@ def deliver_one(db, api, now=None):
         require(task['id'] == TASK, 'wrong_task')
         require(task.get('share_visibility') == 'private', 'task_must_be_private')
         if task.get('status') != 'stopped' or task.get('has_running_background_jobs'):
-            update(db, row['id'], next_at=now+1800, last_error='task_busy_or_waiting')
+            update(db, row['id'], next_at=now+300, last_error='task_busy_or_waiting')
             return {'status': 'task_busy_or_waiting', 'dashboardReceived': False}
-        path = within(Path(row['path']), Path(row['path']).parent)
+        state_path = Path(db.execute('PRAGMA database_list').fetchone()[2]).parent
+        path = package_path(row, state_path)
         content = path.read_bytes()
         require(len(content) <= MAX_PACKAGE and digest(content) == row['sha256'], 'package_integrity_failed')
         with zipfile.ZipFile(path) as z:
