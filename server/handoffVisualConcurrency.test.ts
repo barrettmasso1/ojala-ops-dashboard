@@ -4,6 +4,7 @@ import { parseHandoffZoneGeometry } from "./handoffZoneGeometry";
 
 const dbSource = readFileSync("server/db.ts", "utf8");
 const routerSource = readFileSync("server/routers.ts", "utf8");
+const analysisSource = readFileSync("server/handoffPersistedAnalysis.ts", "utf8");
 
 describe("handoff visual concurrency guards (source-level database contract)", () => {
   it("recovers only an expired analysis lease and issues a fresh token", () => {
@@ -16,8 +17,9 @@ describe("handoff visual concurrency guards (source-level database contract)", (
   it("makes timeout/retry defer conditional on the exact active lease", () => {
     expect(dbSource).toContain("export async function deferHandoffVisualAnalysis");
     expect(dbSource).toContain("eq(frigateHandoffVisualEvents.analysisLeaseToken, input.analysisLeaseToken)");
-    expect(routerSource).toContain("analysisLeaseToken,");
-    expect(routerSource).toContain("getHandoffVisualRetryDelayMs(event.analysisAttempts + 1)");
+    expect(analysisSource).toContain("analysisLeaseToken,");
+    expect(routerSource).toContain("return analyzePersistedHandoffVisual(event,");
+    expect(analysisSource).toContain("getHandoffVisualRetryDelayMs(event.analysisAttempts + 1)");
   });
 
   it("cannot let a late AI response overwrite a manager decision", () => {

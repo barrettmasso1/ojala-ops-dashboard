@@ -1,0 +1,39 @@
+{
+  "status": "prepared_not_deployed",
+  "serviceName": "ojala-ingestion",
+  "sourceRepository": "barrettmasso1/ojala-ops-dashboard",
+  "sourceBranch": "fix/durable-handoff-ingestion-20261021",
+  "build": {
+    "dockerfilePath": "Dockerfile.receiver",
+    "publicSourceUploadsIncludeEvidence": false
+  },
+  "runtime": {
+    "startCommand": "node dist/receiver.js",
+    "healthcheckPath": "/healthz",
+    "replicas": 1,
+    "preDeployMigrations": false
+  },
+  "nonSecretVariables": {
+    "RAILWAY_DOCKERFILE_PATH": "Dockerfile.receiver",
+    "NODE_ENV": "production",
+    "HANDOFF_DEFERRED_ANALYSIS_WORKER": "disabled"
+  },
+  "privateVariablesRequired": [
+    "DATABASE_URL",
+    "BUILT_IN_FORGE_API_URL",
+    "BUILT_IN_FORGE_API_KEY",
+    "OJALA_EXPECTED_DATABASE_FINGERPRINT"
+  ],
+  "dataRule": "Use the verified existing application database and storage only; no new count database and no inference from preview variables.",
+  "activationRules": [
+    "Verify official external database/storage access permission",
+    "Verify readiness and protocol from Beelink",
+    "Send one genuine original event without changing its date/id/hash",
+    "Read back same row and image in the existing dashboard",
+    "Verify controlled replay does not duplicate the row",
+    "Enable one durable transport only after acceptance",
+    "Enable deferred analysis after its production scope is verified"
+  ],
+  "noCredentialsIncluded": true,
+  "existingCloudflareHoldUnchanged": true
+}
