@@ -131,7 +131,7 @@ def main():
                       "active": active, "coveredEventIds": len(covered)}
             atomic_json(status_path, result); print(json.dumps(result)); return
         try:
-            manifest, files = b.assemble(args.date, args.base, include_count=False, exclude_event_ids=covered, max_events=args.max_events)
+            manifest, files = b.assemble(args.date, args.base, include_count=False, exclude_event_ids=covered, max_events=args.max_events, include_video=False, min_source_age_seconds=2)
         except b.BridgeError as e:
             if str(e) == "no_verified_evidence_for_date":
                 result = {"status": "no_new_evidence", "businessDate": args.date,
