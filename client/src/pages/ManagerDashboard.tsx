@@ -1,3 +1,4 @@
+import { hasClosingRecord, closingValue } from "@/lib/localLedgerPresentation";
 import { LocalCupLedgerPanel } from "@/components/LocalCupLedgerPanel";
 import { CameraSizeBreakdown } from "@/components/CameraSizeBreakdown";
 import { CupDescriptionSummary, CupDescriptionsEditor } from "@/components/CupDescriptions";
@@ -604,7 +605,7 @@ function HandoffVisualEvidenceOverviewPanel({
 
       {presentation.state === "empty" ? (
         <div className="mt-6">
-          <StatePanel title="No visual images received for this date" description="No persisted handoff image records were found for the selected store and date. This does not imply zero physical cups." tone="warning" />
+          <StatePanel title="Fotografías pendientes de sincronizar" description="Este bloque solo recibe fotografías. Las detecciones locales recibidas aparecen arriba, aunque aquí todavía no haya imágenes. No significa cero copas." tone="warning" />
         </div>
       ) : (
         <>
@@ -1507,6 +1508,7 @@ export default function ManagerDashboard() {
   const totalToGoCups = (daily?.cupsToGo?.["4oz"] ?? 0) + (daily?.cupsToGo?.["8oz"] ?? 0) + (daily?.cupsToGo?.Pint ?? 0) + (daily?.cupsToGo?.Liter ?? 0);
   const totalToGoCupsUsed = reconciliationSnapshot.packaging?.toGoCupUsedCount ?? null;
   const hasZelleSales = (daily?.sales.zelle ?? 0) > 0;
+  const closingRecorded = hasClosingRecord(daily?.businessDate, selectedDate, daily?.reportCount);
   const hasVenmoSales = (daily?.sales.venmo ?? 0) > 0;
   const trendData = trendQuery.data ?? [];
   const wowData = wowQuery.data ?? [];
@@ -1613,24 +1615,24 @@ export default function ManagerDashboard() {
                 { label: "Verified snapshots", value: handoffVisualEvents.length.toString(), helper: `Received for ${selectedDate} from the handoff sender.` },
               ]
             : [
-              { label: "Total sales", value: formatCurrency(daily?.sales.total ?? 0), helper: "What sold today." },
-              { label: "Cash sales", value: formatCurrency(daily?.sales.cash ?? 0), helper: "Cash collected for the selected day." },
-              { label: "Card sales", value: formatCurrency(daily?.sales.card ?? 0), helper: "Card collected for the selected day." },
+              { label: "Total sales", value: closingValue(formatCurrency(daily?.sales.total ?? 0), closingRecorded), helper: "What sold today." },
+              { label: "Cash sales", value: closingValue(formatCurrency(daily?.sales.cash ?? 0), closingRecorded), helper: "Cash collected for the selected day." },
+              { label: "Card sales", value: closingValue(formatCurrency(daily?.sales.card ?? 0), closingRecorded), helper: "Card collected for the selected day." },
               ...(hasVenmoSales ? [{ label: "Venmo sales", value: formatCurrency(daily?.sales.venmo ?? 0), helper: "Only shown when Venmo sales were reported." }] : []),
               ...(hasZelleSales ? [{ label: "Zelle sales", value: formatCurrency(daily?.sales.zelle ?? 0), helper: "Only shown when Zelle sales were reported." }] : []),
-           { label: "Total ounces sold", value: formatWholeOunces(reconciliationSnapshot.gelato?.soldVolumeOunces ?? daily?.soldVolumeOunces), helper: "Cup sales converted into sold gelato ounces." },
-              { label: "Total ounces distributed", value: formatWholeOunces(reconciliationSnapshot.gelato?.distributedVolumeOunces), helper: "Morning gelato ounces minus closing gelato ounces." },
-              { label: "Samples given (oz)", value: formatWholeOunces((daily as any)?.sampleOuncesTotal ?? 0), helper: "Reported samples given to customers, factored into variance." },
-              { label: "Waste (oz)", value: formatWholeOunces((daily as any)?.wasteOuncesTotal ?? 0), helper: "Reported waste (spills, quality pulls), factored into variance." },
+           { label: "Total ounces sold", value: closingValue(formatWholeOunces(reconciliationSnapshot.gelato?.soldVolumeOunces ?? daily?.soldVolumeOunces), closingRecorded), helper: "Cup sales converted into sold gelato ounces." },
+              { label: "Total ounces distributed", value: closingValue(formatWholeOunces(reconciliationSnapshot.gelato?.distributedVolumeOunces), Boolean(daily?.businessDate === selectedDate && daily?.closingSubmissionCount)), helper: "Morning gelato ounces minus closing gelato ounces." },
+              { label: "Samples given (oz)", value: closingValue(formatWholeOunces((daily as any)?.sampleOuncesTotal ?? 0), closingRecorded), helper: "Reported samples given to customers, factored into variance." },
+              { label: "Waste (oz)", value: closingValue(formatWholeOunces((daily as any)?.wasteOuncesTotal ?? 0), closingRecorded), helper: "Reported waste (spills, quality pulls), factored into variance." },
               {
-                label: "Conteo de vasos por cámara",
+                label: "Conteo revisado del turno",
                 value: dailyOperations?.cameraValue ?? "—",
                 helper: dailyOperations
                   ? `${dailyOperations.cameraMessage} Cobertura del conteo: ${dailyOperations.cameraCoverage}. Revisión del conteo: ${dailyOperations.cameraReviewStatus}. Recepción del conteo: ${formatDateTime(dailyOperations.receivedAt, timeZone)} · ${timeZone}.`
                   : "Conteo diario de vasos pendiente. Cobertura del conteo: no disponible.",
               },
-              { label: "For-here cups sold", value: formatCount(totalForHereCups), helper: "All dine-in cups sold across sizes." },
-              { label: "To-go cups sold", value: formatCount(totalToGoCups), helper: "All to-go cups sold across sizes." },
+              { label: "For-here cups sold", value: closingValue(formatCount(totalForHereCups), closingRecorded), helper: "All dine-in cups sold across sizes." },
+              { label: "To-go cups sold", value: closingValue(formatCount(totalToGoCups), closingRecorded), helper: "All to-go cups sold across sizes." },
               { label: "Total to-go cups used", value: formatCount(totalToGoCupsUsed), helper: "Morning to-go cup count minus closing to-go cup count." },
             ];
 
@@ -1718,6 +1720,7 @@ export default function ManagerDashboard() {
                 </div>
               </div>
             </div>
+            {isOverviewRoute && isAdmin && <div className="px-5 pt-5 lg:px-10 lg:pt-8"><LocalCupLedgerPanel businessDate={selectedDate} /></div>}
             <div className="p-8 lg:p-10">
               <div className="rounded-[1.75rem] border border-[#e5ddd0] bg-[#f9f4ec] p-6">
                 <p className="text-[11px] uppercase tracking-[0.18em] text-[#8b9088] md:text-xs md:tracking-[0.24em]">
@@ -1739,7 +1742,7 @@ export default function ManagerDashboard() {
                       <div key={card.label} className="min-w-0 rounded-2xl bg-white/80 px-5 py-4 shadow-sm md:px-6 md:py-5">
                         <p className="text-[0.95rem] leading-snug text-[#6f776f] md:text-base" title={card.label}>{card.label}</p>
                         <p className={getSnapshotValueClassName(card.value)} title={"valueTitle" in card ? card.valueTitle : card.value}>{card.value}</p>
-                        {card.label === "Conteo de vasos por cámara" && <p className="mt-3 text-sm leading-6 text-[#65716b]">{card.helper}</p>}
+                        {card.label === "Conteo revisado del turno" && <p className="mt-3 text-sm leading-6 text-[#65716b]">{card.helper}</p>}
                       </div>
                     ))}
                   </div>
@@ -1765,7 +1768,7 @@ export default function ManagerDashboard() {
               </div>
             </SurfaceCard>
             {isAdmin && <HandoffVisualEvidenceOverviewPanel presentation={handoffVisualEvidencePresentation} businessDate={selectedDate} timeZone={timeZone} />}
-            {isAdmin && <LocalCupLedgerPanel businessDate={selectedDate} />}
+
             {isAdmin && <CameraSizeBreakdown businessDate={selectedDate} />}
             {isAdmin && <ReviewedCountImport key={selectedDate} businessDate={selectedDate} />}
             <SurfaceCard>
@@ -1850,10 +1853,10 @@ export default function ManagerDashboard() {
                     <div className="space-y-4">
                       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                         {[
-                          { label: MANUAL_CUP_SIZE_LABELS["4oz"], value: daily.cups["4oz"] ?? 0 },
-                          { label: MANUAL_CUP_SIZE_LABELS["8oz"], value: daily.cups["8oz"] ?? 0 },
-                          { label: MANUAL_CUP_SIZE_LABELS["Pint"], value: daily.cups.Pint ?? 0 },
-                          { label: MANUAL_CUP_SIZE_LABELS["Liter"], value: daily.cups.Liter ?? 0 },
+                          { label: MANUAL_CUP_SIZE_LABELS["4oz"], value: closingValue(String(daily.cups["4oz"] ?? 0), closingRecorded) },
+                          { label: MANUAL_CUP_SIZE_LABELS["8oz"], value: closingValue(String(daily.cups["8oz"] ?? 0), closingRecorded) },
+                          { label: MANUAL_CUP_SIZE_LABELS["Pint"], value: closingValue(String(daily.cups.Pint ?? 0), closingRecorded) },
+                          { label: MANUAL_CUP_SIZE_LABELS["Liter"], value: closingValue(String(daily.cups.Liter ?? 0), closingRecorded) },
                         ].map(item => (
                           <div key={item.label} className="rounded-2xl border border-[#e5ddd0] bg-[#fbf7f0] p-5 shadow-sm">
                             <div className="flex items-center justify-between">
