@@ -1,3 +1,4 @@
+import { startHandoffAnalysisWorker } from "../handoffAnalysisWorker";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
@@ -73,6 +74,7 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+    startHandoffAnalysisWorker();
   });
 }
 

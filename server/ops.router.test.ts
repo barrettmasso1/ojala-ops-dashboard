@@ -17,6 +17,7 @@ const dbMocks = vi.hoisted(() => ({
   getActiveHandoffCameraZone: vi.fn(),
   getDailyOperationsSnapshot: vi.fn(),
   getHandoffVisualEvidenceOverview: vi.fn(),
+  getHandoffVisualEventById: vi.fn(),
   getLatestHandoffCameraEvidenceDate: vi.fn(),
   getInventoryAlerts: vi.fn(),
   getRecentNotes: vi.fn(),
@@ -1864,5 +1865,106 @@ describe("operations router", () => {
     it("rejects injection of sales or counts", async () => {
       await expect(appRouter.createCaller(createContext("admin",1)).dashboard.saveHandoffCupDescriptions({...request,cupsDetected:999} as any)).rejects.toMatchObject({code:"BAD_REQUEST"});
     });
+  });
+});
+
+
+describe("receipt-first machine ingestion", () => {
+  const capture = visualCapture("durable-fixture-001");
+  function persisted() { return {
+    id: 701, storeId: 1, businessDate: "2026-07-18", cameraName: "handoff", cupEventId: capture.cup_event_id,
+    imageSha256: visualImageSha256, imageKey: "private/original.jpg", evidenceOrigin: "verified_snapshot",
+    capturedAt: new Date(capture.captured_at_utc), receivedAt: new Date("2026-07-18T22:03:02Z"),
+    captureMetadataJson: JSON.stringify({ ...capture, schema_version: 2 }),
+    analysisStatus: "pending_review", analysisAttempts: 0,
+    zoneId: visualZone.id, zoneGeometryVersion: 1, zoneGeometryJson: visualZone.polygonJson,
+    sourceDetail: '{"ingestionProtocol":"handoff_persisted_receipt_v1","originalSourceDetail":"verified_snapshot"}',
+  }; }
+  const request = () => ({ apiKey: "test-frigate-key", capture, imageDataUrl: visualImageDataUrl, receiptMode: "after_storage" as const });
+  beforeEach(() => {
+    vi.clearAllMocks(); dbMocks.resolveActiveStoreCredential.mockResolvedValue(null);
+    dbMocks.getActiveStoreById.mockResolvedValue(storeOne);
+    dbMocks.getActiveHandoffCameraZone.mockResolvedValue(visualZone);
+    dbMocks.reserveHandoffVisualEvent.mockResolvedValue({ event: { ...persisted(), imageKey: null }, created: true });
+    dbMocks.attachHandoffVisualImage.mockResolvedValue(persisted());
+    dbMocks.getHandoffVisualEventById.mockResolvedValue(persisted());
+    storageMocks.storagePut.mockResolvedValue({ key: "private/original.jpg", url: "/manus-storage/private/original.jpg" });
+  });
+  it("returns read-back persistence without invoking AI or writing any count", async () => {
+    const result = await appRouter.createCaller(createContext(null)).frigate.submitHandoffVisual(request());
+    expect(result).toMatchObject({ success: true, eventId: 701, status: "pending_review", retryable: false,
+      receipt: { protocol: "handoff_persisted_receipt_v1", evidencePersisted: true, physicalCupCountCreated: false,
+        storeId: 1, cupEventId: capture.cup_event_id, imageSha256: visualImageSha256 } });
+    expect(dbMocks.getHandoffVisualEventById).toHaveBeenCalledWith({id:701,storeId:1});
+    expect(handoffVisualMocks.analyzeHandoffVisualImage).not.toHaveBeenCalled();
+    expect(dbMocks.claimHandoffVisualAnalysis).not.toHaveBeenCalled();
+    expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();
+    expect(dbMocks.createEndOfDayReport).not.toHaveBeenCalled();
+    expect(dbMocks.updateInventoryCount).not.toHaveBeenCalled();
+  });
+  it("uses the newest persisted status if analysis finishes before read-back", async () => {
+    dbMocks.getHandoffVisualEventById.mockResolvedValueOnce({ ...persisted(), analysisStatus: "approved_by_ai" });
+    const result = await appRouter.createCaller(createContext(null)).frigate.submitHandoffVisual(request());
+    expect(result).toMatchObject({status:"approved_by_ai",receipt:{analysisStatus:"approved_by_ai"}});
+    expect(handoffVisualMocks.analyzeHandoffVisualImage).not.toHaveBeenCalled();
+  });
+  it("does not acknowledge a storage failure", async () => {
+    storageMocks.storagePut.mockRejectedValueOnce(new Error("storage unavailable"));
+    await expect(appRouter.createCaller(createContext(null)).frigate.submitHandoffVisual(request())).rejects.toThrow();
+    expect(dbMocks.getHandoffVisualEventById).not.toHaveBeenCalled();
+  });
+  it("does not acknowledge a mismatched read-back tenant", async () => {
+    dbMocks.getHandoffVisualEventById.mockResolvedValueOnce({ ...persisted(), storeId: 2 });
+    await expect(appRouter.createCaller(createContext(null)).frigate.submitHandoffVisual(request())).rejects.toThrow("does not match");
+  });
+  it("does not acknowledge an absent read-back row", async () => {
+    dbMocks.getHandoffVisualEventById.mockResolvedValueOnce(null);
+    await expect(appRouter.createCaller(createContext(null)).frigate.submitHandoffVisual(request())).rejects.toThrow("receipt unavailable");
+  });
+  it("replays the same receipt without uploading again or replacing a manager decision", async () => {
+    const event = { ...persisted(), analysisStatus: "approved_by_manager" };
+    dbMocks.reserveHandoffVisualEvent.mockResolvedValue({ event, created: false });
+    dbMocks.getHandoffVisualEventById.mockResolvedValue(event);
+    const caller = appRouter.createCaller(createContext(null));
+    const a = await caller.frigate.submitHandoffVisual(request());
+    const b = await caller.frigate.submitHandoffVisual(request());
+    expect(a).toEqual(b);expect(a).toMatchObject({status:"approved_by_manager"});
+    expect(storageMocks.storagePut).not.toHaveBeenCalled();
+    expect(dbMocks.claimHandoffVisualAnalysis).not.toHaveBeenCalled();
+  });
+  it("resolves the store from credentials even when a payload tries to name another", async () => {
+    const result = await appRouter.createCaller(createContext(null)).frigate.submitHandoffVisual({ ...request(), storeId: 2 } as never);
+    expect(result).toMatchObject({receipt:{storeId:1}});
+    expect(dbMocks.reserveHandoffVisualEvent).toHaveBeenCalledWith(expect.objectContaining({storeId:1}));
+  });
+  it("rejects invalid credentials before storing any evidence", async () => {
+    await expect(appRouter.createCaller(createContext(null)).frigate.submitHandoffVisual({ ...request(), apiKey:"invalid-fixture" })).rejects.toMatchObject({code:"UNAUTHORIZED"});
+    expect(storageMocks.storagePut).not.toHaveBeenCalled();expect(dbMocks.reserveHandoffVisualEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe("cup size annotations authorization", () => {
+  const request = {id: 930001, expectedRevision: "a".repeat(64), items:[{slot:1,size:"pint" as const,note:""}]};
+  it("uses authenticated store and actor, never request-supplied tenancy", async () => {
+    dbMocks.saveHandoffCupDescriptions.mockResolvedValueOnce({id:930001});
+    await appRouter.createCaller(createContext("admin",2)).dashboard.saveHandoffCupDescriptions(request);
+    expect(dbMocks.saveHandoffCupDescriptions).toHaveBeenCalledWith({...request,storeId:2,userId:99});
+  });
+  it("blocks staff", async () => {
+    await expect(appRouter.createCaller(createContext("user",1)).dashboard.saveHandoffCupDescriptions(request)).rejects.toMatchObject({code:"FORBIDDEN"});
+  });
+  it("rejects duplicate cup positions", async () => {
+    await expect(appRouter.createCaller(createContext("admin",1)).dashboard.saveHandoffCupDescriptions({...request,items:[request.items[0],request.items[0]]})).rejects.toMatchObject({code:"BAD_REQUEST"});
+  });
+  it("does not disclose foreign rows", async () => {
+    dbMocks.saveHandoffCupDescriptions.mockRejectedValueOnce(new Error("Handoff visual event was not found in this store"));
+    await expect(appRouter.createCaller(createContext("admin",2)).dashboard.saveHandoffCupDescriptions(request)).rejects.toMatchObject({code:"NOT_FOUND"});
+  });
+  it("reports concurrent editing instead of replacing it", async () => {
+    dbMocks.saveHandoffCupDescriptions.mockRejectedValueOnce(new Error("Cup descriptions changed; reload before saving"));
+    await expect(appRouter.createCaller(createContext("admin",1)).dashboard.saveHandoffCupDescriptions(request)).rejects.toMatchObject({code:"CONFLICT"});
+  });
+  it("rejects injection of sales or counts", async () => {
+    await expect(appRouter.createCaller(createContext("admin",1)).dashboard.saveHandoffCupDescriptions({...request,cupsDetected:999} as any)).rejects.toMatchObject({code:"BAD_REQUEST"});
   });
 });

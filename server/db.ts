@@ -1,4 +1,5 @@
 import { describeCameraCups, encodeCupReviewNotes, parseCupReviewNotes, preserveDescriptionsWithNote, validateCupDescriptions, type CupDescription } from "../shared/cupDescriptions";
+import { DEFERRED_SOURCE_PREFIX, MAX_DEFERRED_ANALYSIS_ATTEMPTS } from "./handoffDurableReceipt";
 import { and, count, desc, eq, gte, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { createHash, randomUUID } from "node:crypto";
 import { drizzle } from "drizzle-orm/mysql2";
@@ -2609,7 +2610,7 @@ function handoffVisualPublicRow(row: typeof frigateHandoffVisualEvents.$inferSel
   };
 }
 
-async function getHandoffVisualEventById(input: { id: number; storeId: number }) {
+export async function getHandoffVisualEventById(input: { id: number; storeId: number }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -2822,7 +2823,7 @@ export async function attachHandoffVisualImage(input: {
  * Claims one due queue item with an atomic time-bound lease. A replay can
  * retrieve an existing event but cannot execute the vision model twice.
  */
-export async function claimHandoffVisualAnalysis(input: { id: number; storeId: number }) {
+export async function claimHandoffVisualAnalysis(input: { id: number; storeId: number; maxAttempts?: number }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const now = new Date();
@@ -2842,6 +2843,7 @@ export async function claimHandoffVisualAnalysis(input: { id: number; storeId: n
       eq(frigateHandoffVisualEvents.id, input.id),
       eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
       eq(frigateHandoffVisualEvents.analysisStatus, "pending_review"),
+      ...(input.maxAttempts ? [sql`${frigateHandoffVisualEvents.analysisAttempts} < ${input.maxAttempts}`, isNull(frigateHandoffVisualEvents.reviewedAt), sql`LEFT(${frigateHandoffVisualEvents.sourceDetail}, ${DEFERRED_SOURCE_PREFIX.length}) = ${DEFERRED_SOURCE_PREFIX}`] : []),
       isNotNull(frigateHandoffVisualEvents.imageKey),
       or(isNull(frigateHandoffVisualEvents.analysisLeaseUntil), lte(frigateHandoffVisualEvents.analysisLeaseUntil, now)),
       or(
@@ -3052,6 +3054,35 @@ export async function reviewHandoffVisualEvent(input: {
   const event = await getHandoffVisualEventById(input);
   if (!event) throw new Error("Handoff visual event was not found in this store");
   return handoffVisualPublicRow(event);
+}
+
+/** Only the explicitly opted-in, server-marked queue is scanned. Legacy evidence is untouched. */
+export async function listDueDeferredHandoffVisualEvents(limit = 5, now = new Date()) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const bounded = Math.min(Math.max(Math.floor(limit), 1), 10);
+  const rows = await db.select({ event: frigateHandoffVisualEvents })
+    .from(frigateHandoffVisualEvents)
+    .innerJoin(stores, and(eq(stores.id, frigateHandoffVisualEvents.storeId), eq(stores.isActive, 1)))
+    .where(and(
+      eq(frigateHandoffVisualEvents.analysisStatus, "pending_review"),
+      eq(frigateHandoffVisualEvents.evidenceOrigin, "verified_snapshot"),
+      sql`LEFT(${frigateHandoffVisualEvents.sourceDetail}, ${DEFERRED_SOURCE_PREFIX.length}) = ${DEFERRED_SOURCE_PREFIX}`,
+      sql`${frigateHandoffVisualEvents.analysisAttempts} < ${MAX_DEFERRED_ANALYSIS_ATTEMPTS}`,
+      isNotNull(frigateHandoffVisualEvents.imageKey),
+      isNotNull(frigateHandoffVisualEvents.zoneId),
+      isNotNull(frigateHandoffVisualEvents.zoneGeometryJson),
+      isNull(frigateHandoffVisualEvents.reviewedAt),
+      or(isNull(frigateHandoffVisualEvents.nextRetryAt), lte(frigateHandoffVisualEvents.nextRetryAt, now)),
+      or(isNull(frigateHandoffVisualEvents.lastAnalysisError),
+        lte(frigateHandoffVisualEvents.nextRetryAt, now), lte(frigateHandoffVisualEvents.analysisLeaseUntil, now)),
+      or(isNull(frigateHandoffVisualEvents.analysisLeaseUntil), lte(frigateHandoffVisualEvents.analysisLeaseUntil, now)),
+      or(eq(frigateHandoffVisualEvents.analysisAttempts, 0),
+        lte(frigateHandoffVisualEvents.nextRetryAt, now), lte(frigateHandoffVisualEvents.analysisLeaseUntil, now)),
+    ))
+    .orderBy(frigateHandoffVisualEvents.receivedAt, frigateHandoffVisualEvents.id)
+    .limit(bounded);
+  return rows.map(row => row.event);
 }
 
 /** Description edits never change capture provenance, AI status or any count. */

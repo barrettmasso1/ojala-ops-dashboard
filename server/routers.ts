@@ -1,3 +1,6 @@
+import { CUP_SIZE_KEYS } from "../shared/cupDescriptions";
+import { HANDOFF_RECEIPT_PROTOCOL, deferredHandoffSource, persistedHandoffReceipt } from "./handoffDurableReceipt";
+import { analyzePersistedHandoffVisual } from "./handoffPersistedAnalysis";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
@@ -24,6 +27,7 @@ import {
   getDailyOperationsSnapshot,
   getActiveHandoffCameraZone,
   getHandoffVisualEvidenceOverview,
+  getHandoffVisualEventById,
   getLatestHandoffCameraEvidenceDate,
   listHandoffVisualEvents,
   getSubmissionStatusForBusinessDate,
@@ -388,6 +392,7 @@ async function processHandoffVisualEvent(input: {
   sourceDetail: string;
   evidenceOrigin: HandoffEvidenceOrigin;
   imageDataUrl: string;
+  deferAnalysis?: boolean;
 }) {
   const decoded = decodeHandoffImageDataUrl(input.imageDataUrl);
   if (decoded.checksum !== input.metadata.imageSha256) {
@@ -497,48 +502,10 @@ async function processHandoffVisualEvent(input: {
     }
   }
 
-  const analysisLeaseToken = await claimHandoffVisualAnalysis({ id: event.id, storeId: input.storeId });
-  if (!analysisLeaseToken) {
-    return {
-      eventId: event.id,
-      status: event.analysisStatus,
-      disposition: "queued_or_replayed" as const,
-      retryable: Boolean(event.nextRetryAt),
-    };
+  if (input.deferAnalysis) {
+    return { eventId: event.id, status: event.analysisStatus, disposition: "evidence_persisted" as const, retryable: false };
   }
-
-  try {
-    const imageUrl = await storageGetSignedUrl(event.imageKey!);
-    const geometry = parseStoredHandoffZoneGeometry(event.zoneGeometryJson!);
-    const analysis = await analyzeHandoffVisualImage({
-      imageUrl,
-      cameraName: input.metadata.camera,
-      handoffZonePolygon: geometry.points,
-      handoffZoneGeometryVersion: event.zoneGeometryVersion!,
-    });
-    const originPolicy = applyEvidenceOriginPolicy({ origin: event.evidenceOrigin, analysis });
-    const completed = await finalizeHandoffVisualAnalysis({
-      id: event.id,
-      storeId: input.storeId,
-      analysisLeaseToken,
-      analysis: originPolicy.analysis,
-      aiSuggestedStatus: originPolicy.aiSuggestedStatus,
-    });
-    return { eventId: completed.id, status: completed.analysisStatus, disposition: "analyzed" as const, retryable: false };
-  } catch {
-    const deferred = await deferHandoffVisualAnalysis({
-      id: event.id,
-      storeId: input.storeId,
-      analysisLeaseToken,
-      nextRetryAt: new Date(Date.now() + getHandoffVisualRetryDelayMs(event.analysisAttempts + 1)),
-    });
-    return {
-      eventId: deferred.id,
-      status: deferred.analysisStatus,
-      disposition: deferred.analysisStatus === "pending_review" ? "queued_for_retry" as const : "already_reviewed" as const,
-      retryable: deferred.analysisStatus === "pending_review",
-    };
-  }
+  return analyzePersistedHandoffVisual(event, { storeId: input.storeId, cameraName: input.metadata.camera });
 }
 
 export const appRouter = router({
@@ -838,9 +805,14 @@ export const appRouter = router({
         });
         return { success: true, disposition: result.disposition } as const;
       }),
+    ingestionCapabilities: publicProcedure.query(() => ({
+      protocol: HANDOFF_RECEIPT_PROTOCOL, receiptModes: ["after_analysis", "after_storage"],
+      scopedByCredential: true, physicalCupCountCreatedByVisualIngestion: false,
+    })),
     submitHandoffVisual: publicProcedure
       .input(z.object({
         apiKey: z.string().min(1),
+        receiptMode: z.enum(["after_analysis", "after_storage"]).optional().default("after_analysis"),
         imageDataUrl: z.string().min(32).max(12 * 1024 * 1024),
         capture: z.object({
           schema_version: z.union([z.literal(2), z.literal(3)]).optional(),
@@ -886,9 +858,19 @@ export const appRouter = router({
           metadata,
           imageDataUrl: input.imageDataUrl,
           evidenceOrigin: "verified_snapshot",
-          sourceDetail: input.sourceDetail,
+          sourceDetail: input.receiptMode === "after_storage"
+            ? deferredHandoffSource(input.sourceDetail) : input.sourceDetail,
+          deferAnalysis: input.receiptMode === "after_storage",
         });
 
+        if (input.receiptMode === "after_storage") {
+          const persisted = await getHandoffVisualEventById({ id: result.eventId, storeId: store.id });
+          if (!persisted) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Persisted receipt unavailable" });
+          const receipt = persistedHandoffReceipt(persisted, {
+            storeId: store.id, businessDate: getBusinessDate(metadata.capturedAt, store.timezone), metadata,
+          });
+          return { success: true, ...result, status: persisted.analysisStatus, retryable: false, receipt } as const;
+        }
         return { success: true, ...result } as const;
       }),
   }),

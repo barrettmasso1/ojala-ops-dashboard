@@ -29,6 +29,7 @@ API = 'https://api.manus.ai/v2/'
 TASK = 'bA6Dz0FRJW5d772yUd0S2B'
 TZ = ZoneInfo('America/Mazatlan')
 MAX_PACKAGE = 200 * 1024 * 1024
+TASK_BUSY_BACKOFF_SECONDS = 300
 
 
 class BridgeError(Exception):
@@ -82,26 +83,40 @@ def within(path, root):
     return resolved
 
 
-def assemble(day, base=BASE):
+def package_path(row, state):
+    from package_storage import resolve_package_path, StorageError
+    try:
+        return resolve_package_path(row, Path(state))
+    except StorageError as exc:
+        raise BridgeError(exc.code) from None
+
+
+def assemble(day, base=BASE, *, include_count=True, exclude_event_ids=None, max_events=None, include_video=True, min_source_age_seconds=60):
     """Read-only collection. Images never leave this host except via Manus API."""
     require(datetime.strptime(day, '%Y-%m-%d').strftime('%Y-%m-%d') == day, 'invalid_date')
+    require(type(include_video) is bool and type(min_source_age_seconds) is int and 2 <= min_source_age_seconds <= 3600, 'invalid_photo_collection_options')
+    require(include_video or not include_count, 'photo_only_cannot_include_physical_count')
     sender = load_module(base/'handoff-visual-sender/handoff_visual_sender.py', 'visual_validation')
     image_root = base/'config/verified_snapshots/handoff'
     sender.VERIFIED_SNAPSHOT_DIR = image_root
     files, events, skipped = {}, [], 0
+    excluded = set(exclude_event_ids or ())
+    require(max_events is None or (type(max_events) is int and 1 <= max_events <= 25), 'invalid_event_limit')
     archive_root = base/'pilot-archive/forward-20260929'
     db_path = archive_root/'index.sqlite3'
-    archive = sqlite3.connect(db_path.as_uri()+'?mode=ro', uri=True) if db_path.exists() else None
+    archive = sqlite3.connect(db_path.as_uri()+'?mode=ro', uri=True) if include_video and db_path.exists() else None
     try:
         for image in sorted(image_root.glob('*')):
             if image.suffix.lower() not in sender.ALLOWED_SUFFIXES:
                 continue
-            if time.time() - image.stat().st_mtime < 60:
+            if time.time() - image.stat().st_mtime < min_source_age_seconds:
                 continue
             try:
                 metadata, sha = sender.event_metadata(image)
                 at = datetime.fromisoformat(metadata['captured_at_utc'].replace('Z', '+00:00'))
                 if at.astimezone(TZ).date().isoformat() != day:
+                    continue
+                if metadata['cup_event_id'] in excluded:
                     continue
                 sidecar = within(sender.sidecar_path(image), image_root)
                 raw_sidecar = sidecar.read_bytes()
@@ -114,8 +129,7 @@ def assemble(day, base=BASE):
                 image_bytes = within(image, image_root).read_bytes()
                 require(digest(image_bytes) == sha, 'image_changed_during_collection')
                 image_name, meta_name = 'snapshots/'+image.name, 'snapshots/'+sidecar.name
-                files[image_name] = image_bytes
-                files[meta_name] = raw_sidecar
+                event_files = {image_name: image_bytes, meta_name: raw_sidecar}
                 start = source.get('cup_event_start', at.timestamp())
                 require(isinstance(start, (float, int)) and abs(start-at.timestamp()) < 600,
                         'invalid_event_window')
@@ -132,12 +146,15 @@ def assemble(day, base=BASE):
                         content = segment.read_bytes()
                         require(digest(content) == expected, 'archive_hash_mismatch')
                         target = 'segments/'+relative
-                        files[target] = content
+                        event_files[target] = content
                         segments.append({'path': target, 'startTime': begin, 'endTime': end})
                 events.append({'cupEventId': event_id, 'capturedAt': metadata['captured_at_utc'],
                                'image': image_name, 'metadata': meta_name, 'source': 'verified_snapshot',
                                'reviewStatus': 'pending_review', 'segments': segments,
                                'requestedWindow': [window_start, window_end]})
+                files.update(event_files)
+                if max_events is not None and len(events) >= max_events:
+                    break
             except (BridgeError, sender.SenderError, ValueError, OSError, KeyError):
                 # A partial package must visibly report exclusions; never log raw metadata.
                 skipped += 1
@@ -146,7 +163,7 @@ def assemble(day, base=BASE):
             archive.close()
     # Preserve an existing reviewed count only after rechecking its complete
     # ledger/evidence chain. Never manufacture one from snapshot cardinality.
-    count_info = attach_reviewed_count(day, base, files)
+    count_info = attach_reviewed_count(day, base, files) if include_count else None
     manifest = {'schemaVersion': 1, 'storeId': 1, 'cameraName': 'handoff', 'businessDate': day,
                 'transport': 'manus_official_api_administrative_review', 'coverage': 'partial',
                 'countRecordIncluded': bool(count_info), 'countRecord': count_info,
@@ -155,6 +172,8 @@ def assemble(day, base=BASE):
                 'limitations': ['Candidates are not unique physical cups.',
                                 'Only candidate windows are included, not full-day coverage.',
                                 'An upload or task acceptance is not a dashboard receipt.']}
+    if not include_video:
+        manifest.update(videoContextIncluded=False, collectionScope='live_photos_only')
     require(events or count_info, 'no_verified_evidence_for_date')
     manifest['files'] = [{'path': name, 'sha256': digest(data), 'bytes': len(data)}
                          for name, data in sorted(files.items())]
@@ -360,6 +379,31 @@ def prompt(row, count_included=False):
             'sin afirmar recepción en el dashboard.')
 
 
+
+def photo_prompt(row):
+    """Receipt-only instruction for incremental images; never request a cup review."""
+    return (f'OJALA_BRIDGE_BATCH:{row["id"]}\n'
+        f'Anhec autoriza recibir SOLO las fotos originales del lote {row["day"]}, '
+        f'packageSha256 {row["sha256"]}, en Store 1. '
+        'Es un lote incremental visual: importa imagenes y sidecars; si hay clips adjuntos, preservalos sin analizarlos. '
+        'NO solicites clips, NO hagas revision temporal ni calcules vasos fisicos. '
+        'Comprueba hashes de manifest.json y concilia cupEventId/tienda/camara antes de importar. '
+        'Usa la sesion administrativa real del dashboard publicado y el importador existente '
+        'de verified_snapshot, con export_verified_snapshot_import.py y normalizationProof '
+        'auditado. Conserva bytes, ID, fecha, origen y geometria. No fabriques una sesion '
+        'ni uses preview como produccion. No reanalices filas terminales ni cambies revisiones humanas. '
+        'Si el evento ya existe igual, devuelve su fila persistida sin duplicarla. '
+        'Devuelve receipt.json al terminar la lectura persistida de TODAS las fotos, '
+        'con batchId, packageSha256, storeId numerico, businessDate original, '
+        'visualRows (id numerico, cupEventId, source, status), countRow:null, '
+        'readBackAt con zona horaria, automaticPushVerified:false y limitaciones. '
+        'La IA pendiente no equivale a falta de recepcion; conserva su estado real. '
+        'No modifiques conteos, ventas, inventario, roles ni migraciones. '
+        'No pruebes los endpoints Frigate bloqueados ni alteres Cloudflare. '
+        'Si no hay sesion o no puedes leer la fila real, reporta el bloqueo concreto '
+        'y NO emitas un recibo positivo. Esta ruta es administrativa, no POST Frigate directo.')
+
+
 def update(db, batch_id, **fields):
     db.execute('UPDATE batches SET '+','.join(k+'=?' for k in fields)+' WHERE id=?',
                (*fields.values(), batch_id))
@@ -383,13 +427,17 @@ def deliver_one(db, api, now=None):
         require(task['id'] == TASK, 'wrong_task')
         require(task.get('share_visibility') == 'private', 'task_must_be_private')
         if task.get('status') != 'stopped' or task.get('has_running_background_jobs'):
-            update(db, row['id'], next_at=now+1800, last_error='task_busy_or_waiting')
+            update(db, row['id'], next_at=now+300, last_error='task_busy_or_waiting')
             return {'status': 'task_busy_or_waiting', 'dashboardReceived': False}
-        path = within(Path(row['path']), Path(row['path']).parent)
+        state_path = Path(db.execute('PRAGMA database_list').fetchone()[2]).parent
+        path = package_path(row, state_path)
         content = path.read_bytes()
         require(len(content) <= MAX_PACKAGE and digest(content) == row['sha256'], 'package_integrity_failed')
         with zipfile.ZipFile(path) as z:
-            count_included = json.loads(z.read('manifest.json')).get('countRecordIncluded') is True
+            package_manifest = json.loads(z.read('manifest.json'))
+            count_included = package_manifest.get('countRecordIncluded') is True
+            photo_only = package_manifest.get('incrementalVisualBatch') is True
+            require(not photo_only or not count_included, 'photo_only_count_conflict')
         update(db, row['id'], attempts=attempts)
         # Re-upload after a failed attempt: input files expire after 48 hours.
         uploaded = api.call('file.upload', {'filename': 'ojala-'+row['day']+'-'+row['id'][:12]+'.zip'}, post=True)
@@ -401,7 +449,7 @@ def deliver_one(db, api, now=None):
         update(db, row['id'], status='dispatching', file_id=file_id, sent_at=now, task_id=TASK)
         phase = 'dispatch'
         result = api.call('task.sendMessage', {'task_id': TASK, 'message': {'content': [
-            {'type': 'text', 'text': prompt(row, count_included)}, {'type': 'file', 'file_id': file_id}]}}, post=True)
+            {'type': 'text', 'text': photo_prompt(row) if photo_only else prompt(row, count_included)}, {'type': 'file', 'file_id': file_id}]}}, post=True)
         require(result.get('task_id') == TASK and result.get('request_id'), 'invalid_task_ack')
         update(db, row['id'], status='awaiting_dashboard_receipt', request_id=result['request_id'],
                last_error=None)

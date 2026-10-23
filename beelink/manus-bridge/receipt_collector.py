@@ -17,6 +17,7 @@ import zipfile
 import manus_bridge as b
 
 MAX_RECEIPT = 1024 * 1024
+PACKAGE_ARCHIVE_ROOT = Path('/tmp/externo/home-ojala/ojala-active-evidence-20261017/manus-bridge-packages')
 STATUSES = {'pending_review', 'approved_by_ai', 'discarded',
             'approved_by_manager', 'discarded_by_manager'}
 
@@ -32,7 +33,7 @@ def timestamp(value):
 
 
 def package_manifest(row, state):
-    path = b.within(Path(row['path']), state)
+    path = b.package_path(row, state)
     raw = path.read_bytes()
     b.require(len(raw) <= b.MAX_PACKAGE and b.digest(raw) == row['sha256'],
               'receipt_package_integrity_failed')
@@ -176,7 +177,11 @@ def collect_receipts(db, api, state, recheck=False, downloader=download_attachme
     if recheck: statuses.append('admin_receipt_verified')
     rows = db.execute('SELECT * FROM batches WHERE sent_at IS NOT NULL AND status IN ('+
                       ','.join('?' for _ in statuses)+')', statuses).fetchall()
-    if not rows: return {'verified':0,'waiting':0,'directFrigateVerified':False}
+    if not rows:
+        result = {'verified':0, 'waiting':0, 'directFrigateVerified':False,
+                  'scope':'pending_batches_only'}
+        b.private_json(state/'receipt-collector-latest.json',dict(result,checkedAt=datetime.now().astimezone().isoformat()))
+        return result
     task = api.call('task.detail', {'task_id':b.TASK})['task']
     b.require(task.get('id') == b.TASK and task.get('share_visibility') == 'private',
               'receipt_task_not_private_or_wrong')
@@ -215,7 +220,11 @@ def collect_receipts(db, api, state, recheck=False, downloader=download_attachme
             db.commit(); verified.append(batch_id)
         except (b.BridgeError, ValueError, KeyError, TypeError, OSError, zipfile.BadZipFile) as exc:
             errors.append(str(exc) if isinstance(exc,b.BridgeError) else 'receipt_invalid_or_unavailable')
-    result = {'verified':len(verified),'batchIds':verified,'waiting':len(rows)-len(verified),
+    pending = [r for r in rows if r['status'] != 'admin_receipt_verified' and r['id'] not in verified]
+    preserved = [r for r in rows if r['status'] == 'admin_receipt_verified' and r['id'] not in verified]
+    result = {'verified':len(verified),'batchIds':verified,'waiting':len(pending),
+              'previousReceiptsPreservedNotRefreshed':len(preserved),
+              'scope':'pending_batches_and_optional_recheck',
               'errors':errors,'directFrigateVerified':False}
     b.private_json(state/'receipt-collector-latest.json',dict(result,checkedAt=datetime.now().astimezone().isoformat()))
     return result

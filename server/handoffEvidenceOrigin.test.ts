@@ -41,7 +41,7 @@ describe("handoff visual evidence origins", () => {
     expect(dbSource).toContain('existing[0].evidenceOrigin !== (input.evidenceOrigin ?? "verified_snapshot")');
     expect(dbSource).toContain('concurrent[0].evidenceOrigin !== (input.evidenceOrigin ?? "verified_snapshot")');
     expect(routerSource).toContain("event.evidenceOrigin !== input.evidenceOrigin");
-    expect(routerSource).toContain('applyEvidenceOriginPolicy({ origin: event.evidenceOrigin, analysis })');
+    expect(readFileSync("server/handoffPersistedAnalysis.ts", "utf8")).toContain('applyEvidenceOriginPolicy({ origin: event.evidenceOrigin, analysis })');
     expect(routerSource).toContain('"frigate-handoff-recovery"');
   });
 });
