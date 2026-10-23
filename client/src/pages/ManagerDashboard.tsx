@@ -1846,10 +1846,10 @@ export default function ManagerDashboard() {
                     <div className="space-y-4">
                       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                         {[
-                          { label: "4oz", value: daily.cups["4oz"] ?? 0 },
-                          { label: "8oz", value: daily.cups["8oz"] ?? 0 },
-                          { label: "Pint", value: daily.cups.Pint ?? 0 },
-                          { label: "Liter", value: daily.cups.Liter ?? 0 },
+                          { label: MANUAL_CUP_SIZE_LABELS["4oz"], value: daily.cups["4oz"] ?? 0 },
+                          { label: MANUAL_CUP_SIZE_LABELS["8oz"], value: daily.cups["8oz"] ?? 0 },
+                          { label: MANUAL_CUP_SIZE_LABELS["Pint"], value: daily.cups.Pint ?? 0 },
+                          { label: MANUAL_CUP_SIZE_LABELS["Liter"], value: daily.cups.Liter ?? 0 },
                         ].map(item => (
                           <div key={item.label} className="rounded-2xl border border-[#e5ddd0] bg-[#fbf7f0] p-5 shadow-sm">
                             <div className="flex items-center justify-between">
