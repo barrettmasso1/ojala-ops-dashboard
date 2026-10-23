@@ -10,7 +10,7 @@ export const MANUAL_CUP_SIZE_LABELS: Record<string, string> = {
 };
 export const CUP_DESCRIPTION_LIMIT = 8;
 export type CupDescription = { slot: number; size: CupSize; note: string };
-export type CupDescriptionView = CupDescription & { source: "manual" | "ai_suggestion" | "unknown" };
+export type CupDescriptionView = CupDescription & { source: "manual" | "ai_suggestion" | "ai_estimate" | "unknown" };
 export const CUP_NOTES_PREFIX = "OJALA_CUP_DESCRIPTIONS_V1\n";
 export type CupDescriptionEnvelope = {
   kind: "ojala_cup_descriptions"; version: 1; notes: string;

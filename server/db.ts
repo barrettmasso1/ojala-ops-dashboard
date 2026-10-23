@@ -1,3 +1,4 @@
+import { parseAutoCupSizes, automaticDescriptionView, summarizeCameraSizes } from "../shared/autoCupSizes";
 import { describeCameraCups, encodeCupReviewNotes, parseCupReviewNotes, preserveDescriptionsWithNote, validateCupDescriptions, type CupDescription } from "../shared/cupDescriptions";
 import { DEFERRED_SOURCE_PREFIX, MAX_DEFERRED_ANALYSIS_ATTEMPTS } from "./handoffDurableReceipt";
 import { and, count, desc, eq, gte, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
@@ -2602,7 +2603,8 @@ function handoffVisualPublicRow(row: typeof frigateHandoffVisualEvents.$inferSel
   return {
     ...row,
     reviewNotes: parsed.notes,
-    cupDescriptions: describeCameraCups(row),
+    cupDescriptions: parseCupReviewNotes(row.reviewNotes).annotation ? describeCameraCups(row) : parseAutoCupSizes(row.analysisEvidenceJson)?.status === "completed" && parseAutoCupSizes(row.analysisEvidenceJson)?.imageSha256 === row.imageSha256 ? automaticDescriptionView(parseAutoCupSizes(row.analysisEvidenceJson)!) : describeCameraCups(row),
+    autoCupSizeAssessment: parseAutoCupSizes(row.analysisEvidenceJson),
     cupDescriptionRevision: cupDescriptionRevision(row.reviewNotes),
     cupDescriptionsUpdatedAt: parsed.annotation?.updatedAt ?? null,
     cupDescriptionsMalformed: parsed.malformed,
@@ -3111,4 +3113,12 @@ export async function saveHandoffCupDescriptions(input: {
   const saved = await getHandoffVisualEventById({ id: input.id, storeId });
   if (!saved || saved.reviewNotes !== reviewNotes) throw new Error("Cup description readback did not match");
   return handoffVisualPublicRow(saved);
+}
+
+/** Photo-observation breakdown only; never a daily unique-cup total. */
+export async function getHandoffCameraSizeBreakdown(input:{storeId:number;businessDate:string}) {
+ const db=await getDb();if(!db)throw Error("Database not available");
+ const rows=await db.select().from(frigateHandoffVisualEvents).where(and(eq(frigateHandoffVisualEvents.storeId,requireStoreId(input.storeId)),eq(frigateHandoffVisualEvents.businessDate,input.businessDate),eq(frigateHandoffVisualEvents.cameraName,"handoff"))).orderBy(frigateHandoffVisualEvents.id).limit(2001);
+ if(rows.length>2000)throw Error("Size breakdown exceeds safe row limit; no partial aggregate returned");
+ return {...summarizeCameraSizes(rows),businessDate:input.businessDate,storeId:input.storeId};
 }

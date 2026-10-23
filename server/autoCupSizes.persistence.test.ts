@@ -1,0 +1,22 @@
+import {beforeEach,describe,it,expect,vi} from "vitest";
+import {MySqlDialect} from "drizzle-orm/mysql-core";
+import {encodeCupReviewNotes} from "../shared/cupDescriptions";
+const f=vi.hoisted(()=>({row:null as any,writes:[] as any[],conditions:[] as any[],affected:1,foreign:false}));
+const vision=vi.hoisted(()=>vi.fn());
+vi.mock("./db",()=>({getDb:async()=>({update:()=>({set:(change:any)=>({where:async(condition:any)=>{f.conditions.push(condition);f.writes.push(change);if(f.affected===1)f.row={...f.row,...change};return [{affectedRows:f.affected}];}})})}),getHandoffVisualEventById:async()=>f.foreign?null:{...f.row}}));
+vi.mock("./storage",()=>({storageGetSignedUrl:async()=>"https://test.invalid/private-original"}));
+vi.mock("./autoCupSizeAnalysis",()=>({analyzeCupSizes:vision}));
+const {classifyHandoffCupSizes}=await import("./autoCupSizes");
+beforeEach(()=>{f.row={id:17,storeId:2,cameraName:"handoff",analysisStatus:"approved_by_ai",imageKey:"original",imageSha256:"a".repeat(64),reviewNotes:null,analysisEvidenceJson:JSON.stringify({personBoxes:[],original:true}),zoneGeometryJson:"[]"};f.writes=[];f.conditions=[];f.affected=1;f.foreign=false;vision.mockReset();vision.mockResolvedValue({items:[{slot:1,size:"unknown",confidence:"low",basis:"unknown",reason:"No capacity evidence"}],model:"fixture"});});
+describe("automatic classification persistence",()=>{
+ it("stores only analysis evidence and retains original metadata",async()=>{const r=await classifyHandoffCupSizes({id:17,storeId:2});expect(r.status).toBe("completed");expect(JSON.parse(f.row.analysisEvidenceJson).original).toBe(true);expect(f.writes.every(x=>Object.keys(x).join()==="analysisEvidenceJson")).toBe(true);expect(f.row.analysisStatus).toBe("approved_by_ai");});
+ it("scopes CAS to store and image",async()=>{await classifyHandoffCupSizes({id:17,storeId:2});for(const c of f.conditions){const q=new MySqlDialect().sqlToQuery(c);expect(q.sql).toContain("storeId");expect(q.params).toContain(2);expect(q.params).toContain("a".repeat(64));}});
+ it("does not re-run completed result",async()=>{await classifyHandoffCupSizes({id:17,storeId:2});await classifyHandoffCupSizes({id:17,storeId:2});expect(vision).toHaveBeenCalledTimes(1);});
+ it("preserves human size annotations",async()=>{f.row.reviewNotes=encodeCupReviewNotes("",[{slot:1,size:"pint",note:""}],99,"2026-10-22T00:00:00Z");expect((await classifyHandoffCupSizes({id:17,storeId:2})).status).toBe("manual_preserved");expect(vision).not.toHaveBeenCalled();expect(f.writes).toHaveLength(0);});
+ it("rejects foreign record before any model request",async()=>{f.foreign=true;await expect(classifyHandoffCupSizes({id:17,storeId:2})).rejects.toThrow("not found");expect(vision).not.toHaveBeenCalled();});
+ it("holds CAS conflict",async()=>{f.affected=0;expect((await classifyHandoffCupSizes({id:17,storeId:2})).status).toBe("concurrent_change");expect(vision).not.toHaveBeenCalled();});
+ it("model errors become bounded retry state not guessed sizes",async()=>{vision.mockRejectedValue(Error("private upstream error"));expect((await classifyHandoffCupSizes({id:17,storeId:2})).status).toBe("failed");const a=JSON.parse(f.row.analysisEvidenceJson).autoCupSizes;expect(a.items).toEqual([]);expect(a.error).toBe("size_analysis_unavailable");expect(a.retryAfter).toBeTruthy();});
+ it("running lease prevents concurrent requests",async()=>{f.row.analysisEvidenceJson=JSON.stringify({autoCupSizes:{version:1,status:"running",imageSha256:f.row.imageSha256,items:[],attempts:1,leaseUntil:new Date(Date.now()+60000).toISOString()}});expect((await classifyHandoffCupSizes({id:17,storeId:2})).status).toBe("running");expect(vision).not.toHaveBeenCalled();});
+ it("three failures stop retries",async()=>{f.row.analysisEvidenceJson=JSON.stringify({autoCupSizes:{version:1,status:"failed",imageSha256:f.row.imageSha256,items:[],attempts:3}});expect((await classifyHandoffCupSizes({id:17,storeId:2})).status).toBe("failed_attempt_limit");expect(vision).not.toHaveBeenCalled();});
+ it("never analyzes discarded records",async()=>{f.row.analysisStatus="discarded_by_manager";expect((await classifyHandoffCupSizes({id:17,storeId:2})).status).toBe("excluded_visual_state");expect(f.writes).toHaveLength(0);});
+});
