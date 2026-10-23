@@ -52,4 +52,16 @@ class CollectorIntegrationTests(unittest.TestCase):
   self.proof();self.collector.cycle('2026-10-22');self.collector.close();self.collector=Collector(self.config);r=self.collector.cycle('2026-10-22')
   self.assertEqual(r['changedObservations'],0);self.assertEqual(len(list((self.root/'evidence').iterdir())),2)
 
+
+ def test_health_delegates_transport_state_without_false_disabled_claim(self):
+  r=self.collector.cycle('2026-10-22')
+  self.assertEqual(r['cloudSyncStatus'],'reported_by_separate_native_sync')
+  self.assertEqual(r['cloudSyncHealthFile'],str(self.root/'sync-health.json'))
+  self.assertEqual(r['networkWrites'],0)
+ def test_health_reference_does_not_claim_a_stale_sync_is_active(self):
+  (self.root/'sync-health.json').write_text('{"status":"old"}')
+  r=self.collector.cycle('2026-10-22')
+  self.assertEqual(r['cloudSyncStatus'],'reported_by_separate_native_sync')
+  self.assertNotIn('receiptVerified',r)
+
 if __name__=='__main__':unittest.main()
