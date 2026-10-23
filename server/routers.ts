@@ -812,6 +812,7 @@ export const appRouter = router({
       protocol: LOCAL_LEDGER_PROTOCOL, externalAiRequired: false, browserRequired: false,
       scopedByCredential: true, uniquePhysicalDeliveryCountCreated: false,
       persistedReadbackRequired: true, imageUploadsIncluded: false,
+      initialWritePolicy: "conditional_create_then_readback" as const,
     })),
     submitLocalCupLedger: publicProcedure
       .input(localLedgerInputSchema.extend({ apiKey: z.string().min(1) }))
