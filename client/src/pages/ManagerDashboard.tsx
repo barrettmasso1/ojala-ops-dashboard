@@ -1,3 +1,5 @@
+import { CupDescriptionSummary, CupDescriptionsEditor } from "@/components/CupDescriptions";
+import { MANUAL_CUP_SIZE_LABELS, manualCupRows } from "@shared/cupDescriptions";
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import DailyOperationsPanel from "@/components/DailyOperationsPanel";
@@ -627,6 +629,7 @@ function HandoffVisualEvidenceOverviewPanel({
                   <div className="p-4">
                     <p className="truncate text-sm font-medium text-[#24332f]" title={thumbnail.cupEventId}>{thumbnail.cupEventId}</p>
                     <p className="mt-2 text-xs leading-5 text-[#68716b]">{handoffVisualStatusLabel(thumbnail.analysisStatus)} · {handoffEvidenceOriginLabel(thumbnail.evidenceOrigin)}</p>
+                    <CupDescriptionSummary items={thumbnail.cupDescriptions} />
                   </div>
                 </article>
               ))}
@@ -1747,6 +1750,18 @@ export default function ManagerDashboard() {
         {isOverviewRoute ? (
           <>
             {!dailyQuery.isLoading && !dailyQuery.error && dailyOperations && <DailyOperationsPanel view={dailyOperations} timeZone={timeZone} />}
+            <SurfaceCard>
+              <h2 className="font-serif text-2xl text-[#24332f]">Registro manual por tamaño</h2>
+              <p className="mt-2 text-sm text-[#65716b]">Cantidades del cierre registrado manualmente para {selectedDate}. Separadas de las fotografías y del conteo de cámara.</p>
+              <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                {manualCupRows(daily?.businessDate === selectedDate ? daily.cups : undefined, daily?.businessDate === selectedDate ? daily.reportCount : 0).map(item => (
+                  <div key={item.key} className="rounded-2xl border border-[#e5ddd0] bg-[#fbf7f0] p-4">
+                    <p className="text-sm font-medium">{item.label}</p>
+                    <p className="mt-2 text-2xl">{item.count === null ? "Pendiente" : item.count}</p>
+                  </div>
+                ))}
+              </div>
+            </SurfaceCard>
             {isAdmin && <HandoffVisualEvidenceOverviewPanel presentation={handoffVisualEvidencePresentation} businessDate={selectedDate} timeZone={timeZone} />}
             {isAdmin && <ReviewedCountImport key={selectedDate} businessDate={selectedDate} />}
             <SurfaceCard>
@@ -1831,10 +1846,10 @@ export default function ManagerDashboard() {
                     <div className="space-y-4">
                       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                         {[
-                          { label: "4oz", value: daily.cups["4oz"] ?? 0 },
-                          { label: "8oz", value: daily.cups["8oz"] ?? 0 },
-                          { label: "Pint", value: daily.cups.Pint ?? 0 },
-                          { label: "Liter", value: daily.cups.Liter ?? 0 },
+                          { label: MANUAL_CUP_SIZE_LABELS["4oz"], value: daily.cups["4oz"] ?? 0 },
+                          { label: MANUAL_CUP_SIZE_LABELS["8oz"], value: daily.cups["8oz"] ?? 0 },
+                          { label: MANUAL_CUP_SIZE_LABELS["Pint"], value: daily.cups.Pint ?? 0 },
+                          { label: MANUAL_CUP_SIZE_LABELS["Liter"], value: daily.cups.Liter ?? 0 },
                         ].map(item => (
                           <div key={item.label} className="rounded-2xl border border-[#e5ddd0] bg-[#fbf7f0] p-5 shadow-sm">
                             <div className="flex items-center justify-between">
@@ -3570,6 +3585,9 @@ export default function ManagerDashboard() {
                           </div>
 
                           <p className="mt-4 rounded-2xl border border-[#e5ddd0] bg-white/75 px-4 py-3 text-sm leading-6 text-[#56635d]">{event.analysisReason || "Awaiting analysis."}</p>
+                          <CupDescriptionSummary items={event.cupDescriptions} />
+                          <CupDescriptionsEditor eventId={event.id} businessDate={event.businessDate}
+                            items={event.cupDescriptions} revision={event.cupDescriptionRevision} malformed={event.cupDescriptionsMalformed} />
                           {humanReview ? (
                             <section className="mt-3 rounded-2xl border border-[#d8e2da] bg-[#f4f8f3] px-4 py-3 text-sm leading-6 text-[#43554f]" aria-label={`Human review guidance for record ${event.id}`}>
                               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium uppercase tracking-[0.12em] text-[#52665f]">

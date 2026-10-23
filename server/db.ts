@@ -1,5 +1,6 @@
+import { describeCameraCups, encodeCupReviewNotes, parseCupReviewNotes, preserveDescriptionsWithNote, validateCupDescriptions, type CupDescription } from "../shared/cupDescriptions";
 import { and, count, desc, eq, gte, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   checklistQuestions,
@@ -2596,8 +2597,14 @@ export async function getActiveHandoffCameraZone(input: { storeId: number; camer
 type HandoffVisualStoredStatus = HandoffVisualStatus;
 
 function handoffVisualPublicRow(row: typeof frigateHandoffVisualEvents.$inferSelect) {
+  const parsed = parseCupReviewNotes(row.reviewNotes);
   return {
     ...row,
+    reviewNotes: parsed.notes,
+    cupDescriptions: describeCameraCups(row),
+    cupDescriptionRevision: cupDescriptionRevision(row.reviewNotes),
+    cupDescriptionsUpdatedAt: parsed.annotation?.updatedAt ?? null,
+    cupDescriptionsMalformed: parsed.malformed,
     imageUrl: row.imageKey ? `/manus-storage/${row.imageKey}` : null,
   };
 }
@@ -3005,6 +3012,7 @@ export async function getHandoffVisualEvidenceOverview(input: {
         evidenceOrigin: row.evidenceOrigin,
         receivedAt: row.receivedAt,
         imageUrl: row.imageUrl,
+        cupDescriptions: row.cupDescriptions,
       };
     }),
   };
@@ -3019,9 +3027,11 @@ export async function reviewHandoffVisualEvent(input: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const notes = (input.reviewNotes ?? "").trim().slice(0, 2_000);
+  const current = await getHandoffVisualEventById(input);
+  if (!current) throw new Error("Handoff visual event was not found in this store");
+  const notes = preserveDescriptionsWithNote(current.reviewNotes, (input.reviewNotes ?? "").trim().slice(0, 2_000));
 
-  await db
+  const changed = await db
     .update(frigateHandoffVisualEvents)
     .set({
       analysisStatus: input.decision,
@@ -3035,9 +3045,38 @@ export async function reviewHandoffVisualEvent(input: {
     .where(and(
       eq(frigateHandoffVisualEvents.id, input.id),
       eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
+      current.reviewNotes === null ? isNull(frigateHandoffVisualEvents.reviewNotes) : sql`BINARY ${frigateHandoffVisualEvents.reviewNotes} = BINARY ${current.reviewNotes}`,
     ));
 
+  if (changed[0].affectedRows !== 1) throw new Error("Cup descriptions changed; reload before saving");
   const event = await getHandoffVisualEventById(input);
   if (!event) throw new Error("Handoff visual event was not found in this store");
   return handoffVisualPublicRow(event);
+}
+
+/** Description edits never change capture provenance, AI status or any count. */
+export function cupDescriptionRevision(raw: string | null | undefined) {
+  return createHash("sha256").update(raw ?? "").digest("hex");
+}
+export async function saveHandoffCupDescriptions(input: {
+  id: number; storeId: number; userId: number; expectedRevision: string; items: CupDescription[];
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const storeId = requireStoreId(input.storeId);
+  const current = await getHandoffVisualEventById({ id: input.id, storeId });
+  if (!current) throw new Error("Handoff visual event was not found in this store");
+  if (cupDescriptionRevision(current.reviewNotes) !== input.expectedRevision) throw new Error("Cup descriptions changed; reload before saving");
+  const parsed = parseCupReviewNotes(current.reviewNotes);
+  if (parsed.malformed) throw new Error("Stored cup descriptions need review");
+  const items = validateCupDescriptions(input.items);
+  const reviewNotes = encodeCupReviewNotes(parsed.notes, items, input.userId, new Date().toISOString());
+  const changed = await db.update(frigateHandoffVisualEvents).set({ reviewNotes }).where(and(
+    eq(frigateHandoffVisualEvents.id, input.id), eq(frigateHandoffVisualEvents.storeId, storeId),
+    current.reviewNotes === null ? isNull(frigateHandoffVisualEvents.reviewNotes) : sql`BINARY ${frigateHandoffVisualEvents.reviewNotes} = BINARY ${current.reviewNotes}`,
+  ));
+  if (changed[0].affectedRows !== 1) throw new Error("Cup descriptions changed; reload before saving");
+  const saved = await getHandoffVisualEventById({ id: input.id, storeId });
+  if (!saved || saved.reviewNotes !== reviewNotes) throw new Error("Cup description readback did not match");
+  return handoffVisualPublicRow(saved);
 }

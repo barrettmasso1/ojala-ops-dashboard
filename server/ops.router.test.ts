@@ -35,6 +35,7 @@ const dbMocks = vi.hoisted(() => ({
   queueHandoffVisualForZoneConfiguration: vi.fn(),
   queueHandoffVisualForZoneMismatch: vi.fn(),
   reviewHandoffVisualEvent: vi.fn(),
+  saveHandoffCupDescriptions: vi.fn(),
   saveChecklistQuestion: vi.fn(),
   saveInventoryItem: vi.fn(),
   saveReadyMadeGelatoWeights: vi.fn(),
@@ -1837,5 +1838,31 @@ describe("operations router", () => {
 
     await expect(appRouter.createCaller(createContext("user", 1)).dashboard.latestHandoffCameraEvidenceDate())
       .rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  describe("cup size annotations authorization", () => {
+    const request = {id: 930001, expectedRevision: "a".repeat(64), items:[{slot:1,size:"pint" as const,note:""}]};
+    it("uses authenticated store and actor, never request-supplied tenancy", async () => {
+      dbMocks.saveHandoffCupDescriptions.mockResolvedValueOnce({id:930001});
+      await appRouter.createCaller(createContext("admin",2)).dashboard.saveHandoffCupDescriptions(request);
+      expect(dbMocks.saveHandoffCupDescriptions).toHaveBeenCalledWith({...request,storeId:2,userId:99});
+    });
+    it("blocks staff", async () => {
+      await expect(appRouter.createCaller(createContext("user",1)).dashboard.saveHandoffCupDescriptions(request)).rejects.toMatchObject({code:"FORBIDDEN"});
+    });
+    it("rejects duplicate cup positions", async () => {
+      await expect(appRouter.createCaller(createContext("admin",1)).dashboard.saveHandoffCupDescriptions({...request,items:[request.items[0],request.items[0]]})).rejects.toMatchObject({code:"BAD_REQUEST"});
+    });
+    it("does not disclose foreign rows", async () => {
+      dbMocks.saveHandoffCupDescriptions.mockRejectedValueOnce(new Error("Handoff visual event was not found in this store"));
+      await expect(appRouter.createCaller(createContext("admin",2)).dashboard.saveHandoffCupDescriptions(request)).rejects.toMatchObject({code:"NOT_FOUND"});
+    });
+    it("reports concurrent editing instead of replacing it", async () => {
+      dbMocks.saveHandoffCupDescriptions.mockRejectedValueOnce(new Error("Cup descriptions changed; reload before saving"));
+      await expect(appRouter.createCaller(createContext("admin",1)).dashboard.saveHandoffCupDescriptions(request)).rejects.toMatchObject({code:"CONFLICT"});
+    });
+    it("rejects injection of sales or counts", async () => {
+      await expect(appRouter.createCaller(createContext("admin",1)).dashboard.saveHandoffCupDescriptions({...request,cupsDetected:999} as any)).rejects.toMatchObject({code:"BAD_REQUEST"});
+    });
   });
 });
