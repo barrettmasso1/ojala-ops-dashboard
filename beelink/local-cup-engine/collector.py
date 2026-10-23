@@ -68,7 +68,7 @@ class Collector:
                 evidence=None
                 stem=datetime.fromtimestamp(raw['start_time'],timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'_'+raw['id']
                 meta_path=self.images/(stem+'.json');image=self.images/(stem+'.jpg')
-                if meta_path.exists() and image.exists():
+                if not track['sourceFalsePositive'] and meta_path.exists() and image.exists():
                     try:
                         require(not meta_path.is_symlink() and not image.is_symlink(),'evidence_symlink')
                         require(meta_path.parent==self.images and image.parent==self.images,'evidence_path')
@@ -125,9 +125,16 @@ def main():
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);collector=Collector(config);stop=[False]
         def finish(*_):stop[0]=True
         signal.signal(signal.SIGTERM,finish);signal.signal(signal.SIGINT,finish)
+        last_day=None
         try:
             while not stop[0]:
                 try:
+                    today=datetime.now(collector.zone).date().isoformat()
+                    if not a.date and today!=last_day:
+                        yesterday=(datetime.fromisoformat(today).date()-timedelta(days=1)).isoformat()
+                        if collector.db.db.execute('SELECT 1 FROM observations WHERE day=? LIMIT 1',(yesterday,)).fetchone():
+                            collector.cycle(yesterday)
+                        last_day=today
                     result=collector.cycle(a.date)
                     if not a.daemon or result['changedObservations'] or result['status']=='attention_required':print(canonical(result),flush=True)
                 except Exception as exc:
