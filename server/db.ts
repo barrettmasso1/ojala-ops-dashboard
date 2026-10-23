@@ -3056,6 +3056,7 @@ export async function reviewHandoffVisualEvent(input: {
   return handoffVisualPublicRow(event);
 }
 
+
 /** Only the explicitly opted-in, server-marked queue is scanned. Legacy evidence is untouched. */
 export async function listDueDeferredHandoffVisualEvents(limit = 5, now = new Date()) {
   const db = await getDb();

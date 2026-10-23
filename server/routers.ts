@@ -4,7 +4,6 @@ import { analyzePersistedHandoffVisual } from "./handoffPersistedAnalysis";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
-import { CUP_SIZE_KEYS } from "../shared/cupDescriptions";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { ENV } from "./_core/env";
 import { notifyOwner } from "./_core/notification";
