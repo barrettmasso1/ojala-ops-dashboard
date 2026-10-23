@@ -19,6 +19,15 @@ class WindowTests(unittest.TestCase):
   b,p,c=self.make(['user']);self.assertEqual(b.select_window(),'new');self.assertEqual(json.loads(p.read_text())['relayWindow'],'new');self.assertEqual(json.loads(p.read_text())['dashboardWindow'],'user')
  def test_foreign_tab_is_never_used_for_data(self):
   b,p,c=self.make(['old'],'https://other.invalid');b.select_window();self.assertTrue(any(x[1]=='/window/new' for x in c));self.assertFalse(any(x[1]=='/window' and x[0]=='DELETE' for x in c))
+ def test_closed_current_context_selects_survivor_before_new(self):
+  b,p,c=self.make(['user']);b.select_window()
+  switch=next(i for i,x in enumerate(c) if x[1]=='/window' and x[2]=={'handle':'user'})
+  create=next(i for i,x in enumerate(c) if x[1]=='/window/new')
+  self.assertLess(switch,create)
+ def test_all_windows_closed_holds_without_inventing_session(self):
+  b,p,c=self.make([])
+  with self.assertRaisesRegex(ValueError,'no_surviving_browser_window'):b.select_window()
+  self.assertFalse(any(x[1]=='/window/new' for x in c))
  def test_no_cookie_or_token_extraction(self):
   text=(Path(__file__).resolve().parents[1]/'browser_visual_relay.py').read_text();self.assertNotIn("'/cookie'",text);self.assertNotIn('document.cookie',text)
 if __name__=='__main__':unittest.main()
