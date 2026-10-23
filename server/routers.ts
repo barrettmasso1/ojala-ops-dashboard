@@ -1,3 +1,4 @@
+import { classifyHandoffCupSizes } from "./autoCupSizes";
 import { CUP_SIZE_KEYS } from "../shared/cupDescriptions";
 import { HANDOFF_RECEIPT_PROTOCOL, deferredHandoffSource, persistedHandoffReceipt } from "./handoffDurableReceipt";
 import { analyzePersistedHandoffVisual } from "./handoffPersistedAnalysis";
@@ -26,6 +27,7 @@ import {
   getDailyOperationsSnapshot,
   getActiveHandoffCameraZone,
   getHandoffVisualEvidenceOverview,
+  getHandoffCameraSizeBreakdown,
   getHandoffVisualEventById,
   getLatestHandoffCameraEvidenceDate,
   listHandoffVisualEvents,
@@ -1164,6 +1166,11 @@ export const appRouter = router({
           }),
         }));
       }),
+    cameraSizeBreakdown: adminProcedure.input(z.object({businessDate:requiredBusinessDateSchema})).query(async ({ctx,input}) => getHandoffCameraSizeBreakdown({storeId:ctx.user.storeId,businessDate:input.businessDate})),
+    classifyHandoffCupSizes: adminProcedure.input(z.object({id:z.number().int().positive()}).strict()).mutation(async ({ctx,input}) => {
+      try{return await classifyHandoffCupSizes({id:input.id,storeId:ctx.user.storeId});}
+      catch(error){if(error instanceof Error&&error.message.includes("not found"))throw new TRPCError({code:"NOT_FOUND",message:"Handoff visual event was not found"});throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"Automatic size classification unavailable"});}
+    }),
     handoffVisualEvidenceOverview: adminProcedure
       .input(z.object({ businessDate: requiredBusinessDateSchema }))
       .query(async ({ ctx, input }) => {

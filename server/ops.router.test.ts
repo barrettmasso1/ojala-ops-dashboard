@@ -17,6 +17,7 @@ const dbMocks = vi.hoisted(() => ({
   getActiveHandoffCameraZone: vi.fn(),
   getDailyOperationsSnapshot: vi.fn(),
   getHandoffVisualEvidenceOverview: vi.fn(),
+  getHandoffCameraSizeBreakdown: vi.fn(),
   getHandoffVisualEventById: vi.fn(),
   getLatestHandoffCameraEvidenceDate: vi.fn(),
   getInventoryAlerts: vi.fn(),
@@ -1941,4 +1942,10 @@ describe("cup size annotations authorization", () => {
   it("rejects injection of sales or counts", async () => {
     await expect(appRouter.createCaller(createContext("admin",1)).dashboard.saveHandoffCupDescriptions({...request,cupsDetected:999} as any)).rejects.toMatchObject({code:"BAD_REQUEST"});
   });
+});
+
+describe("automatic cup-size route authorization",()=>{
+ it("requires owner session for classification",async()=>{await expect(appRouter.createCaller(createContext("user",1)).dashboard.classifyHandoffCupSizes({id:17})).rejects.toMatchObject({code:"FORBIDDEN"});});
+ it("does not accept caller-selected store",async()=>{await expect(appRouter.createCaller(createContext("admin",1)).dashboard.classifyHandoffCupSizes({id:17,storeId:2} as any)).rejects.toMatchObject({code:"BAD_REQUEST"});});
+ it("filters breakdown by authenticated store and date",async()=>{dbMocks.getHandoffCameraSizeBreakdown.mockResolvedValue({scope:"image_observations_not_unique_deliveries"});await appRouter.createCaller(createContext("admin",2)).dashboard.cameraSizeBreakdown({businessDate:"2026-10-22"});expect(dbMocks.getHandoffCameraSizeBreakdown).toHaveBeenCalledWith({storeId:2,businessDate:"2026-10-22"});});
 });

@@ -6,7 +6,7 @@ export function CupDescriptionSummary({ items }: { items?: CupDescriptionView[] 
   if (!items?.length) return <p className="mt-2 text-xs text-[#68716b]">Tamaño: sin clasificar; cantidad visible sin describir.</p>;
   return <div className="mt-3 space-y-1" aria-label="Descripción de los vasos de la imagen">
     {items.map(item => <p key={item.slot} className="text-sm text-[#43554f]">
-      <strong>Vaso {item.slot}:</strong> {CUP_SIZE_LABELS[item.size]}{item.source === "ai_suggestion" ? " · sugerencia IA" : item.source === "manual" ? " · registrado manualmente" : ""}
+      <strong>Vaso {item.slot}:</strong> {CUP_SIZE_LABELS[item.size]}{item.source === "ai_estimate" ? " · estimación automática" : item.source === "ai_suggestion" ? " · capacidad leída por IA" : item.source === "manual" ? " · registrado manualmente" : ""}
       {item.note ? <span className="block text-xs">{item.note}</span> : null}
     </p>)}
   </div>;
@@ -40,7 +40,7 @@ export function CupDescriptionsEditor({ eventId, businessDate, items, revision, 
   const disabled = save.isPending || malformed;
   return <section className="mt-4 rounded-2xl border border-[#d8e2da] bg-[#f4f8f3] p-4" aria-label={`Tamaños de vasos de la foto ${eventId}`}>
     <h3 className="font-medium text-[#24332f]">Descripción de cada vaso</h3>
-    <p className="mt-1 text-xs leading-5 text-[#65716b]">De izquierda a derecha. Los tamaños sugeridos por IA requieren revisión; sin evidencia suficiente se conserva “Sin clasificar”. Estas descripciones pertenecen a esta foto, no a entregas únicas.</p>
+    <p className="mt-1 text-xs leading-5 text-[#65716b]">De izquierda a derecha. La clasificación se procesa automáticamente. Las estimaciones no son capacidades medidas; sin evidencia suficiente se conserva “Sin clasificar”. Corregir aquí es opcional. Estas descripciones pertenecen a esta foto, no a entregas únicas.</p>
     {draft.map((item, index) => <div key={item.slot} className="mt-3 grid items-end gap-2 sm:grid-cols-[140px_minmax(120px,1fr)_auto]">
       <label className="text-sm">Vaso {item.slot}
         <select aria-label={`Tamaño del vaso ${item.slot} en foto ${eventId}`} value={item.size} disabled={disabled}

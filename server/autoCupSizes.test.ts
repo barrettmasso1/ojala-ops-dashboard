@@ -1,0 +1,23 @@
+import {describe,it,expect} from "vitest";
+import {normalizeAutoCupSizes,parseAutoCupSizes,summarizeCameraSizes,sizeObservationEligible} from "../shared/autoCupSizes";
+import {encodeCupReviewNotes} from "../shared/cupDescriptions";
+const items=[{slot:1,size:"chico",confidence:"medium",basis:"visual_estimate",reason:"Forma de envase de servicio; estimado"}];
+const row=(id=1)=>({id,storeId:1,cameraName:"handoff",cupEventId:"event-"+id,imageSha256:String(id).repeat(64),analysisStatus:"approved_by_ai",reviewNotes:null,analysisEvidenceJson:JSON.stringify({autoCupSizes:{version:1,status:"completed",imageSha256:String(id).repeat(64),items,attempts:1}})});
+describe("automatic sizes without invented deliveries",()=>{
+ it("allows explicit estimates without calling them measured",()=>expect(normalizeAutoCupSizes(items)[0]).toMatchObject({size:"chico",basis:"visual_estimate"}));
+ it("unknown never becomes a guessed class",()=>expect(normalizeAutoCupSizes([{size:"litro",confidence:"low",basis:"visual_estimate",reason:"uncertain"}])[0].size).toBe("unknown"));
+ it("pixel size alone is unsupported",()=>expect(normalizeAutoCupSizes([{size:"litro",confidence:"high",basis:"pixel_size",reason:"large"}])[0].size).toBe("unknown"));
+ it("printed capacity requires high confidence",()=>expect(normalizeAutoCupSizes([{size:"pint",confidence:"medium",basis:"printed_capacity",reason:"maybe"}])[0].size).toBe("unknown"));
+ it("rejects oversized response",()=>expect(()=>normalizeAutoCupSizes(Array(9).fill(items[0]))).toThrow());
+ it("retains empty photo result without zero daily count",()=>{const r=row();r.analysisEvidenceJson=JSON.stringify({autoCupSizes:{version:1,status:"completed",imageSha256:r.imageSha256,items:[],attempts:1}});expect(summarizeCameraSizes([r])).toMatchObject({includedImages:1,physicalCupCount:null});});
+ it("groups estimates in separate column",()=>expect(summarizeCameraSizes([row()]).counts.chico).toMatchObject({estimated:1,printed:0,total:1}));
+ it("excludes discarded images",()=>expect(summarizeCameraSizes([{...row(),analysisStatus:"discarded"}])).toMatchObject({excludedImages:1,includedImages:0}));
+ it("excludes unresolved primary evidence",()=>expect(sizeObservationEligible({analysisStatus:"pending_review"})).toBe(false));
+ it("labels recovery separately",()=>expect(summarizeCameraSizes([{...row(),cupEventId:"rec-20261022-xx",analysisStatus:"pending_review",aiSuggestedStatus:"approved_by_ai"}]).recoveredImages).toBe(1));
+ it("same original bytes are not repeated",()=>expect(summarizeCameraSizes([row(),{...row(),id:2,cupEventId:"other"}])).toMatchObject({duplicateImages:1,includedImages:1}));
+ it("stale hash does not classify new image",()=>expect(summarizeCameraSizes([{...row(),imageSha256:"b".repeat(64)}]).pendingImages).toBe(1));
+ it("manual corrections override without changing sales",()=>{const r={...row(),reviewNotes:encodeCupReviewNotes("",[{slot:1,size:"pint",note:"user"}],99,"2026-10-22T00:00:00Z")};const s=summarizeCameraSizes([r]);expect(s.counts.pint.manual).toBe(1);expect(s.counts.chico.total).toBe(0);expect(s.usesManualSalesToFillCamera).toBe(false);});
+ it("empty source is not complete zero",()=>expect(summarizeCameraSizes([])).toMatchObject({receivedImages:0,physicalCupCount:null}));
+ it("malformed metadata does not classify",()=>expect(parseAutoCupSizes("broken")).toBeNull());
+ it("running response is never completed",()=>{const r=row();const x=JSON.parse(r.analysisEvidenceJson);x.autoCupSizes.status="running";r.analysisEvidenceJson=JSON.stringify(x);expect(summarizeCameraSizes([r]).pendingImages).toBe(1);});
+});

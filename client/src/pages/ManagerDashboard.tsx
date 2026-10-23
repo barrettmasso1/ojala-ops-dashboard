@@ -1,3 +1,4 @@
+import { CameraSizeBreakdown } from "@/components/CameraSizeBreakdown";
 import { CupDescriptionSummary, CupDescriptionsEditor } from "@/components/CupDescriptions";
 import { MANUAL_CUP_SIZE_LABELS, manualCupRows } from "@shared/cupDescriptions";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -1763,6 +1764,7 @@ export default function ManagerDashboard() {
               </div>
             </SurfaceCard>
             {isAdmin && <HandoffVisualEvidenceOverviewPanel presentation={handoffVisualEvidencePresentation} businessDate={selectedDate} timeZone={timeZone} />}
+            {isAdmin && <CameraSizeBreakdown businessDate={selectedDate} />}
             {isAdmin && <ReviewedCountImport key={selectedDate} businessDate={selectedDate} />}
             <SurfaceCard>
               <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">

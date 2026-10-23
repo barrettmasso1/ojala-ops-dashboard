@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 ORIGIN='https://ojaladarsh-m6piugsr.manus.space'
 BROWSER_SCRIPT=r'''
-const input=arguments[0], day=arguments[1], write=arguments[2], done=arguments[arguments.length-1];
+const input=arguments[0], day=arguments[1], write=arguments[2], origin=arguments[3]||"verified_snapshot", done=arguments[arguments.length-1];
 const unpack=x=>x?.result?.data?.json??x?.result?.data;
 const fail=code=>{throw Error(code);};
 let postStarted=false;
@@ -20,6 +20,8 @@ const query=async()=>{
  const rows=unpack(await r.json());if(!Array.isArray(rows))fail('readback_shape');return rows;
 };
 (async()=>{
+ if(!['verified_snapshot','recording_extracted_frame'].includes(origin))fail('origin_scope');
+ if(origin==='recording_extracted_frame'&&!input.capture.cup_event_id.startsWith('rec-'))fail('recovery_identity');
  if(location.origin!=='https://ojaladarsh-m6piugsr.manus.space')fail('origin_mismatch');
  const ar=await fetch('/api/trpc/auth.me',{credentials:'same-origin',cache:'no-store',redirect:'error'});
  if(!ar.ok){done({status:'needs_session',postStarted:false});return;}
@@ -30,14 +32,14 @@ const query=async()=>{
  if(!row&&write){
   postStarted=true;
   try{
-   const res=await fetch('/api/trpc/dashboard.importVerifiedSnapshotHandoffFrame',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({json:input}),redirect:'error'});
+   const res=await fetch('/api/trpc/dashboard.'+(origin==='verified_snapshot'?'importVerifiedSnapshotHandoffFrame':'importRecordingExtractedHandoffFrame'),{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({json:input}),redirect:'error'});
    const body=await res.json();const value=unpack(body);
    mutation={httpStatus:res.status,eventId:value?.eventId,success:value?.success===true,disposition:value?.disposition,automaticPushVerified:value?.automaticPushVerified};
   }catch(e){mutation={responseUnknown:true};}
   rows=await query();row=rows.find(e=>e.cupEventId===input.capture.cup_event_id);
  }
  if(!row){done({status:postStarted?'awaiting_readback':'absent',postStarted,mutation});return;}
- if(row.storeId!==1||row.businessDate!==day||row.cameraName!==input.capture.camera||row.imageSha256!==input.capture.image_sha256||row.evidenceOrigin!=='verified_snapshot'||!Number.isInteger(row.id)||row.id<=0)fail('persisted_identity_conflict');
+ if(row.storeId!==1||row.businessDate!==day||row.cameraName!==input.capture.camera||row.imageSha256!==input.capture.image_sha256||row.evidenceOrigin!==origin||!Number.isInteger(row.id)||row.id<=0)fail('persisted_identity_conflict');
  let meta;try{meta=JSON.parse(row.captureMetadataJson);}catch(e){fail('persisted_metadata_invalid');}
  if(meta.cup_event_id!==input.capture.cup_event_id||meta.image_sha256!==input.capture.image_sha256||meta.zone_config_sha256!==input.capture.zone_config_sha256)fail('persisted_metadata_conflict');
  if(typeof row.imageKey!=='string'||!row.imageKey)fail('persisted_image_key_missing');
@@ -59,10 +61,10 @@ def atomic(path,value):
  with temp.open('w') as f:json.dump(value,f,indent=2);f.write('\n');f.flush();os.fsync(f.fileno())
  os.chmod(temp,0o600);os.replace(temp,path)
 
-def check_receipt(result,item,day):
+def check_receipt(result,item,day,origin="verified_snapshot"):
  need(result.get('status')=='persisted','not_persisted');r=result.get('row',{});capture=item['capture']
  need(type(r.get('id')) is int and r['id']>0,'invalid_row_id')
- for key,want in [('storeId',1),('businessDate',day),('cameraName','handoff'),('cupEventId',capture['cup_event_id']),('imageSha256',capture['image_sha256']),('evidenceOrigin','verified_snapshot')]:need(r.get(key)==want,'receipt_'+key+'_mismatch')
+ for key,want in [('storeId',1),('businessDate',day),('cameraName','handoff'),('cupEventId',capture['cup_event_id']),('imageSha256',capture['image_sha256']),('evidenceOrigin',origin)]:need(r.get(key)==want,'receipt_'+key+'_mismatch')
  need(result.get('persistedImageSha256')==capture['image_sha256'],'persisted_hash_mismatch')
  need(isinstance(r.get('imageKey'),str) and bool(r['imageKey']),'missing_image_reference')
  need(result.get('imageContentHashDownloaded') is False,'unverified_download_claim')
@@ -84,10 +86,10 @@ class Browser:
   try:
    with urllib.request.urlopen(req,timeout=timeout) as r:return json.load(r)['value']
   except Exception:raise RelayError('browser_control_unavailable') from None
- def deliver(self,item,day,allow_write):
+ def deliver(self,item,day,allow_write,origin="verified_snapshot"):
   self.call('POST','/window',{'handle':self.window},timeout=8)
   self.call('POST','/timeouts',{'script':90000,'pageLoad':30000,'implicit':0},timeout=8)
-  return self.call('POST','/execute/async',{'script':BROWSER_SCRIPT,'args':[item,day,bool(allow_write)]})
+  return self.call('POST','/execute/async',{'script':BROWSER_SCRIPT,'args':[item,day,bool(allow_write),origin]})
 
 class Relay:
  def __init__(self,config):
@@ -102,6 +104,10 @@ class Relay:
   self.db=sqlite3.connect(self.root/'state/queue.sqlite3',timeout=10);self.db.row_factory=sqlite3.Row
   self.db.execute('PRAGMA journal_mode=WAL');self.db.execute('PRAGMA synchronous=FULL')
   self.db.execute('CREATE TABLE IF NOT EXISTS events(event_id TEXT PRIMARY KEY,day TEXT NOT NULL,image_sha TEXT NOT NULL,package_path TEXT NOT NULL,package_sha TEXT NOT NULL,status TEXT NOT NULL DEFAULT "pending",attempts INTEGER NOT NULL DEFAULT 0,last_error TEXT,receipt_path TEXT,updated_at TEXT NOT NULL)');self.db.commit()
+  columns={r[1] for r in self.db.execute('PRAGMA table_info(events)')}
+  for name,definition in [('origin','TEXT NOT NULL DEFAULT "verified_snapshot"'),('source_tracks_json','TEXT')]:
+   if name not in columns:self.db.execute('ALTER TABLE events ADD COLUMN '+name+' '+definition)
+  self.db.commit()
   self.db.execute('UPDATE events SET status="delivery_unknown",last_error="interrupted_dispatch_requires_readback" WHERE status="dispatching"');self.db.commit()
  def now(self):return datetime.now(self.tz).isoformat()
  def scan(self):
@@ -138,19 +144,32 @@ class Relay:
   return added,invalid
  def cycle(self,reconcile_only=False):
   self.guard(self.base,self.root,writable=True,required_bytes=20*1024*1024)
-  added,invalid=self.scan();results=[]
+  added,invalid=self.scan();results=[];recovery={'status':'disabled'}
+  if self.config.get('recoverMissedTracks'):
+   try:
+    from recovered_candidates import stage_recovered
+    recovery=stage_recovered(self,max_groups=1)
+   except Exception as e:recovery={'status':'held','errorType':type(e).__name__,'staged':0}
+
   rows=self.db.execute('SELECT * FROM events WHERE status IN ("pending","delivery_unknown","awaiting_readback","needs_session","needs_owner_store_session","held") ORDER BY updated_at,event_id LIMIT ?',(self.config.get('maxEventsPerCycle',5),)).fetchall()
   for row in rows:
    package=Path(row['package_path']);need(package.parent==self.root/'packages' and not package.is_symlink(),'package_path');need(sha(package.read_bytes())==row['package_sha'],'package_integrity')
-   doc,_=self.exporter.convert(package);item={'packageReference':doc['packageReference'],**doc['items'][0]};allow=row['status'] in ('pending','needs_session','needs_owner_store_session') and not reconcile_only
+   origin=row['origin']
+   if origin=='recording_extracted_frame':
+    from recovered_candidates import load_package
+    item=load_package(package)
+   else:
+    need(origin=='verified_snapshot','unsupported_evidence_origin')
+    doc,_=self.exporter.convert(package);item={'packageReference':doc['packageReference'],**doc['items'][0]}
+   allow=row['status'] in ('pending','needs_session','needs_owner_store_session') and not reconcile_only
    if allow:
     self.db.execute('UPDATE events SET status="dispatching",attempts=attempts+1,updated_at=? WHERE event_id=?',(self.now(),row['event_id']));self.db.commit()
-   try:result=Browser(self.config['browserSessionPath']).deliver(item,row['day'],allow)
+   try:result=Browser(self.config['browserSessionPath']).deliver(item,row['day'],allow,origin)
    except RelayError:result={'status':'delivery_unknown' if allow else row['status'],'error':'browser_control_unavailable'}
    status=result.get('status','delivery_unknown');error=result.get('error');receipt_path=None
    if status=='persisted':
     try:
-     check_receipt(result,item,row['day']);result.update(transport='firefox_authenticated_admin_relay',originalEventId=row['event_id'],originalPackageSha256=row['package_sha'],browserSessionRequired=True,checkedAt=self.now())
+     check_receipt(result,item,row['day'],origin);result.update(transport='firefox_authenticated_admin_relay',originalEventId=row['event_id'],originalPackageSha256=row['package_sha'],browserSessionRequired=True,checkedAt=self.now())
      receipt_path=self.root/'receipts'/(sha(row['event_id'].encode())+'.json');atomic(receipt_path,result)
     except Exception:status='held';error='receipt_validation_failed'
    elif status=='absent':status='pending' if not allow and row['status']=='pending' else 'awaiting_readback'
@@ -158,7 +177,14 @@ class Relay:
    self.db.execute('UPDATE events SET status=?,last_error=?,receipt_path=COALESCE(?,receipt_path),updated_at=? WHERE event_id=?',(status,error,str(receipt_path) if receipt_path else None,self.now(),row['event_id']));self.db.commit()
    results.append({'eventId':row['event_id'],'status':status,'rowId':result.get('row',{}).get('id'),'postStarted':result.get('postStarted',False),'error':error})
    if status in ('needs_session','needs_owner_store_session') or error in ('browser_control_unavailable','origin_mismatch'):break
-  health={'checkedAt':self.now(),'status':'checked','transport':'firefox_authenticated_admin_relay','discovered':added,'invalidSources':invalid,'states':dict(self.db.execute('SELECT status,count(*) FROM events GROUP BY status').fetchall()),'results':results,'automaticDirectFrigateVerified':False,'physicalCountCreated':False,'browserSessionRequired':True,'heavyFilesOnExternal':True}
+  size_status={'status':'disabled'}
+  if self.config.get('autoSizesEnabled'):
+   try:
+    from automatic_sizes_worker import tick
+    size_status=tick(Browser(self.config['browserSessionPath']),datetime.now(self.tz).date().isoformat())
+   except Exception:size_status={'status':'browser_unavailable'}
+   atomic(self.root/'state/automatic-size-status.json',{'checkedAt':self.now(),**size_status})
+  health={'checkedAt':self.now(),'status':'checked','transport':'firefox_authenticated_admin_relay','discovered':added,'invalidSources':invalid,'recovery':recovery,'automaticSizes':size_status,'states':dict(self.db.execute('SELECT status,count(*) FROM events GROUP BY status').fetchall()),'results':results,'automaticDirectFrigateVerified':False,'physicalCountCreated':False,'browserSessionRequired':True,'heavyFilesOnExternal':True}
   atomic(self.root/'state/health.json',health);return health
 
 def main():
@@ -175,6 +201,7 @@ def main():
      if not a.daemon or result['results'] or result['discovered']:print(json.dumps(result),flush=True)
     except Exception as e:
      result={'checkedAt':datetime.now(timezone.utc).isoformat(),'status':'paused','reason':str(e) if isinstance(e,RelayError) else type(e).__name__,'physicalCountCreated':False}
+     atomic(root/'state/health.json',result)
      print(json.dumps(result),flush=True)
      if not a.daemon:raise SystemExit(2)
     if not a.daemon:break

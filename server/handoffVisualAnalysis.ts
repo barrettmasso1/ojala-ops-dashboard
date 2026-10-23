@@ -63,7 +63,7 @@ type HandoffVisualModelResponse = {
  * A narrowly scoped Gemini Pro call so this safety filter can use high-detail
  * vision without changing model selection for other application workflows.
  */
-async function invokeHandoffVisualModel(payload: Record<string, unknown>): Promise<HandoffVisualModelResponse> {
+export async function invokeHandoffVisualModel(payload: Record<string, unknown>): Promise<HandoffVisualModelResponse> {
   const forgeApiKey = ENV.forgeApiKey || process.env.BUILT_IN_FORGE_API_KEY || "";
   const forgeApiUrl = ENV.forgeApiUrl || process.env.BUILT_IN_FORGE_API_URL || "";
   if (!forgeApiKey) throw new Error("Vision model credentials are not configured");
