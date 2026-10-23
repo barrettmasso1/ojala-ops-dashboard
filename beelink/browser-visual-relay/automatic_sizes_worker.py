@@ -17,7 +17,7 @@ const read=async()=>{const q=encodeURIComponent(JSON.stringify({json:{businessDa
   if(a.status==='completed'||a.attempts>=3)return false;
   if(a.status==='running'&&Date.parse(a.leaseUntil)>Date.now())return false;
   return !a.retryAfter||Date.parse(a.retryAfter)<=Date.now();
- }).sort((a,b)=>a.id-b.id)[0];
+ }).sort((a,b)=>b.id-a.id)[0];
  if(!selected){Object.assign(job,{status:'idle',finishedAt:Date.now()});return;}
  job.eventId=selected.id;
  const r=await fetch('/api/trpc/dashboard.classifyHandoffCupSizes',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({json:{id:selected.id}}),redirect:'error'});
@@ -29,5 +29,5 @@ const read=async()=>{const q=encodeURIComponent(JSON.stringify({json:{businessDa
 return {status:'started',physicalCountChanged:false};
 """
 def tick(browser,day):
- browser.call('POST','/window',{'handle':browser.window},timeout=8)
+ browser.select_window()
  return browser.call('POST','/execute/sync',{'script':SCRIPT,'args':[day]},timeout=8)

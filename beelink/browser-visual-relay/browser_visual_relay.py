@@ -80,14 +80,35 @@ def check_receipt(result,item,day,origin="verified_snapshot"):
 class Browser:
  def __init__(self,path):
   info=json.loads(Path(path).read_text());need(info.get('baseUrl')=='http://127.0.0.1:4444','untrusted_control_endpoint')
+  self.config_path=Path(path)
   self.base=info['baseUrl']+'/session/'+info['sessionId'];self.window=info.get('relayWindow') or info['dashboardWindow']
  def call(self,method,path,data=None,timeout=100):
   req=urllib.request.Request(self.base+path,data=json.dumps(data).encode() if data is not None else None,headers={'Content-Type':'application/json'},method=method)
   try:
    with urllib.request.urlopen(req,timeout=timeout) as r:return json.load(r)['value']
   except Exception:raise RelayError('browser_control_unavailable') from None
+ def select_window(self):
+  from urllib.parse import urlsplit
+  handles=self.call('GET','/window/handles',timeout=8)
+  missing=self.window not in handles
+  if not missing:
+   self.call('POST','/window',{'handle':self.window},timeout=8)
+   current=self.call('GET','/url',timeout=8)
+   parsed=urlsplit(current)
+   missing=parsed.scheme!='https' or parsed.netloc!='ojaladarsh-m6piugsr.manus.space'
+  if missing:
+   need(bool(handles),'no_surviving_browser_window')
+   if self.window not in handles:
+    self.call('POST','/window',{'handle':handles[0]},timeout=8)
+   created=self.call('POST','/window/new',{'type':'tab'},timeout=8);self.window=created['handle']
+   self.call('POST','/window',{'handle':self.window},timeout=8)
+   day=datetime.now(ZoneInfo('America/Mazatlan')).date().isoformat()
+   self.call('POST','/url',{'url':ORIGIN+'/dashboard/handoff-review?date='+day},timeout=35)
+   info=json.loads(self.config_path.read_text());need(info.get('baseUrl')=='http://127.0.0.1:4444','untrusted_control_endpoint')
+   info['relayWindow']=self.window;atomic(self.config_path,info)
+  return self.window
  def deliver(self,item,day,allow_write,origin="verified_snapshot"):
-  self.call('POST','/window',{'handle':self.window},timeout=8)
+  self.select_window()
   self.call('POST','/timeouts',{'script':90000,'pageLoad':30000,'implicit':0},timeout=8)
   return self.call('POST','/execute/async',{'script':BROWSER_SCRIPT,'args':[item,day,bool(allow_write),origin]})
 
@@ -184,7 +205,7 @@ class Relay:
     size_status=tick(Browser(self.config['browserSessionPath']),datetime.now(self.tz).date().isoformat())
    except Exception:size_status={'status':'browser_unavailable'}
    atomic(self.root/'state/automatic-size-status.json',{'checkedAt':self.now(),**size_status})
-  health={'checkedAt':self.now(),'status':'checked','transport':'firefox_authenticated_admin_relay','discovered':added,'invalidSources':invalid,'recovery':recovery,'automaticSizes':size_status,'states':dict(self.db.execute('SELECT status,count(*) FROM events GROUP BY status').fetchall()),'results':results,'automaticDirectFrigateVerified':False,'physicalCountCreated':False,'browserSessionRequired':True,'heavyFilesOnExternal':True}
+  health={'checkedAt':self.now(),'status':'attention_required' if size_status.get('status') in ('browser_unavailable','origin_mismatch','held') or any(r.get('status') in ('needs_session','needs_owner_store_session','held','delivery_unknown','awaiting_readback') for r in results) else 'checked','transport':'firefox_authenticated_admin_relay','discovered':added,'invalidSources':invalid,'recovery':recovery,'automaticSizes':size_status,'states':dict(self.db.execute('SELECT status,count(*) FROM events GROUP BY status').fetchall()),'results':results,'automaticDirectFrigateVerified':False,'physicalCountCreated':False,'browserSessionRequired':True,'heavyFilesOnExternal':True}
   atomic(self.root/'state/health.json',health);return health
 
 def main():
