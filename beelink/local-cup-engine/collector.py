@@ -113,7 +113,7 @@ class Collector:
           'verifiedLocalEvidence':verified,'invalidTracks':bad,'invalidEvidence':evidence_errors,
           'snapshotSha256':snapshot_sha,'stateRoot':str(self.root),'networkWrites':0,'browserRequired':False,
           'generativeAiRequired':False,'usesExistingFrigateDetector':True,'startsCamera':False,
-          'physicalDeliveryCountCreated':False,'productionApprovedCountsChanged':False,'cloudSyncStatus':'not_enabled'}
+          'physicalDeliveryCountCreated':False,'productionApprovedCountsChanged':False,'cloudSyncStatus':'reported_by_separate_native_sync','cloudSyncHealthFile':str(self.root/'sync-health.json')}
         atomic(self.root/'health.json',health);return health
 
 def main():
