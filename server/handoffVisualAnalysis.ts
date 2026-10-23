@@ -1,3 +1,4 @@
+import { normalizeCameraCupDescriptions, type CupDescriptionView } from "../shared/cupDescriptions";
 import { ENV } from "./_core/env";
 
 export const HANDOFF_VISUAL_STATUSES = [
@@ -30,6 +31,7 @@ export type HandoffVisualModelResult = {
   review_reason: string;
   person_boxes?: HandoffVisualBox[];
   gelato_cup_boxes?: HandoffVisualBox[];
+  cup_descriptions?: Array<{ size: string; confidence: string; basis: string; reason: string }>;
 };
 
 export type NormalizedHandoffVisualAnalysis = {
@@ -43,6 +45,7 @@ export type NormalizedHandoffVisualAnalysis = {
   evidence: {
     personBoxes: HandoffVisualBox[];
     gelatoCupBoxes: HandoffVisualBox[];
+    cupDescriptions?: CupDescriptionView[];
   };
   model?: string;
 };
@@ -151,6 +154,7 @@ export function classifyHandoffVisualResult(result: HandoffVisualModelResult): N
   const evidence = {
     personBoxes: normalizeBoxes(result.person_boxes),
     gelatoCupBoxes: normalizeBoxes(result.gelato_cup_boxes),
+    ...(Array.isArray(result.cup_descriptions) ? { cupDescriptions: normalizeCameraCupDescriptions(result.cup_descriptions, visibleCupCount) } : {}),
   };
 
   if (
@@ -213,7 +217,7 @@ export async function analyzeHandoffVisualImage(input: {
       {
         role: "system",
         content:
-          "You are a conservative visual safety filter for a gelato-shop handoff camera. Analyze one still image only. A valid handoff requires a visible person and one or more visible gelato cups in the same image, with the cup located inside the configured handoff polygon supplied by the server. Reject lamps, reflected lights, arms, hands without a cup, bags, lids, signage, bowls, cones, and any non-cup object. Do not infer a sale, delivery, payment, customer identity, or inventory movement. If zone boundaries, cup identity, person presence, or the number of cups cannot be seen clearly, mark the result ambiguous for human review.",
+          "You are a conservative visual safety filter for a gelato-shop handoff camera. Analyze one still image only. A valid handoff requires a visible person and one or more visible gelato cups in the same image, with the cup located inside the configured handoff polygon supplied by the server. Reject lamps, reflected lights, arms, hands without a cup, bags, lids, signage, bowls, cones, and any non-cup object. Do not infer a sale, delivery, payment, customer identity, or inventory movement. If zone boundaries, cup identity, person presence, or the number of cups cannot be seen clearly, mark the result ambiguous for human review. Describe each visible gelato cup in left-to-right image order using chico (4 oz), mediano (8 oz), pint or litro only when printed capacity is legible at high confidence. There is no calibrated reference for capacity in this request. Never infer capacity from pixel size, perspective, color, apparent contents, or a guess. Otherwise use unknown with basis unknown. Size uncertainty alone must not change the existing visual-evidence status. Return one cup_descriptions entry per visible cup; these are suggestions, never sales or unique deliveries.",
       },
       {
         role: "user",
@@ -240,6 +244,14 @@ export async function analyzeHandoffVisualImage(input: {
         schema: {
           type: "object",
           properties: {
+            cup_descriptions: {
+              type: "array", maxItems: MAX_VISIBLE_CUPS,
+              items: { type: "object", properties: {
+                size: { type: "string", enum: ["chico", "mediano", "pint", "litro", "unknown"] },
+                confidence: { type: "string", enum: ["high", "medium", "low"] },
+                basis: { type: "string", enum: ["printed_capacity", "unknown"] }, reason: { type: "string" },
+              }, required: ["size", "confidence", "basis", "reason"], additionalProperties: false },
+            },
             person_present: { type: "boolean" },
             gelato_cup_present: { type: "boolean" },
             cup_in_handoff_zone: { type: "boolean" },
@@ -282,6 +294,7 @@ export async function analyzeHandoffVisualImage(input: {
             },
           },
           required: [
+            "cup_descriptions",
             "person_present",
             "gelato_cup_present",
             "cup_in_handoff_zone",
