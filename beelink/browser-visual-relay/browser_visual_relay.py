@@ -97,6 +97,9 @@ class Browser:
    parsed=urlsplit(current)
    missing=parsed.scheme!='https' or parsed.netloc!='ojaladarsh-m6piugsr.manus.space'
   if missing:
+   need(bool(handles),'no_surviving_browser_window')
+   if self.window not in handles:
+    self.call('POST','/window',{'handle':handles[0]},timeout=8)
    created=self.call('POST','/window/new',{'type':'tab'},timeout=8);self.window=created['handle']
    self.call('POST','/window',{'handle':self.window},timeout=8)
    day=datetime.now(ZoneInfo('America/Mazatlan')).date().isoformat()
@@ -202,7 +205,7 @@ class Relay:
     size_status=tick(Browser(self.config['browserSessionPath']),datetime.now(self.tz).date().isoformat())
    except Exception:size_status={'status':'browser_unavailable'}
    atomic(self.root/'state/automatic-size-status.json',{'checkedAt':self.now(),**size_status})
-  health={'checkedAt':self.now(),'status':'checked','transport':'firefox_authenticated_admin_relay','discovered':added,'invalidSources':invalid,'recovery':recovery,'automaticSizes':size_status,'states':dict(self.db.execute('SELECT status,count(*) FROM events GROUP BY status').fetchall()),'results':results,'automaticDirectFrigateVerified':False,'physicalCountCreated':False,'browserSessionRequired':True,'heavyFilesOnExternal':True}
+  health={'checkedAt':self.now(),'status':'attention_required' if size_status.get('status') in ('browser_unavailable','origin_mismatch','held') or any(r.get('status') in ('needs_session','needs_owner_store_session','held','delivery_unknown','awaiting_readback') for r in results) else 'checked','transport':'firefox_authenticated_admin_relay','discovered':added,'invalidSources':invalid,'recovery':recovery,'automaticSizes':size_status,'states':dict(self.db.execute('SELECT status,count(*) FROM events GROUP BY status').fetchall()),'results':results,'automaticDirectFrigateVerified':False,'physicalCountCreated':False,'browserSessionRequired':True,'heavyFilesOnExternal':True}
   atomic(self.root/'state/health.json',health);return health
 
 def main():
