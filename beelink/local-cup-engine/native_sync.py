@@ -68,6 +68,10 @@ class Sync:
     def __init__(self,ledger,config,transport):
         self.ledger=ledger;self.config=config;self.transport=transport;self.db=ledger.db
         self.db.execute('CREATE TABLE IF NOT EXISTS native_sync(day TEXT PRIMARY KEY,sequence INTEGER NOT NULL,document_sha TEXT NOT NULL,document_json TEXT NOT NULL,status TEXT NOT NULL,receipt TEXT,last_error TEXT)');self.db.commit()
+        columns={r[1] for r in self.db.execute('PRAGMA table_info(native_sync)')}
+        for name,definition in [('attempts','INTEGER NOT NULL DEFAULT 0'),('dispatched_at','REAL'),('absent_readbacks','INTEGER NOT NULL DEFAULT 0')]:
+            if name not in columns:self.db.execute('ALTER TABLE native_sync ADD COLUMN '+name+' '+definition)
+        self.db.commit()
     def prepare(self,day):
         text=build_document(self.ledger,day,self.config['deviceId']);h=digest(text)
         old=self.db.execute('SELECT * FROM native_sync WHERE day=?',(day,)).fetchone()
@@ -76,7 +80,7 @@ class Sync:
         if old and old['document_sha']==h:
             return {'sequence':old['sequence'],'documentJson':text,'documentSha256':h},old['status']
         seq=old['sequence']+1 if old else 1
-        with self.db:self.db.execute('INSERT INTO native_sync(day,sequence,document_sha,document_json,status) VALUES(?,?,?,?,?) ON CONFLICT(day) DO UPDATE SET sequence=excluded.sequence,document_sha=excluded.document_sha,document_json=excluded.document_json,status=excluded.status,receipt=NULL,last_error=NULL',(day,seq,h,text,'pending'))
+        with self.db:self.db.execute('INSERT INTO native_sync(day,sequence,document_sha,document_json,status) VALUES(?,?,?,?,?) ON CONFLICT(day) DO UPDATE SET sequence=excluded.sequence,document_sha=excluded.document_sha,document_json=excluded.document_json,status=excluded.status,receipt=NULL,last_error=NULL,attempts=0,dispatched_at=NULL,absent_readbacks=0',(day,seq,h,text,'pending'))
         return {'sequence':seq,'documentJson':text,'documentSha256':h},'pending'
     def acknowledge(self,day,envelope,receipt):
         validate_receipt(receipt,envelope,self.config['storeId'],self.config['deviceId'],day)
@@ -96,9 +100,16 @@ class Sync:
             require(capability.get('protocol')==PROTOCOL and capability.get('externalAiRequired') is False and capability.get('browserRequired') is False and capability.get('scopedByCredential') is True and capability.get('persistedReadbackRequired') is True,'server_protocol_not_ready')
             if state=='delivery_unknown':
                 receipt=self.transport.receipt(self.config['deviceId'],day)
-                if receipt is None:return {'status':'delivery_unknown','networkAttempted':True,'resent':False}
+                if receipt is None:
+                    row=self.db.execute('SELECT attempts,dispatched_at,absent_readbacks FROM native_sync WHERE day=?',(day,)).fetchone()
+                    missing=row['absent_readbacks']+1
+                    settled=row['dispatched_at'] is not None and time.time()-row['dispatched_at']>=120 and missing>=2
+                    new_state='blocked' if settled and row['attempts']>=3 else 'pending' if settled else 'delivery_unknown'
+                    reason='retry_limit_after_verified_absence' if new_state=='blocked' else 'readback_confirmed_absent' if settled else 'awaiting_settled_readback'
+                    with self.db:self.db.execute('UPDATE native_sync SET status=?,absent_readbacks=?,last_error=? WHERE day=?',(new_state,missing,reason,day))
+                    return {'status':new_state,'networkAttempted':True,'resent':False,'retryAllowedAfterVerifiedAbsence':new_state=='pending'}
             else:
-                with self.db:self.db.execute('UPDATE native_sync SET status=? WHERE day=?',('delivery_unknown',day))
+                with self.db:self.db.execute('UPDATE native_sync SET status=?,attempts=attempts+1,dispatched_at=?,absent_readbacks=0 WHERE day=?',('delivery_unknown',time.time(),day))
                 reply=self.transport.send(envelope);require(reply.get('success') is True,'application_did_not_confirm');receipt=reply.get('receipt')
             self.acknowledge(day,envelope,receipt)
             return {'status':'acknowledged','sequence':envelope['sequence'],'networkAttempted':True,'receipt':receipt}

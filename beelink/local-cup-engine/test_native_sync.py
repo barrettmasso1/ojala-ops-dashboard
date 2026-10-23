@@ -79,6 +79,23 @@ class NativeSyncTests(unittest.TestCase):
     def test_boolean_count_rejected(self):
         e,_=self.sync.prepare('2026-10-22');r=self.api.send(e)['receipt'];r['observationsPersisted']=True
         with self.assertRaisesRegex(InvalidEvidence,'receipt_identity_observationsPersisted'):validate_receipt(r,e,1,'device-test','2026-10-22')
+    def test_absence_requires_grace_and_two_readbacks_before_retry(self):
+        self.api.fail='timeout_after_persist';self.sync.cycle('2026-10-22');self.api.saved=None
+        future=time.time()+121
+        with patch('native_sync.time.time',return_value=future):
+            first=self.sync.cycle('2026-10-22');self.assertEqual(first['status'],'delivery_unknown')
+            second=self.sync.cycle('2026-10-22');self.assertEqual(second['status'],'pending');self.assertFalse(second['resent'])
+            self.api.fail=None;final=self.sync.cycle('2026-10-22');self.assertEqual(final['status'],'acknowledged')
+        self.assertEqual(self.api.sends,2)
+    def test_absence_retry_limit_is_bounded(self):
+        self.api.fail='timeout_after_persist';self.sync.cycle('2026-10-22');self.api.saved=None
+        self.ledger.db.execute('UPDATE native_sync SET attempts=3,dispatched_at=?',(time.time()-121,));self.ledger.db.commit()
+        self.sync.cycle('2026-10-22');result=self.sync.cycle('2026-10-22')
+        self.assertEqual(result['status'],'blocked');self.sync.cycle('2026-10-22');self.assertEqual(self.api.sends,1)
+    def test_receipt_found_after_timeout_never_requires_replay(self):
+        self.api.fail='timeout_after_persist';self.sync.cycle('2026-10-22')
+        with patch('native_sync.time.time',return_value=time.time()+121):result=self.sync.cycle('2026-10-22')
+        self.assertEqual(result['status'],'acknowledged');self.assertEqual(self.api.sends,1)
     def test_new_evidence_kept_while_transport_held(self):
         self.api.fail='http_403';self.sync.cycle('2026-10-22');self.ledger.put(track(2));self.sync.cycle('2026-10-22')
         self.assertEqual(self.ledger.snapshot('2026-10-22')['detectorTracksRecorded'],2);self.assertEqual(self.api.sends,1)

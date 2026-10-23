@@ -18,7 +18,9 @@ modified. A detector track is not a certified physical serving.
 - `native_sync.py`: disabled until the published API passes acceptance. It sends
   a versioned metadata-only snapshot to the authenticated native application API.
   An acknowledgement requires a fresh persisted readback. An uncertain result
-  is reconciled, not re-posted blindly. HTTP 401/403 cause a durable hold.
+  is reconciled, not re-posted blindly. A replay is permitted only after two
+  authenticated absence readbacks, a 120-second settling period and within a
+  three-attempt limit. HTTP 401/403 cause a durable hold.
 
 ## No external AI in this path
 
@@ -37,8 +39,8 @@ recovered by transport. Final unique deliveries remain null until temporal
 validation. Manual/POS quantities are never used to fill camera totals. Raw
 tracks without same-frame evidence remain explicitly unverified. Native API
 snapshots currently cap at 2000 records / 4 MiB and fail explicitly above that
-limit. Current-day collection does not reconstruct arbitrary older days unless
-invoked with --date.
+limit. At startup/day rollover, an already-recorded previous day is finalized before
+collecting today. Arbitrary historical reconstruction still requires --date.
 
 ## Deployment requirements
 
