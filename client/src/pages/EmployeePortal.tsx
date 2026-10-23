@@ -608,8 +608,8 @@ export const endOfDayPairedCupRows: Array<{
   hereKey: keyof ClosingForm;
   toGoKey: keyof ClosingForm;
 }> = [
-  { label: "4oz", hereKey: "cups4ozHere", toGoKey: "cups4ozToGo" },
-  { label: "8oz", hereKey: "cups8ozHere", toGoKey: "cups8ozToGo" },
+  { label: "Chico (4 oz)", hereKey: "cups4ozHere", toGoKey: "cups4ozToGo" },
+  { label: "Mediano (8 oz)", hereKey: "cups8ozHere", toGoKey: "cups8ozToGo" },
 ];
 
 export const endOfDaySingleCupRows: Array<{
@@ -617,7 +617,7 @@ export const endOfDaySingleCupRows: Array<{
   key: keyof ClosingForm;
 }> = [
   { label: "Pint", key: "cupsPintToGo" },
-  { label: "Liter", key: "cupsLiterToGo" },
+  { label: "Litro", key: "cupsLiterToGo" },
 ];
 
 function inputClassName() {

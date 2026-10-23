@@ -50,10 +50,10 @@ describe("employee portal gelato helpers", () => {
   });
 
   it("keeps only 4 oz and 8 oz as here-versus-to-go rows while pint and liter stay single-field totals", () => {
-    expect(endOfDayPairedCupRows.map(row => row.label)).toEqual(["4oz", "8oz"]);
+    expect(endOfDayPairedCupRows.map(row => row.label)).toEqual(["Chico (4 oz)", "Mediano (8 oz)"]);
     expect(endOfDaySingleCupRows).toEqual([
       { label: "Pint", key: "cupsPintToGo" },
-      { label: "Liter", key: "cupsLiterToGo" },
+      { label: "Litro", key: "cupsLiterToGo" },
     ]);
   });
 

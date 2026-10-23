@@ -1,3 +1,4 @@
+import type { CupDescriptionView } from "@shared/cupDescriptions";
 export type HandoffVisualEvidenceStatusCounts = {
   pendingReview: number;
   approvedByAi: number;
@@ -13,6 +14,7 @@ export type HandoffVisualEvidenceThumbnail = {
   evidenceOrigin: "verified_snapshot" | "recording_extracted_frame";
   receivedAt: string | Date | null;
   imageUrl: string | null;
+  cupDescriptions?: CupDescriptionView[];
 };
 
 export type HandoffVisualEvidenceOverview = {

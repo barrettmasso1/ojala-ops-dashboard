@@ -1,0 +1,35 @@
+import {describe,it,expect} from "vitest";
+import {CUP_NOTES_PREFIX,CUP_SIZE_LABELS,describeCameraCups,encodeCupReviewNotes,manualCupRows,normalizeCameraCupDescriptions,parseCupReviewNotes,preserveDescriptionsWithNote,validateCupDescriptions} from "../shared/cupDescriptions";
+const now="2026-10-22T19:00:00.000Z";
+const items=[{slot:1,size:"chico" as const,note:"Vaso izquierdo"},{slot:2,size:"pint" as const,note:"Vaso derecho"}];
+describe("cup descriptions remain distinct from counts",()=>{
+ it("keeps the four requested labels",()=>expect(Object.values(CUP_SIZE_LABELS)).toEqual(["Chico (4 oz)","Mediano (8 oz)","Pint","Litro","Sin clasificar"]));
+ it("rejects metadata forged through a free-text note",()=>expect(()=>preserveDescriptionsWithNote(null,encodeCupReviewNotes("",items,999,now))).toThrow("Reserved"));
+ it("keeps old notes byte-for-byte",()=>expect(parseCupReviewNotes("old manager note").notes).toBe("old manager note"));
+ it("does not invent descriptions for missing metadata",()=>expect(parseCupReviewNotes(null).annotation).toBeNull());
+ it("round trips multiple differently sized cups",()=>expect(parseCupReviewNotes(encodeCupReviewNotes("preserve",items,99,now)).annotation?.items).toEqual(items));
+ it("preserves manager notes on classification",()=>expect(parseCupReviewNotes(encodeCupReviewNotes("original note",items,99,now)).notes).toBe("original note"));
+ it("preserves cup sizes when approving or discarding evidence",()=>{
+  const x=parseCupReviewNotes(preserveDescriptionsWithNote(encodeCupReviewNotes("old",items,99,now),"manager discarded"));
+  expect(x.notes).toBe("manager discarded");expect(x.annotation?.items).toEqual(items);expect(x.annotation?.updatedByUserId).toBe(99);
+ });
+ it("does not create a structured envelope for plain review",()=>expect(preserveDescriptionsWithNote("old","new")).toBe("new"));
+ it("holds malformed structured notes instead of overwriting",()=>expect(()=>preserveDescriptionsWithNote(CUP_NOTES_PREFIX+"broken","new")).toThrow());
+ it("rejects missing actor",()=>expect(()=>encodeCupReviewNotes("",items,0,now)).toThrow());
+ it("rejects timezone-less attribution",()=>expect(()=>encodeCupReviewNotes("",items,99,"2026-10-22T19:00:00")).toThrow());
+ it("rejects duplicate slots",()=>expect(()=>validateCupDescriptions([items[0],items[0]])).toThrow());
+ it("rejects unknown enum text",()=>expect(()=>validateCupDescriptions([{slot:1,size:"grande",note:""}])).toThrow());
+ it("rejects oversized notes",()=>expect(()=>validateCupDescriptions([{...items[0],note:"x".repeat(161)}])).toThrow());
+ it("rejects more than eight observations",()=>expect(()=>validateCupDescriptions(Array.from({length:9},(_,i)=>({...items[0],slot:i+1})))).toThrow());
+ it("allows no descriptions without creating zero physical cups",()=>expect(encodeCupReviewNotes("",[],99,now)).not.toMatch(/cupsDetected|sales|deliveries/));
+ it("requires printed capacity rather than apparent pixel size",()=>expect(normalizeCameraCupDescriptions([{size:"litro",confidence:"high",basis:"pixel_size",reason:"looks big"}],1)[0].size).toBe("unknown"));
+ it("downgrades medium confidence suggestions",()=>expect(normalizeCameraCupDescriptions([{size:"mediano",confidence:"medium",basis:"printed_capacity",reason:"maybe8"}],1)[0].size).toBe("unknown"));
+ it("retains a supported suggestion without human-approval claim",()=>expect(normalizeCameraCupDescriptions([{size:"mediano",confidence:"high",basis:"printed_capacity",reason:"8 oz printed"}],1)[0]).toMatchObject({size:"mediano",source:"ai_suggestion"}));
+ it("does not align incomplete predictions to the wrong cup",()=>expect(normalizeCameraCupDescriptions([{size:"pint",confidence:"high",basis:"printed_capacity",reason:"16oz"}],2).map(x=>x.size)).toEqual(["unknown","unknown"]));
+ it("marks every historical visible cup unclassified",()=>expect(describeCameraCups({visibleCupCount:2,analysisEvidenceJson:"{}"}).map(x=>x.size)).toEqual(["unknown","unknown"]));
+ it("does not invent a cup when visible count is zero",()=>expect(describeCameraCups({visibleCupCount:0})).toEqual([]));
+ it("manual descriptions take precedence over AI",()=>expect(describeCameraCups({visibleCupCount:1,reviewNotes:encodeCupReviewNotes("",items,99,now)}).map(x=>x.source)).toEqual(["manual","manual"]));
+ it("manual closing quantities retain original values",()=>expect(manualCupRows({"4oz":13,"8oz":8,Pint:2,Liter:0},1).map(x=>x.count)).toEqual([13,8,2,0]));
+ it("missing closing is pending, not fabricated zeros",()=>expect(manualCupRows({"4oz":0,"8oz":0,Pint:0,Liter:0},0).map(x=>x.count)).toEqual([null,null,null,null]));
+ it("invalid stored evidence stays unclassified",()=>expect(describeCameraCups({visibleCupCount:1,analysisEvidenceJson:"{bad"})[0].size).toBe("unknown"));
+});

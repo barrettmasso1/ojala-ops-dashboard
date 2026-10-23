@@ -1,3 +1,4 @@
+import { CUP_SIZE_KEYS } from "../shared/cupDescriptions";
 import { HANDOFF_RECEIPT_PROTOCOL, deferredHandoffSource, persistedHandoffReceipt } from "./handoffDurableReceipt";
 import { analyzePersistedHandoffVisual } from "./handoffPersistedAnalysis";
 import { z } from "zod";
@@ -44,6 +45,7 @@ import {
   reserveHandoffVisualEvent,
   normalizePendingVerifiedCaptureMetadata,
   reviewHandoffVisualEvent,
+  saveHandoffCupDescriptions,
   saveChecklistQuestion,
   saveAttendanceEntry,
   saveInventoryItem,
@@ -1170,6 +1172,21 @@ export const appRouter = router({
           businessDate: input.businessDate,
           cameraName: "handoff",
         });
+      }),
+    saveHandoffCupDescriptions: adminProcedure
+      .input(z.object({
+        id: z.number().int().positive(), expectedRevision: z.string().regex(/^[a-f0-9]{64}$/),
+        items: z.array(z.object({ slot: z.number().int().min(1).max(8), size: z.enum(CUP_SIZE_KEYS), note: z.string().max(160).default("") })).max(8)
+          .refine(items => items.every((item, index) => item.slot === index + 1), "Cup positions must be consecutive"),
+      }).strict())
+      .mutation(async ({ctx, input}) => {
+        try { return await saveHandoffCupDescriptions({ ...input, storeId: ctx.user.storeId, userId: ctx.user.id }); }
+        catch (error) {
+          const text = error instanceof Error ? error.message : "Unable to save cup descriptions";
+          if (text.includes("not found")) throw new TRPCError({ code: "NOT_FOUND", message: "Handoff visual event was not found" });
+          if (text.includes("changed")) throw new TRPCError({ code: "CONFLICT", message: text });
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Unable to save cup descriptions; reload and try again" });
+        }
       }),
     reviewHandoffVisualEvent: adminProcedure
       .input(z.object({
