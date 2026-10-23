@@ -78,6 +78,8 @@ const storageMocks = vi.hoisted(() => ({
   storageGetSignedUrl: vi.fn(),
 }));
 
+const localLedgerMocks=vi.hoisted(()=>({saveLocalLedger:vi.fn(),readLocalLedger:vi.fn(),readLocalLedgerReceipt:vi.fn()}));
+vi.mock("./localCupLedgerStorage",()=>({PlatformLocalLedgerStore:class {},...localLedgerMocks}));
 vi.mock("./db", () => dbMocks);
 vi.mock("./_core/notification", () => notificationMocks);
 vi.mock("./_core/sdk", () => sdkMocks);
@@ -1948,4 +1950,17 @@ describe("automatic cup-size route authorization",()=>{
  it("requires owner session for classification",async()=>{await expect(appRouter.createCaller(createContext("user",1)).dashboard.classifyHandoffCupSizes({id:17})).rejects.toMatchObject({code:"FORBIDDEN"});});
  it("does not accept caller-selected store",async()=>{await expect(appRouter.createCaller(createContext("admin",1)).dashboard.classifyHandoffCupSizes({id:17,storeId:2} as any)).rejects.toMatchObject({code:"BAD_REQUEST"});});
  it("filters breakdown by authenticated store and date",async()=>{dbMocks.getHandoffCameraSizeBreakdown.mockResolvedValue({scope:"image_observations_not_unique_deliveries"});await appRouter.createCaller(createContext("admin",2)).dashboard.cameraSizeBreakdown({businessDate:"2026-10-22"});expect(dbMocks.getHandoffCameraSizeBreakdown).toHaveBeenCalledWith({storeId:2,businessDate:"2026-10-22"});});
+});
+
+describe("native local detector ledger authorization",()=>{
+ const deviceId="00000000-0000-4000-8000-000000000001",businessDate="2026-01-20";
+ const envelope=()=>{const documentJson=JSON.stringify({schemaVersion:1,protocol:"ojala_local_cup_ledger_v1",deviceId,cameraName:"handoff",businessDate,records:[]});return {sequence:1,documentJson,documentSha256:createHash("sha256").update(documentJson).digest("hex")};};
+ beforeEach(()=>{vi.clearAllMocks();dbMocks.resolveActiveStoreCredential.mockResolvedValue(null);dbMocks.getActiveStoreById.mockResolvedValue(storeOne);localLedgerMocks.saveLocalLedger.mockResolvedValue({success:true,receipt:{persisted:true}});localLedgerMocks.readLocalLedger.mockResolvedValue(null);});
+ it("offers a capability that does not require AI or a browser",async()=>{const r=await appRouter.createCaller(createContext(null)).frigate.localLedgerCapabilities();expect(r).toMatchObject({externalAiRequired:false,browserRequired:false,persistedReadbackRequired:true});});
+ it("derives store solely from the managed machine credential",async()=>{dbMocks.resolveActiveStoreCredential.mockResolvedValue({store:storeTwo});await appRouter.createCaller(createContext(null)).frigate.submitLocalCupLedger({apiKey:"test-managed-native",...envelope()});expect(localLedgerMocks.saveLocalLedger).toHaveBeenCalledWith(expect.anything(),expect.anything(),2,"America/Los_Angeles");expect(dbMocks.createEndOfDayReport).not.toHaveBeenCalled();expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();expect(handoffVisualMocks.analyzeHandoffVisualImage).not.toHaveBeenCalled();});
+ it("rejects an invalid credential without touching storage",async()=>{await expect(appRouter.createCaller(createContext(null)).frigate.submitLocalCupLedger({apiKey:"invalid-native-fixture",...envelope()})).rejects.toMatchObject({code:"UNAUTHORIZED"});expect(localLedgerMocks.saveLocalLedger).not.toHaveBeenCalled();});
+ it("rejects a false checksum before any storage write",async()=>{await expect(appRouter.createCaller(createContext(null)).frigate.submitLocalCupLedger({apiKey:"test-frigate-key",...envelope(),documentSha256:"f".repeat(64)})).rejects.toMatchObject({code:"BAD_REQUEST"});expect(localLedgerMocks.saveLocalLedger).not.toHaveBeenCalled();});
+ it.each([null,"user"] as const)("blocks a dashboard read for %s",async role=>{await expect(appRouter.createCaller(createContext(role)).dashboard.localCupLedger({businessDate,deviceId})).rejects.toMatchObject({code:"FORBIDDEN"});expect(localLedgerMocks.readLocalLedger).not.toHaveBeenCalled();});
+ it("scopes dashboard reads to the signed-in store",async()=>{dbMocks.getActiveStoreById.mockResolvedValue(storeTwo);await appRouter.createCaller(createContext("admin",2)).dashboard.localCupLedger({businessDate,deviceId});expect(localLedgerMocks.readLocalLedger).toHaveBeenCalledWith(expect.anything(),2,deviceId,businessDate,"America/Los_Angeles");});
+ it("a storage failure cannot produce a positive receipt",async()=>{localLedgerMocks.saveLocalLedger.mockRejectedValueOnce(Error("unavailable"));await expect(appRouter.createCaller(createContext(null)).frigate.submitLocalCupLedger({apiKey:"test-frigate-key",...envelope()})).rejects.toMatchObject({code:"INTERNAL_SERVER_ERROR"});});
 });

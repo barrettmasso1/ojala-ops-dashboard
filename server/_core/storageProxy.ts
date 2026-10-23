@@ -1,11 +1,31 @@
 import type { Express } from "express";
 import { ENV } from "./env";
 
+/** Local detection ledgers are private API data, never publicly signed media. */
+export function isPrivateLocalLedgerKey(raw:string):boolean {
+  let key=raw;
+  for(let n=0;n<4;n++){
+    try{const next=decodeURIComponent(key);if(next===key)break;key=next;}catch{return true;}
+  }
+  const parts:string[]=[];
+  for(const part of key.replace(/\\/g,"/").split("/")){
+    if(!part||part===".")continue;
+    if(part===".."){parts.pop();continue;}
+    parts.push(part);
+  }
+  return parts[0]==="local-cup-ledger";
+}
+
 export function registerStorageProxy(app: Express) {
   app.get("/manus-storage/*", async (req, res) => {
     const key = (req.params as { 0?: string })[0];
     if (!key) {
       res.status(400).send("Missing storage key");
+      return;
+    }
+
+    if (isPrivateLocalLedgerKey(key)) {
+      res.status(404).send("Not found");
       return;
     }
 

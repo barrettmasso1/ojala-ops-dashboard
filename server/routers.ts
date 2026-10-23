@@ -1,3 +1,5 @@
+import { LOCAL_LEDGER_PROTOCOL, localLedgerInputSchema, parseLocalLedger } from "./localCupLedger";
+import { PlatformLocalLedgerStore, saveLocalLedger, readLocalLedger, readLocalLedgerReceipt } from "./localCupLedgerStorage";
 import { classifyHandoffCupSizes } from "./autoCupSizes";
 import { CUP_SIZE_KEYS } from "../shared/cupDescriptions";
 import { HANDOFF_RECEIPT_PROTOCOL, deferredHandoffSource, persistedHandoffReceipt } from "./handoffDurableReceipt";
@@ -806,6 +808,37 @@ export const appRouter = router({
         });
         return { success: true, disposition: result.disposition } as const;
       }),
+    localLedgerCapabilities: publicProcedure.query(() => ({
+      protocol: LOCAL_LEDGER_PROTOCOL, externalAiRequired: false, browserRequired: false,
+      scopedByCredential: true, uniquePhysicalDeliveryCountCreated: false,
+      persistedReadbackRequired: true, imageUploadsIncluded: false,
+    })),
+    submitLocalCupLedger: publicProcedure
+      .input(localLedgerInputSchema.extend({ apiKey: z.string().min(1) }))
+      .mutation(async ({ctx,input}) => {
+        const clientKey=credentialClientKey(ctx.req);enforceCredentialRateLimit("frigate",clientKey);
+        const store=await resolveFrigateStore(input.apiKey);
+        if(!store){recordCredentialFailure("frigate",clientKey);throw new TRPCError({code:"UNAUTHORIZED",message:"Unauthorized"});}
+        clearCredentialFailures("frigate",clientKey);
+        let parsed;
+        try{parsed=parseLocalLedger({sequence:input.sequence,documentJson:input.documentJson,documentSha256:input.documentSha256},store.timezone);}
+        catch{throw new TRPCError({code:"BAD_REQUEST",message:"Invalid local detection ledger"});}
+        try{return await saveLocalLedger(new PlatformLocalLedgerStore(),parsed,store.id,store.timezone);}
+        catch(error){
+          const conflict=error instanceof Error && /conflict|stale|omitted|changed|reopened|mismatch/.test(error.message);
+          throw new TRPCError({code:conflict?"CONFLICT":"INTERNAL_SERVER_ERROR",message:conflict?"Ledger version conflict; reconcile before retrying":"Local detection storage unavailable; no receipt confirmed"});
+        }
+      }),
+    localCupLedgerReceipt: publicProcedure
+      .input(z.object({apiKey:z.string().min(1),businessDate:requiredBusinessDateSchema,deviceId:z.string().uuid()}))
+      .mutation(async ({ctx,input}) => {
+        const clientKey=credentialClientKey(ctx.req);enforceCredentialRateLimit("frigate",clientKey);
+        const store=await resolveFrigateStore(input.apiKey);
+        if(!store){recordCredentialFailure("frigate",clientKey);throw new TRPCError({code:"UNAUTHORIZED",message:"Unauthorized"});}
+        clearCredentialFailures("frigate",clientKey);
+        try{return {receipt:await readLocalLedgerReceipt(new PlatformLocalLedgerStore(),store.id,input.deviceId,input.businessDate,store.timezone)};}
+        catch{throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"Local receipt is not available"});}
+      }),
     ingestionCapabilities: publicProcedure.query(() => ({
       protocol: HANDOFF_RECEIPT_PROTOCOL, receiptModes: ["after_analysis", "after_storage"],
       scopedByCredential: true, physicalCupCountCreatedByVisualIngestion: false,
@@ -1165,6 +1198,14 @@ export const appRouter = router({
             cupEventId: event.cupEventId,
           }),
         }));
+      }),
+    localCupLedger: adminProcedure
+      .input(z.object({businessDate:requiredBusinessDateSchema,deviceId:z.string().uuid()}))
+      .query(async ({ctx,input}) => {
+        const store=await getActiveStoreById(ctx.user.storeId);
+        if(!store)throw new TRPCError({code:"FORBIDDEN",message:"Store unavailable"});
+        try{return await readLocalLedger(new PlatformLocalLedgerStore(),store.id,input.deviceId,input.businessDate,store.timezone);}
+        catch{throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"Local detection registry is temporarily unavailable"});}
       }),
     cameraSizeBreakdown: adminProcedure.input(z.object({businessDate:requiredBusinessDateSchema})).query(async ({ctx,input}) => getHandoffCameraSizeBreakdown({storeId:ctx.user.storeId,businessDate:input.businessDate})),
     classifyHandoffCupSizes: adminProcedure.input(z.object({id:z.number().int().positive()}).strict()).mutation(async ({ctx,input}) => {
