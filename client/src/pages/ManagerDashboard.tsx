@@ -1,4 +1,4 @@
-import { hasClosingRecord, closingValue } from "@/lib/localLedgerPresentation";
+import { hasClosingRecord, closingValue, nativeEvidenceDate, LOCAL_CAMERA_DEVICE_ID } from "@/lib/localLedgerPresentation";
 import { LocalCupLedgerPanel } from "@/components/LocalCupLedgerPanel";
 import { CameraSizeBreakdown } from "@/components/CameraSizeBreakdown";
 import { CupDescriptionSummary, CupDescriptionsEditor } from "@/components/CupDescriptions";
@@ -903,6 +903,12 @@ export default function ManagerDashboard() {
       refetchIntervalInBackground: true,
     }
   );
+  // Native detections can arrive before any sale, closing, or cloud photograph.
+  // Resolve today's native evidence before choosing an older automatic landing date.
+  const todayNativeLedgerQuery = trpc.dashboard.localCupLedger.useQuery(
+    { businessDate: maxBusinessDate, deviceId: LOCAL_CAMERA_DEVICE_ID },
+    { enabled: isAdmin && isOverviewRoute, refetchInterval: 5000, refetchOnWindowFocus: true, refetchIntervalInBackground: true, retry: false },
+  );
   const trendQuery = trpc.dashboard.salesTrend.useQuery({ days: 28 }, { enabled: isAdmin, refetchOnWindowFocus: false });
   const latestHandoffCameraEvidenceDateQuery = trpc.dashboard.latestHandoffCameraEvidenceDate.useQuery(undefined, {
     enabled: isAdmin,
@@ -912,7 +918,7 @@ export default function ManagerDashboard() {
   });
 
   useEffect(() => {
-    if (!isAdmin || dailyQuery.isLoading || trendQuery.isLoading || latestHandoffCameraEvidenceDateQuery.isLoading) return;
+    if (!isAdmin || dailyQuery.isLoading || trendQuery.isLoading || latestHandoffCameraEvidenceDateQuery.isLoading || (isOverviewRoute && todayNativeLedgerQuery.isLoading)) return;
     // Handoff Review must remain available for a recovery date even when no
     // sales/closing report exists for it. The overview's automatic landing
     // date prioritizes the latest real operational evidence (camera or sales)
@@ -923,6 +929,7 @@ export default function ManagerDashboard() {
     const latestAvailableDate = selectLatestAvailableOperationalDate(maxBusinessDate, [
       latestDateWithSales,
       latestHandoffCameraEvidenceDateQuery.data,
+      nativeEvidenceDate(todayNativeLedgerQuery.data, maxBusinessDate),
     ]);
     if (latestAvailableDate && shouldAutoFallbackToLatestOperationalDate({
       isOverviewRoute,
@@ -942,6 +949,8 @@ export default function ManagerDashboard() {
     isOverviewRoute,
     latestHandoffCameraEvidenceDateQuery.data,
     latestHandoffCameraEvidenceDateQuery.isLoading,
+    todayNativeLedgerQuery.data,
+    todayNativeLedgerQuery.isLoading,
     maxBusinessDate,
     selectedDate,
     trendQuery.data,

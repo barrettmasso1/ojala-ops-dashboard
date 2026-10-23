@@ -1,6 +1,6 @@
 import {describe,it,expect} from "vitest";
 import {readFileSync} from "node:fs";
-import {hasClosingRecord,closingValue,sizeCategoryValue} from "./localLedgerPresentation";
+import {hasClosingRecord,closingValue,sizeCategoryValue,nativeEvidenceDate} from "./localLedgerPresentation";
 describe("camera data remains visible without inventing closed counts",()=>{
  it("same-day closing required",()=>{expect(hasClosingRecord("2026-10-23","2026-10-23",1)).toBe(true);});
  it("no closing is not zero",()=>{expect(hasClosingRecord("2026-10-23","2026-10-23",0)).toBe(false);expect(closingValue("$0",false)).toBe("Pendiente");});
@@ -14,4 +14,13 @@ describe("camera data remains visible without inventing closed counts",()=>{
  it("invalid size counts do not become zero",()=>expect(sizeCategoryValue(NaN,0,false)).toBe("No verificable"));
  it("mounts local data once before empty daily summary",()=>{const s=readFileSync(new URL("../pages/ManagerDashboard.tsx",import.meta.url),"utf8");expect(s.match(/<LocalCupLedgerPanel /g)).toHaveLength(1);expect(s.indexOf("<LocalCupLedgerPanel ")).toBeLessThan(s.indexOf("Daily snapshot for"));});
  it("keeps five explicit size categories",()=>{const s=readFileSync(new URL("../components/LocalCupLedgerPanel.tsx",import.meta.url),"utf8");for(const k of ["chico:","mediano:","pint:","litro:","unknown:"])expect(s).toContain(k);expect(s).not.toContain("useMutation");});
+});
+
+describe("native evidence controls initial date without overriding explicit selection",()=>{
+ it("uses today's received native detections before an old sales date",()=>expect(nativeEvidenceDate({businessDate:"2026-10-23",detectedTracks:13},"2026-10-23")).toBe("2026-10-23"));
+ it("does not reuse yesterday's native rows",()=>expect(nativeEvidenceDate({businessDate:"2026-10-22",detectedTracks:35},"2026-10-23")).toBeNull());
+ it("missing native data is not invented",()=>expect(nativeEvidenceDate(undefined,"2026-10-23")).toBeNull());
+ it("invalid data cannot claim current evidence",()=>expect(nativeEvidenceDate({businessDate:"2026-10-23",detectedTracks:NaN},"2026-10-23")).toBeNull());
+ it("keeps a received empty ledger distinct from missing",()=>expect(nativeEvidenceDate({businessDate:"2026-10-23",detectedTracks:0},"2026-10-23")).toBe("2026-10-23"));
+ it("waits for native query before automatic fallback",()=>{const s=readFileSync(new URL("../pages/ManagerDashboard.tsx",import.meta.url),"utf8");expect(s).toContain("todayNativeLedgerQuery.isLoading");expect(s).toContain("nativeEvidenceDate(todayNativeLedgerQuery.data, maxBusinessDate)");expect(s).toContain("hasExplicitDateSelection,");});
 });
