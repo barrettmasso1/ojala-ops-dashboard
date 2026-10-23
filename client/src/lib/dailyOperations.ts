@@ -84,7 +84,7 @@ export function buildDailyOperations(input: DailyOperationsInput, selectedDate: 
   const record = input.frigateCounts;
   let state: CameraEvidenceState = "missing";
   let cameraCount: number | null = null;
-  let cameraMessage = "Conteo diario de vasos pendiente. No se ha recibido un registro físico de conteo para esta fecha.";
+  let cameraMessage = "Falta consolidar el conteo revisado del turno. Las detecciones automáticas recibidas se muestran por separado en el bloque superior.";
   let gaps = "";
   let receivedAt: string | Date | null = null;
   let cameraCoverage = "No disponible";

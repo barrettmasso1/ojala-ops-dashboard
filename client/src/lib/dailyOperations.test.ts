@@ -88,7 +88,7 @@ describe("daily operations evidence boundaries", () => {
   });
   it("keeps an absent physical camera count distinct from a received zero and from visual images", () => {
     expect(buildDailyOperations(sample(), day)).toMatchObject({
-      cameraMessage: "Conteo diario de vasos pendiente. No se ha recibido un registro físico de conteo para esta fecha.",
+      cameraMessage: "Falta consolidar el conteo revisado del turno. Las detecciones automáticas recibidas se muestran por separado en el bloque superior.",
       cameraCoverage: "No disponible",
       cameraReviewStatus: "Awaiting a physical camera-count record",
       receivedAt: null,
