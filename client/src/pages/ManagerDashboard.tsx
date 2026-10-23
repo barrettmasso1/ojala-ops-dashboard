@@ -1,3 +1,4 @@
+import { LocalCupLedgerPanel } from "@/components/LocalCupLedgerPanel";
 import { CameraSizeBreakdown } from "@/components/CameraSizeBreakdown";
 import { CupDescriptionSummary, CupDescriptionsEditor } from "@/components/CupDescriptions";
 import { MANUAL_CUP_SIZE_LABELS, manualCupRows } from "@shared/cupDescriptions";
@@ -1764,6 +1765,7 @@ export default function ManagerDashboard() {
               </div>
             </SurfaceCard>
             {isAdmin && <HandoffVisualEvidenceOverviewPanel presentation={handoffVisualEvidencePresentation} businessDate={selectedDate} timeZone={timeZone} />}
+            {isAdmin && <LocalCupLedgerPanel businessDate={selectedDate} />}
             {isAdmin && <CameraSizeBreakdown businessDate={selectedDate} />}
             {isAdmin && <ReviewedCountImport key={selectedDate} businessDate={selectedDate} />}
             <SurfaceCard>
