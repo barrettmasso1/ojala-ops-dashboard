@@ -1,12 +1,11 @@
-import { sizeCategoryValue } from "@/lib/localLedgerPresentation";
+import { sizeCategoryValue, LOCAL_CAMERA_DEVICE_ID } from "@/lib/localLedgerPresentation";
 import { trpc } from "@/lib/trpc";
-const DEVICE="38395f07-90c9-4ab4-a47e-a8881a3498fb";
 const labels={chico:"Chico (4 oz)",mediano:"Mediano (8 oz)",pint:"Pint",litro:"Litro",unknown:"Sin clasificar"} as const;
 const verificationLabel=(value:string)=>value==="same_frame_local_cv"?"Copa y persona validadas localmente":value==="detector_rejected"?"Descartado por detector":"Detección pendiente de evidencia de la misma escena";
 
 /** This panel never modifies sales, manual records, or certified daily counts. */
 export function LocalCupLedgerPanel({businessDate}:{businessDate:string}) {
-  const query=trpc.dashboard.localCupLedger.useQuery({businessDate,deviceId:DEVICE},{refetchInterval:5000,refetchOnWindowFocus:true,refetchIntervalInBackground:true,retry:false});
+  const query=trpc.dashboard.localCupLedger.useQuery({businessDate,deviceId:LOCAL_CAMERA_DEVICE_ID},{refetchInterval:5000,refetchOnWindowFocus:true,refetchIntervalInBackground:true,retry:false});
   const data=query.data;
   return <section id="camera-live-data" aria-label="Registro autónomo de detecciones locales" className="rounded-[1.6rem] border border-[#d8e2da] bg-[#f4f8f3] p-5 md:p-6">
     <p className="text-xs uppercase tracking-[0.2em] text-[#52665f]">Detector local · sin IA generativa</p>

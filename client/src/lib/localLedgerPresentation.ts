@@ -9,3 +9,8 @@ export function sizeCategoryValue(count:number,unclassified:number,isUnknown:boo
   if(!Number.isSafeInteger(count)||count<0||!Number.isSafeInteger(unclassified)||unclassified<0)return "No verificable";
   return !isUnknown && count===0 && unclassified>0 ? "Pendiente" : String(count);
 }
+
+export const LOCAL_CAMERA_DEVICE_ID="38395f07-90c9-4ab4-a47e-a8881a3498fb";
+export function nativeEvidenceDate(data:{businessDate:string;detectedTracks:number}|null|undefined,today:string):string|null {
+  return data?.businessDate===today && Number.isSafeInteger(data.detectedTracks) && data.detectedTracks>=0 ? today : null;
+}
