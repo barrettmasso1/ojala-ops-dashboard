@@ -17,6 +17,19 @@ def write(value):
 
 def call(args,timeout=8):return subprocess.run(args,capture_output=True,text=True,timeout=timeout)
 
+def temperature_c():
+    values=[]
+    for p in Path('/sys/class/hwmon').glob('hwmon*/temp*_input'):
+        try:
+            value=float(p.read_text())/1000
+            if 0<value<150:values.append(value)
+        except (ValueError,OSError):pass
+    return max(values) if values else None
+
+def thermal_hold(value,previous=False):
+    if value is None:return True
+    return value>=85 or (previous and value>78)
+
 def main():
     now=time.time();local=dt.datetime.now(ZoneInfo('America/Mazatlan'))
     if not ROOT.exists():return
@@ -37,6 +50,14 @@ def main():
     check=call(['docker','exec','frigate','python3','-c',inspect])
     if check.returncode:result['status']='process_check_failed';write(result);return
     pids=json.loads(check.stdout)
+    temp=temperature_c();held=thermal_hold(temp,state.get('thermal_hold',False))
+    result.update(temperature_c=temp,thermal_hold=held)
+    if held:
+        result['status']='paused_temperature';result['pids']=pids
+        if pids:
+            stopped=call(['docker','exec','frigate','kill','-TERM',*[str(p) for p in pids]])
+            result['action']='stop_shadow_for_temperature' if not stopped.returncode else 'stop_failed'
+        write(result);return
     try:health=json.loads(HEALTH.read_text())
     except (OSError,ValueError):health={}
     age=now-float(health.get('heartbeat_epoch',0));result['heartbeat_age_seconds']=round(age,1)
