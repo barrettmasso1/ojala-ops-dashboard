@@ -7,7 +7,7 @@ are reconciled by receipt, not repeated blindly. Legacy transport holds are neve
 modified. This syncs detection records, not image bytes or certified deliveries.
 """
 from __future__ import annotations
-import argparse,fcntl,json,os,signal,sqlite3,stat,sys,time,urllib.request,urllib.error
+import argparse,fcntl,json,os,re,signal,sqlite3,stat,sys,time,urllib.request,urllib.error
 from pathlib import Path
 from datetime import datetime,timezone
 from zoneinfo import ZoneInfo
@@ -55,7 +55,19 @@ def build_document(ledger,day,device):
     text=canonical({'schemaVersion':1,'protocol':PROTOCOL,'deviceId':device,'cameraName':'handoff','businessDate':day,'records':records})
     require(len(text.encode())<=4*1024*1024,'document_size_limit');return text
 
+def validate_receipt_scope(receipt,store_id,device,day):
+    require(isinstance(receipt,dict) and receipt.get('protocol')==RECEIPT,'receipt_protocol')
+    require(receipt.get('persisted') is True and receipt.get('externalAiInvoked') is False and receipt.get('physicalDeliveryCountCreated') is False and receipt.get('countsAreSales') is False,'receipt_scope')
+    for key,value in {'storeId':store_id,'deviceId':device,'businessDate':day,'cameraName':'handoff'}.items():
+        require(receipt.get(key)==value and (type(receipt[key]) is int if type(value) is int else isinstance(receipt[key],str)),'receipt_identity_'+key)
+    require(type(receipt.get('sequence')) is int and receipt['sequence']>0,'receipt_identity_sequence')
+    require(isinstance(receipt.get('documentSha256'),str) and re.fullmatch(r'[a-f0-9]{64}',receipt['documentSha256']) is not None,'receipt_identity_documentSha256')
+    require(type(receipt.get('observationsPersisted')) is int and 0<=receipt['observationsPersisted']<=2000,'receipt_identity_observationsPersisted')
+    at=parse_aware(receipt.get('receivedAt'));require(at.timestamp()<=time.time()+120,'receipt_future_time')
+    return receipt
+
 def validate_receipt(receipt,envelope,store_id,device,day):
+    validate_receipt_scope(receipt,store_id,device,day)
     require(isinstance(receipt,dict) and receipt.get('protocol')==RECEIPT,'receipt_protocol')
     require(receipt.get('persisted') is True and receipt.get('externalAiInvoked') is False and receipt.get('physicalDeliveryCountCreated') is False and receipt.get('countsAreSales') is False,'receipt_scope')
     expected={'storeId':store_id,'deviceId':device,'businessDate':day,'cameraName':'handoff','sequence':envelope['sequence'],'documentSha256':envelope['documentSha256'],'observationsPersisted':len(json.loads(envelope['documentJson'])['records'])}
@@ -69,7 +81,7 @@ class Sync:
         self.ledger=ledger;self.config=config;self.transport=transport;self.db=ledger.db
         self.db.execute('CREATE TABLE IF NOT EXISTS native_sync(day TEXT PRIMARY KEY,sequence INTEGER NOT NULL,document_sha TEXT NOT NULL,document_json TEXT NOT NULL,status TEXT NOT NULL,receipt TEXT,last_error TEXT)');self.db.commit()
         columns={r[1] for r in self.db.execute('PRAGMA table_info(native_sync)')}
-        for name,definition in [('attempts','INTEGER NOT NULL DEFAULT 0'),('dispatched_at','REAL'),('absent_readbacks','INTEGER NOT NULL DEFAULT 0')]:
+        for name,definition in [('attempts','INTEGER NOT NULL DEFAULT 0'),('dispatched_at','REAL'),('absent_readbacks','INTEGER NOT NULL DEFAULT 0'),('stale_readbacks','INTEGER NOT NULL DEFAULT 0')]:
             if name not in columns:self.db.execute('ALTER TABLE native_sync ADD COLUMN '+name+' '+definition)
         self.db.commit()
     def prepare(self,day):
@@ -80,7 +92,7 @@ class Sync:
         if old and old['document_sha']==h:
             return {'sequence':old['sequence'],'documentJson':text,'documentSha256':h},old['status']
         seq=old['sequence']+1 if old else 1
-        with self.db:self.db.execute('INSERT INTO native_sync(day,sequence,document_sha,document_json,status) VALUES(?,?,?,?,?) ON CONFLICT(day) DO UPDATE SET sequence=excluded.sequence,document_sha=excluded.document_sha,document_json=excluded.document_json,status=excluded.status,receipt=NULL,last_error=NULL,attempts=0,dispatched_at=NULL,absent_readbacks=0',(day,seq,h,text,'pending'))
+        with self.db:self.db.execute('INSERT INTO native_sync(day,sequence,document_sha,document_json,status) VALUES(?,?,?,?,?) ON CONFLICT(day) DO UPDATE SET sequence=excluded.sequence,document_sha=excluded.document_sha,document_json=excluded.document_json,status=excluded.status,receipt=NULL,last_error=NULL,attempts=0,dispatched_at=NULL,absent_readbacks=0,stale_readbacks=0',(day,seq,h,text,'pending'))
         return {'sequence':seq,'documentJson':text,'documentSha256':h},'pending'
     def acknowledge(self,day,envelope,receipt):
         validate_receipt(receipt,envelope,self.config['storeId'],self.config['deviceId'],day)
@@ -100,6 +112,16 @@ class Sync:
             require(capability.get('protocol')==PROTOCOL and capability.get('externalAiRequired') is False and capability.get('browserRequired') is False and capability.get('scopedByCredential') is True and capability.get('persistedReadbackRequired') is True,'server_protocol_not_ready')
             if state=='delivery_unknown':
                 receipt=self.transport.receipt(self.config['deviceId'],day)
+                if receipt is not None:
+                    validate_receipt_scope(receipt,self.config['storeId'],self.config['deviceId'],day)
+                    if receipt['sequence']<envelope['sequence']:
+                        row=self.db.execute('SELECT dispatched_at,stale_readbacks FROM native_sync WHERE day=?',(day,)).fetchone()
+                        stale=row['stale_readbacks']+1
+                        expired=row['dispatched_at'] is not None and time.time()-row['dispatched_at']>=120 and stale>=6
+                        status='blocked' if expired else 'delivery_unknown'
+                        reason='older_receipt_after_settlement_no_replay' if expired else 'older_receipt_waiting_no_replay'
+                        with self.db:self.db.execute('UPDATE native_sync SET status=?,stale_readbacks=?,last_error=? WHERE day=?',(status,stale,reason,day))
+                        return {'status':status,'networkAttempted':True,'resent':False,'reason':reason}
                 if receipt is None:
                     row=self.db.execute('SELECT attempts,dispatched_at,absent_readbacks FROM native_sync WHERE day=?',(day,)).fetchone()
                     missing=row['absent_readbacks']+1
@@ -109,13 +131,17 @@ class Sync:
                     with self.db:self.db.execute('UPDATE native_sync SET status=?,absent_readbacks=?,last_error=? WHERE day=?',(new_state,missing,reason,day))
                     return {'status':new_state,'networkAttempted':True,'resent':False,'retryAllowedAfterVerifiedAbsence':new_state=='pending'}
             else:
-                with self.db:self.db.execute('UPDATE native_sync SET status=?,attempts=attempts+1,dispatched_at=?,absent_readbacks=0 WHERE day=?',('delivery_unknown',time.time(),day))
+                with self.db:self.db.execute('UPDATE native_sync SET status=?,attempts=attempts+1,dispatched_at=?,absent_readbacks=0,stale_readbacks=0 WHERE day=?',('delivery_unknown',time.time(),day))
                 reply=self.transport.send(envelope);require(reply.get('success') is True,'application_did_not_confirm');receipt=reply.get('receipt')
             self.acknowledge(day,envelope,receipt)
             return {'status':'acknowledged','sequence':envelope['sequence'],'networkAttempted':True,'receipt':receipt}
         except (SyncError,InvalidEvidence) as exc:
             reason=str(exc)
-            if reason in ('http_301','http_302','http_303','http_307','http_308','http_400','http_401','http_403','http_404','http_405','http_409','private_key_permissions','credential_scope_mismatch','machine_credential_missing') or reason.startswith('receipt_') or reason=='server_protocol_not_ready':
+            current=self.db.execute('SELECT status,dispatched_at FROM native_sync WHERE day=?',(day,)).fetchone()
+            if reason=='http_409' and current['status']=='delivery_unknown' and current['dispatched_at'] is not None:
+                with self.db:self.db.execute('UPDATE native_sync SET last_error=? WHERE day=?',('http_409_requires_receipt_readback',day))
+                status='delivery_unknown'
+            elif reason in ('http_301','http_302','http_303','http_307','http_308','http_400','http_401','http_403','http_404','http_405','http_409','private_key_permissions','credential_scope_mismatch','machine_credential_missing') or reason.startswith('receipt_') or reason=='server_protocol_not_ready':
                 with self.db:self.db.execute('UPDATE native_sync SET status=?,last_error=? WHERE day=?',('blocked',reason,day))
                 status='blocked'
             else:
