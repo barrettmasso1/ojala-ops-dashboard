@@ -112,7 +112,7 @@ describe("PlatformLocalLedgerStore read adapter", () => {
     expect(result).toEqual({ text: "ledger", etag: '"v1"' });
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe(signedReadUrl);
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "GET", redirect: "error", cache: "no-store" });
-    expect(fetchMock.mock.calls[0]?.[1]?.headers).toEqual({ "Cache-Control": "no-cache, no-store, max-age=0" });
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toEqual({ "Accept-Encoding": "identity", "Cache-Control": "no-cache, no-store, max-age=0" });
   });
 
   it.each([
@@ -150,6 +150,24 @@ describe("PlatformLocalLedgerStore read adapter", () => {
     vi.mocked(fetch).mockResolvedValue(response(200, "ledger"));
     await expect(new PlatformLocalLedgerStore().read(KEY)).rejects.toMatchObject({
       message: "ledger_storage_etag_missing",
+      stage: "object_get",
+      status: 200,
+    });
+  });
+
+  it.each(['W/"v1"', "v1", '""'])("rejects a weak or malformed ETag before any CAS can use it: %s", async (etag) => {
+    vi.mocked(fetch).mockResolvedValue(response(200, "ledger", { etag }));
+    await expect(new PlatformLocalLedgerStore().read(KEY)).rejects.toMatchObject({
+      message: "ledger_storage_etag_not_strong",
+      stage: "object_get",
+      status: 200,
+    });
+  });
+
+  it("rejects a transformed response even when its ETag is strong", async () => {
+    vi.mocked(fetch).mockResolvedValue(response(200, "ledger", { etag: '"v1"', "content-encoding": "br" }));
+    await expect(new PlatformLocalLedgerStore().read(KEY)).rejects.toMatchObject({
+      message: "ledger_storage_content_encoding_present",
       stage: "object_get",
       status: 200,
     });
@@ -241,6 +259,15 @@ describe("saveLocalLedger create-only and readback protocol", () => {
     expect(store.calls.map((call) => call.type)).toEqual(["put", "read", "put", "read"]);
     expect(store.calls[0]).toMatchObject({ expectedEtag: null });
     expect(store.calls[2]).toMatchObject({ expectedEtag: '"old"' });
+  });
+
+  it("supports a second and third update with successive conditional readbacks", async () => {
+    const store = new ScriptedBlobStore();
+    await expect(saveLocalLedger(store, parsed(envelope([observation(1)], 2, 2)), 1, "America/Mazatlan")).resolves.toMatchObject({ disposition: "create" });
+    store.createError = new LedgerConflict("if_none_match");
+    await expect(saveLocalLedger(store, parsed(envelope([observation(1), observation(2)], 3, 3)), 1, "America/Mazatlan")).resolves.toMatchObject({ disposition: "update" });
+    await expect(saveLocalLedger(store, parsed(envelope([observation(1), observation(2), observation(3)], 4, 4)), 1, "America/Mazatlan")).resolves.toMatchObject({ disposition: "update" });
+    expect(store.calls.filter((call) => call.type === "put").map((call) => call.expectedEtag)).toEqual([null, null, '"etag-1"', null, '"etag-5"']);
   });
 
   it("requires a read and validation after a create conflict before any CAS update", async () => {
