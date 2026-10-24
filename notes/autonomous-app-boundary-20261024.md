@@ -12,3 +12,13 @@ plus independently tested reconciliation guards. 33 unit tests pass without
 production sources or network. No production quantities are mutated. Image
 transport acceptance, source publication and actual dashboard verification must
 be recorded separately; a merged branch is not proof of deploy or service health.
+
+A further observed defect: four October 23 photos were saved after the end of
+the event to which they were attached. The auxiliary capturer now rechecks the
+same event after local inference, preserving the original end+2s validation
+window. Fifteen lifecycle tests and an audit of 33 genuine historical sidecars
+identify 29 valid / 4 invalid associations. Existing images are not rewritten.
+Frigate itself, detector, zone, thresholds and original event IDs are unchanged.
+Only the auxiliary capturer was gracefully restarted after a backup and a check
+that its retention cleanup would delete nothing. New heartbeat/source hash was
+verified. The main camera container was not restarted.
