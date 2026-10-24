@@ -19,6 +19,7 @@ const dbMocks = vi.hoisted(() => ({
   getHandoffVisualEvidenceOverview: vi.fn(),
   getHandoffCameraSizeBreakdown: vi.fn(),
   getHandoffVisualEventById: vi.fn(),
+  getHandoffVisualEventByCapture: vi.fn(),
   getLatestHandoffCameraEvidenceDate: vi.fn(),
   getInventoryAlerts: vi.fn(),
   getRecentNotes: vi.fn(),
@@ -78,7 +79,7 @@ const storageMocks = vi.hoisted(() => ({
   storageGetSignedUrl: vi.fn(),
 }));
 
-const localLedgerMocks=vi.hoisted(()=>({saveLocalLedger:vi.fn(),readLocalLedger:vi.fn(),readLocalLedgerReceipt:vi.fn()}));
+const localLedgerMocks=vi.hoisted(()=>({saveLocalLedger:vi.fn(),readLocalLedger:vi.fn(),readLocalLedgerReceipt:vi.fn(),readLocalEvidenceObservation:vi.fn()}));
 vi.mock("./localCupLedgerStorage",()=>({PlatformLocalLedgerStore:class {},...localLedgerMocks}));
 vi.mock("./db", () => dbMocks);
 vi.mock("./_core/notification", () => notificationMocks);
@@ -1963,4 +1964,29 @@ describe("native local detector ledger authorization",()=>{
  it.each([null,"user"] as const)("blocks a dashboard read for %s",async role=>{await expect(appRouter.createCaller(createContext(role)).dashboard.localCupLedger({businessDate,deviceId})).rejects.toMatchObject({code:"FORBIDDEN"});expect(localLedgerMocks.readLocalLedger).not.toHaveBeenCalled();});
  it("scopes dashboard reads to the signed-in store",async()=>{dbMocks.getActiveStoreById.mockResolvedValue(storeTwo);await appRouter.createCaller(createContext("admin",2)).dashboard.localCupLedger({businessDate,deviceId});expect(localLedgerMocks.readLocalLedger).toHaveBeenCalledWith(expect.anything(),2,deviceId,businessDate,"America/Los_Angeles");});
  it("a storage failure cannot produce a positive receipt",async()=>{localLedgerMocks.saveLocalLedger.mockRejectedValueOnce(Error("unavailable"));await expect(appRouter.createCaller(createContext(null)).frigate.submitLocalCupLedger({apiKey:"test-frigate-key",...envelope()})).rejects.toMatchObject({code:"INTERNAL_SERVER_ERROR"});});
+});
+
+describe("native local photo API without browser or cloud analysis",()=>{
+ function sample(){
+  const {capture,proof}=normalizationFixture();const deviceId="00000000-0000-4000-8000-000000000001";
+  const observationId=createHash("sha256").update(deviceId+"/handoff/"+capture.cup_event_id).digest("hex");
+  const observation={deviceId,observationId,businessDate:"2026-07-18",cameraName:"handoff",sourceEventId:capture.cup_event_id,sourceFalsePositive:false,verification:"same_frame_local_cv",sameFrameEvidence:{imageSha256:capture.image_sha256,capturedAt:capture.captured_at_utc,originalSidecarSha256:proof.sourceMetadataSha256,sourceZoneSha256:createHash("sha256").update(proof.sourceZoneCanonicalJson).digest("hex")}};
+  const row={id:610,storeId:1,businessDate:"2026-07-18",cameraName:"handoff",cupEventId:capture.cup_event_id,imageSha256:capture.image_sha256,captureMetadataJson:JSON.stringify(capture),imageKey:"private.jpg",capturedAt:new Date(capture.captured_at_utc),receivedAt:new Date("2026-07-18T22:04:00Z"),evidenceOrigin:"verified_snapshot",analysisStatus:"pending_review",zoneId:visualZone.id,zoneGeometryVersion:1,zoneGeometryJson:visualZone.polygonJson};
+  return {input:{apiKey:"test-frigate-key",deviceId,businessDate:"2026-07-18",observationId,imageDataUrl:visualImageDataUrl,capture,normalizationProof:proof},observation,row};
+ }
+ beforeEach(()=>{
+  vi.clearAllMocks();dbMocks.getActiveStoreById.mockResolvedValue(storeOne);dbMocks.resolveActiveStoreCredential.mockResolvedValue(null);
+  const f=sample();localLedgerMocks.readLocalEvidenceObservation.mockResolvedValue(f.observation);
+  dbMocks.getActiveHandoffCameraZone.mockResolvedValue(visualZone);dbMocks.reserveHandoffVisualEvent.mockResolvedValue({event:{...f.row,imageKey:null},created:true});
+  dbMocks.attachHandoffVisualImage.mockResolvedValue(f.row);dbMocks.getHandoffVisualEventById.mockResolvedValue(f.row);dbMocks.getHandoffVisualEventByCapture.mockResolvedValue(f.row);storageMocks.storagePut.mockResolvedValue({key:"private.jpg",url:"private"});
+ });
+ it("publishes explicit capability without credentials",async()=>expect(await appRouter.createCaller(createContext(null)).frigate.localEvidenceCapabilities()).toMatchObject({externalAiRequired:false,browserRequired:false,requiresPersistedLocalObservation:true}));
+ it("stores and confirms original photo without calling cloud vision",async()=>{const f=sample();const r=await appRouter.createCaller(createContext(null)).frigate.submitLocalCupEvidence(f.input);expect(r.receipt).toMatchObject({persisted:true,storeId:1,externalAiInvoked:false,physicalDeliveryCountCreated:false});expect(handoffVisualMocks.analyzeHandoffVisualImage).not.toHaveBeenCalled();expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();expect(dbMocks.reserveHandoffVisualEvent).toHaveBeenCalledWith(expect.objectContaining({sourceDetail:`native_local_cv_only_v1:${f.observation.observationId}`}));});
+ it("invalid key cannot touch evidence storage",async()=>{await expect(appRouter.createCaller(createContext(null)).frigate.submitLocalCupEvidence({...sample().input,apiKey:"invalid-native-fixture"})).rejects.toMatchObject({code:"UNAUTHORIZED"});expect(localLedgerMocks.readLocalEvidenceObservation).not.toHaveBeenCalled();expect(storageMocks.storagePut).not.toHaveBeenCalled();});
+ it("receipt reads are store scoped and create nothing",async()=>{const f=sample();const r=await appRouter.createCaller(createContext(null)).frigate.localCupEvidenceReceipt({apiKey:f.input.apiKey,deviceId:f.input.deviceId,businessDate:f.input.businessDate,observationId:f.input.observationId});expect(r.receipt?.eventId).toBe(610);expect(dbMocks.getHandoffVisualEventByCapture).toHaveBeenCalledWith({storeId:1,businessDate:f.input.businessDate,cameraName:"handoff",cupEventId:f.input.capture.cup_event_id});expect(storageMocks.storagePut).not.toHaveBeenCalled();});
+ it("rejects an observation that was not persisted",async()=>{localLedgerMocks.readLocalEvidenceObservation.mockResolvedValue(null);await expect(appRouter.createCaller(createContext(null)).frigate.submitLocalCupEvidence(sample().input)).rejects.toMatchObject({code:"BAD_REQUEST"});expect(dbMocks.reserveHandoffVisualEvent).not.toHaveBeenCalled();});
+ it("rejects an owner excluded source without deleting it",async()=>{localLedgerMocks.readLocalEvidenceObservation.mockResolvedValue({...sample().observation,ownerSizeReview:{label:"not_cup"}});await expect(appRouter.createCaller(createContext(null)).frigate.submitLocalCupEvidence(sample().input)).rejects.toMatchObject({code:"BAD_REQUEST"});expect(dbMocks.reserveHandoffVisualEvent).not.toHaveBeenCalled();});
+ it("does not give a receipt on missing persisted image",async()=>{dbMocks.getHandoffVisualEventById.mockResolvedValue({...sample().row,imageKey:null});await expect(appRouter.createCaller(createContext(null)).frigate.submitLocalCupEvidence(sample().input)).rejects.toMatchObject({code:"INTERNAL_SERVER_ERROR"});});
+ it("terminal manager review remains untouched on a replay",async()=>{const f=sample();dbMocks.reserveHandoffVisualEvent.mockResolvedValue({event:{...f.row,analysisStatus:"approved_by_manager"},created:false});dbMocks.getHandoffVisualEventById.mockResolvedValue({...f.row,analysisStatus:"approved_by_manager"});const r=await appRouter.createCaller(createContext(null)).frigate.submitLocalCupEvidence(f.input);expect(r.receipt?.analysisStatus).toBe("approved_by_manager");expect(storageMocks.storagePut).not.toHaveBeenCalled();expect(handoffVisualMocks.analyzeHandoffVisualImage).not.toHaveBeenCalled();});
+ it("missing capture receipt returns null instead of success",async()=>{dbMocks.getHandoffVisualEventByCapture.mockResolvedValue(null);const f=sample();expect(await appRouter.createCaller(createContext(null)).frigate.localCupEvidenceReceipt({apiKey:f.input.apiKey,deviceId:f.input.deviceId,businessDate:f.input.businessDate,observationId:f.input.observationId})).toEqual({receipt:null});});
 });

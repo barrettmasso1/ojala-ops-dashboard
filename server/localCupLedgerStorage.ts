@@ -97,3 +97,11 @@ export async function readLocalLedgerReceipt(store:LocalLedgerBlobStore,storeId:
   const checked=checkStored(JSON.parse(actual.text),storeId,deviceId,day,timeZone);
   return localLedgerReceipt(checked.stored,checked.parsed);
 }
+
+/** Store-scoped source for native photo proof. This does not expose storage URLs. */
+export async function readLocalEvidenceObservation(store:LocalLedgerBlobStore,storeId:number,deviceId:string,day:string,observationId:string,timeZone:string){
+ if(!/^[a-f0-9]{64}$/.test(observationId))throw Error("invalid_observation_id");
+ const actual=await store.read(ledgerStorageKey(storeId,deviceId,day));if(!actual)return null;
+ const checked=checkStored(JSON.parse(actual.text),storeId,deviceId,day,timeZone);
+ return checked.parsed.observations.find(o=>o.observationId===observationId)??null;
+}
