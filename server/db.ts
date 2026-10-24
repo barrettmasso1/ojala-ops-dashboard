@@ -1,6 +1,7 @@
 import { parseAutoCupSizes, automaticDescriptionView, summarizeCameraSizes } from "../shared/autoCupSizes";
 import { describeCameraCups, encodeCupReviewNotes, parseCupReviewNotes, preserveDescriptionsWithNote, validateCupDescriptions, type CupDescription } from "../shared/cupDescriptions";
 import { DEFERRED_SOURCE_PREFIX, MAX_DEFERRED_ANALYSIS_ATTEMPTS } from "./handoffDurableReceipt";
+import { NATIVE_LOCAL_EVIDENCE_SOURCE_PREFIX, isNativeLocalEvidenceSource } from "./nativeLocalEvidence";
 import { and, count, desc, eq, gte, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { createHash, randomUUID } from "node:crypto";
 import { drizzle } from "drizzle-orm/mysql2";
@@ -2659,6 +2660,7 @@ export async function reserveHandoffVisualEvent(input: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const storeId = requireStoreId(input.storeId);
+  if (isNativeLocalEvidenceSource(input.sourceDetail) && input.requiredSourceDetail !== input.sourceDetail) throw Error("native_evidence_source_conflict");
   if(input.requiredSourceDetail!==undefined && input.requiredSourceDetail!==input.sourceDetail)throw Error("native_evidence_source_conflict");
 
   const where = and(
@@ -2668,6 +2670,7 @@ export async function reserveHandoffVisualEvent(input: {
   );
   const existing = await db.select().from(frigateHandoffVisualEvents).where(where).limit(1);
   if (existing[0]) {
+    if (isNativeLocalEvidenceSource(existing[0].sourceDetail) && input.requiredSourceDetail !== existing[0].sourceDetail) throw Error("native evidence requires the native evidence route");
     if(input.requiredSourceDetail!==undefined && existing[0].sourceDetail!==input.requiredSourceDetail)throw Error("native_evidence_source_conflict");
     if (existing[0].evidenceOrigin !== (input.evidenceOrigin ?? "verified_snapshot")) {
       throw new Error("cup_event_id is already reserved for a different evidence origin");
@@ -2696,6 +2699,7 @@ export async function reserveHandoffVisualEvent(input: {
     // The unique key is the concurrency boundary when two sender retries race.
     const concurrent = await db.select().from(frigateHandoffVisualEvents).where(where).limit(1);
     if (concurrent[0]) {
+      if (isNativeLocalEvidenceSource(concurrent[0].sourceDetail) && input.requiredSourceDetail !== concurrent[0].sourceDetail) throw Error("native evidence requires the native evidence route");
       if(input.requiredSourceDetail!==undefined && concurrent[0].sourceDetail!==input.requiredSourceDetail)throw Error("native_evidence_source_conflict");
       if (concurrent[0].evidenceOrigin !== (input.evidenceOrigin ?? "verified_snapshot")) {
         throw new Error("cup_event_id is already reserved for a different evidence origin");
@@ -2798,6 +2802,7 @@ export async function normalizePendingVerifiedCaptureMetadata(input: {
     eq(frigateHandoffVisualEvents.id, input.id),
     eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
     eq(frigateHandoffVisualEvents.evidenceOrigin, "verified_snapshot"),
+    sql`LEFT(${frigateHandoffVisualEvents.sourceDetail}, ${NATIVE_LOCAL_EVIDENCE_SOURCE_PREFIX.length}) <> ${NATIVE_LOCAL_EVIDENCE_SOURCE_PREFIX}`,
     eq(frigateHandoffVisualEvents.analysisStatus, "pending_review"),
     eq(frigateHandoffVisualEvents.captureMetadataJson, input.expectedMetadataJson),
     or(isNull(frigateHandoffVisualEvents.analysisLeaseUntil), lte(frigateHandoffVisualEvents.analysisLeaseUntil, now)),
@@ -2858,6 +2863,7 @@ export async function claimHandoffVisualAnalysis(input: { id: number; storeId: n
       eq(frigateHandoffVisualEvents.id, input.id),
       eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
       eq(frigateHandoffVisualEvents.analysisStatus, "pending_review"),
+      sql`LEFT(${frigateHandoffVisualEvents.sourceDetail}, ${NATIVE_LOCAL_EVIDENCE_SOURCE_PREFIX.length}) <> ${NATIVE_LOCAL_EVIDENCE_SOURCE_PREFIX}`,
       ...(input.maxAttempts ? [sql`${frigateHandoffVisualEvents.analysisAttempts} < ${input.maxAttempts}`, isNull(frigateHandoffVisualEvents.reviewedAt), sql`LEFT(${frigateHandoffVisualEvents.sourceDetail}, ${DEFERRED_SOURCE_PREFIX.length}) = ${DEFERRED_SOURCE_PREFIX}`] : []),
       isNotNull(frigateHandoffVisualEvents.imageKey),
       or(isNull(frigateHandoffVisualEvents.analysisLeaseUntil), lte(frigateHandoffVisualEvents.analysisLeaseUntil, now)),
@@ -2904,6 +2910,7 @@ export async function finalizeHandoffVisualAnalysis(input: {
       eq(frigateHandoffVisualEvents.id, input.id),
       eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
       eq(frigateHandoffVisualEvents.analysisStatus, "pending_review"),
+      sql`LEFT(${frigateHandoffVisualEvents.sourceDetail}, ${NATIVE_LOCAL_EVIDENCE_SOURCE_PREFIX.length}) <> ${NATIVE_LOCAL_EVIDENCE_SOURCE_PREFIX}`,
       eq(frigateHandoffVisualEvents.analysisLeaseToken, input.analysisLeaseToken),
     ));
 
@@ -2935,6 +2942,7 @@ export async function deferHandoffVisualAnalysis(input: {
       eq(frigateHandoffVisualEvents.id, input.id),
       eq(frigateHandoffVisualEvents.storeId, requireStoreId(input.storeId)),
       eq(frigateHandoffVisualEvents.analysisStatus, "pending_review"),
+      sql`LEFT(${frigateHandoffVisualEvents.sourceDetail}, ${NATIVE_LOCAL_EVIDENCE_SOURCE_PREFIX.length}) <> ${NATIVE_LOCAL_EVIDENCE_SOURCE_PREFIX}`,
       eq(frigateHandoffVisualEvents.analysisLeaseToken, input.analysisLeaseToken),
     ));
 

@@ -4,6 +4,7 @@ import { analyzePersistedHandoffVisual } from "./handoffPersistedAnalysis";
 import { parseHandoffCaptureMetadata } from "./handoffVisualPayload";
 import { isHandoffCaptureZoneCoherent, parseStoredHandoffZoneGeometry } from "./handoffZoneGeometry";
 import { isDeferredAnalysisDue, MAX_DEFERRED_ANALYSIS_ATTEMPTS } from "./handoffDurableReceipt";
+import { isNativeLocalEvidenceSource } from "./nativeLocalEvidence";
 
 let running = false;
 let timer: ReturnType<typeof setInterval> | undefined;
@@ -21,6 +22,7 @@ export async function runHandoffAnalysisCycle() {
       try {
         // Re-read scoped identity and store status after selection; do not use a stale list row.
         const event = await getHandoffVisualEventById({ id: candidate.id, storeId: candidate.storeId });
+        if (event && isNativeLocalEvidenceSource(event.sourceDetail)) { result.held++; continue; }
         if (!event || !isDeferredAnalysisDue(event, new Date())) continue;
         if (!(await getActiveStoreById(event.storeId))) { result.held++; continue; }
         let coherent = false;

@@ -1,4 +1,4 @@
-import copy,json,tempfile,time,types,unittest
+import copy,json,os,tempfile,time,types,unittest
 from pathlib import Path
 from datetime import datetime,timezone
 from unittest.mock import patch
@@ -69,6 +69,12 @@ class QueueTests(unittest.TestCase):
   h=PhotoHttp(ORIGIN,Path('/none'),1)
   with patch.object(h,'_key',side_effect=AssertionError('key access')),patch.object(h,'_request',return_value={}) as request:h.capabilities()
   self.assertEqual(request.call_args.args,('GET','frigate.localEvidenceCapabilities'))
+ def test_photo_credential_requires_native_submit_endpoint(self):
+  with tempfile.TemporaryDirectory() as d:
+   key=Path(d)/'native-photo-key.json';key.write_text(json.dumps({'storeId':1,'endpoint':ORIGIN+'/api/trpc/frigate.submitLocalCupEvidence','apiKey':'fixture'}));os.chmod(key,0o600)
+   self.assertEqual(PhotoHttp(ORIGIN,key,1)._key(),'fixture')
+   key.write_text(json.dumps({'storeId':1,'endpoint':ORIGIN+'/api/trpc/frigate.submitCounts','apiKey':'fixture'}));os.chmod(key,0o600)
+   with self.assertRaisesRegex(InvalidEvidence,'credential_scope_mismatch'):PhotoHttp(ORIGIN,key,1)._key()
  def test_receipt_wrong_tenant_is_rejected(self):
   r=receipt(self.o);r['storeId']=2
   with self.assertRaises(InvalidEvidence):validate_photo_receipt(r,self.o,1)

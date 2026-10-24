@@ -42,7 +42,8 @@ class SupervisorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); (root/'enabled.json').write_text('{}')
             with patch.object(rescue,'ROOT',root), patch.object(rescue,'STATE',root/'state.json'), \
-                 patch.object(rescue,'HEALTH',root/'health.json'), patch.object(rescue,'call') as call:
+                 patch.object(rescue,'HEALTH',root/'health.json'), patch.object(rescue,'temperature_c',return_value=72), \
+                 patch.object(rescue,'call') as call:
                 call.side_effect=[subprocess.CompletedProcess([],0,'true\n',''),
                                   subprocess.CompletedProcess([],0,'[]\n',''),
                                   subprocess.CompletedProcess([],0,'','')]
@@ -50,6 +51,15 @@ class SupervisorTests(unittest.TestCase):
                 self.assertEqual(json.loads((root/'state.json').read_text())['status'],'started')
                 commands=[c.args[0] for c in call.call_args_list]
                 self.assertFalse(any(c[:2]==['docker','start'] for c in commands))
+
+    def test_rescue_holds_with_fake_hot_sensor(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); (root/'enabled.json').write_text('{}')
+            with patch.object(rescue,'ROOT',root), patch.object(rescue,'STATE',root/'state.json'), \
+                 patch.object(rescue,'temperature_c',return_value=90), patch.object(rescue,'call') as call:
+                call.side_effect=[subprocess.CompletedProcess([],0,'true\n',''),subprocess.CompletedProcess([],0,'[]\n','')]
+                rescue.main()
+                self.assertEqual(json.loads((root/'state.json').read_text())['status'],'paused_temperature')
 
     def test_rescue_never_starts_stopped_frigate(self):
         with tempfile.TemporaryDirectory() as d:

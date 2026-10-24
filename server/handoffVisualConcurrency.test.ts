@@ -29,6 +29,14 @@ describe("handoff visual concurrency guards (source-level database contract)", (
     expect(dbSource).toContain("export async function reviewHandoffVisualEvent");
     expect(dbSource).toContain("reviewedByUserId: input.reviewedByUserId");
   });
+
+  it("excludes native local evidence from generic reservation, normalization, leases, and finalization", () => {
+    expect(dbSource).toContain('import { NATIVE_LOCAL_EVIDENCE_SOURCE_PREFIX, isNativeLocalEvidenceSource } from "./nativeLocalEvidence"');
+    expect(dbSource).toContain('native evidence requires the native evidence route');
+    expect(dbSource).toContain('LEFT(${frigateHandoffVisualEvents.sourceDetail}, ${NATIVE_LOCAL_EVIDENCE_SOURCE_PREFIX.length}) <> ${NATIVE_LOCAL_EVIDENCE_SOURCE_PREFIX}');
+    expect(routerSource).toContain('Native local evidence cannot enter visual analysis');
+    expect(analysisSource).toContain('disposition: "native_local_only" as const');
+  });
 });
 
 describe("handoff zone geometry", () => {

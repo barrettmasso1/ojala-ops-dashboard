@@ -468,6 +468,17 @@ describe("operations router", () => {
     expect(storageMocks.storagePut).not.toHaveBeenCalled();
   });
 
+  it.each(["after_analysis", "after_storage"] as const)("rejects a native-local source in generic receiptMode %s before reservation or analysis", async receiptMode => {
+    const caller = appRouter.createCaller(createContext(null));
+    await expect(caller.frigate.submitHandoffVisual({
+      apiKey: "test-frigate-key", capture: visualCapture("native-source-generic"), imageDataUrl: visualImageDataUrl,
+      sourceDetail: "native_local_cv_only_v1:fixture", receiptMode,
+    })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(dbMocks.reserveHandoffVisualEvent).not.toHaveBeenCalled();
+    expect(storageMocks.storagePut).not.toHaveBeenCalled();
+    expect(handoffVisualMocks.analyzeHandoffVisualImage).not.toHaveBeenCalled();
+  });
+
   it("keeps a recording-extracted recovery frame separate from an automatic Frigate success", async () => {
     dbMocks.reserveHandoffVisualEvent.mockResolvedValueOnce({
       event: {

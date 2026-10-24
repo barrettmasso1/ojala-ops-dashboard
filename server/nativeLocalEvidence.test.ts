@@ -1,6 +1,6 @@
 import {describe,it,expect} from "vitest";
 import {hashText,type LocalObservation} from "./localCupLedger";
-import {nativeEvidenceIdentity,nativeEvidenceUpload,requireEvidenceObservation,validateNativeEvidence,localEvidenceSource,nativeEvidenceReceipt} from "./nativeLocalEvidence";
+import {nativeEvidenceIdentity,nativeEvidenceUpload,requireEvidenceObservation,validateNativeEvidence,localEvidenceSource,nativeEvidenceReceipt,isNativeLocalEvidenceSource} from "./nativeLocalEvidence";
 import {isDeferredHandoffSource} from "./handoffDurableReceipt";
 const deviceId="00000000-0000-4000-8000-000000000001",day="2026-07-18",event="fixture-cup-photo-001";
 function fixture(){
@@ -17,6 +17,7 @@ function fixture(){
 describe("native original photo proof and receipt",()=>{
  it("accepts original normalized proof without calling a model",()=>{const f=fixture();nativeEvidenceUpload.parse(f.upload);expect(validateNativeEvidence(f.observation,f.upload,"America/Mazatlan").normalizationAudit).toBeDefined();});
  it("never requests the deferred AI worker",()=>expect(isDeferredHandoffSource(localEvidenceSource(fixture().observation))).toBe(false));
+ it("marks only the native prefix as local-only evidence",()=>{const source=localEvidenceSource(fixture().observation);expect(isNativeLocalEvidenceSource(source)).toBe(true);expect(isNativeLocalEvidenceSource("verified_snapshot")).toBe(false);});
  it.each(["deviceId","businessDate","observationId"] as const)("rejects wrong %s before storage",key=>{const f=fixture();(f.upload as any)[key]="other";expect(()=>requireEvidenceObservation(f.observation,f.upload,true)).toThrow();});
  it("requires a persisted original observation",()=>expect(()=>requireEvidenceObservation(null,fixture().upload,true)).toThrow());
  it("rejects missing same-frame proof",()=>{const f=fixture();f.observation.sameFrameEvidence=null;expect(()=>validateNativeEvidence(f.observation,f.upload,"America/Mazatlan")).toThrow();});

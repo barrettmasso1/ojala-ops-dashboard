@@ -6,6 +6,7 @@ import {validateVerifiedZoneNormalization} from "./handoffZoneNormalization";
 import type {PersistedHandoffRow} from "./handoffDurableReceipt";
 export const NATIVE_EVIDENCE_PROTOCOL="ojala_local_cup_evidence_v1";
 export const NATIVE_EVIDENCE_RECEIPT="ojala_local_cup_evidence_receipt_v1";
+export const NATIVE_LOCAL_EVIDENCE_SOURCE_PREFIX="native_local_cv_only_v1:";
 const sha=z.string().regex(/^[a-f0-9]{64}$/);
 export const nativeEvidenceIdentity=z.object({deviceId:z.string().uuid(),businessDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),observationId:sha}).strict();
 export const nativeEvidenceUpload=nativeEvidenceIdentity.extend({
@@ -30,7 +31,9 @@ export function validateNativeEvidence(o:LocalObservation,input:z.infer<typeof n
  metadata.normalizationAudit=validateVerifiedZoneNormalization(input.normalizationProof,metadata);
  return metadata;
 }
-export function localEvidenceSource(o:LocalObservation){return `native_local_cv_only_v1:${o.observationId}`;}
+export function localEvidenceSource(o:LocalObservation){return `${NATIVE_LOCAL_EVIDENCE_SOURCE_PREFIX}${o.observationId}`;}
+/** Native photos are stored proof only; no generative visual path may process them. */
+export function isNativeLocalEvidenceSource(value:string|null|undefined){return typeof value==="string"&&value.startsWith(NATIVE_LOCAL_EVIDENCE_SOURCE_PREFIX);}
 export function requireNativeEvidenceSource(row:(PersistedHandoffRow & {analysisAttempts?:number})|null,o:LocalObservation){
  if(row && (row.sourceDetail!==localEvidenceSource(o) || (row.analysisAttempts??0)>0 || row.analysisStatus==="approved_by_ai"))throw Error("native_evidence_source_conflict");
 }

@@ -25,12 +25,12 @@ class NativeHttp:
     def __init__(self,origin,key_file,store_id):
         require(origin==ORIGIN,'unapproved_api_origin');self.origin=origin;self.key_file=Path(key_file);self.store_id=store_id
         self.opener=urllib.request.build_opener(NoRedirect())
-    def _key(self):
+    def _key(self,expected_endpoint=ORIGIN+'/api/trpc/frigate.submitCounts'):
         fd=os.open(self.key_file,os.O_RDONLY|os.O_NOFOLLOW)
         with os.fdopen(fd) as f:
             info=os.fstat(f.fileno());require(stat.S_ISREG(info.st_mode) and info.st_uid==os.getuid() and info.st_mode&0o077==0,'private_key_permissions')
             data=json.load(f)
-        require(data.get('storeId')==self.store_id and data.get('endpoint')==ORIGIN+'/api/trpc/frigate.submitCounts','credential_scope_mismatch')
+        require(data.get('storeId')==self.store_id and data.get('endpoint')==expected_endpoint,'credential_scope_mismatch')
         value=data.get('apiKey');require(isinstance(value,str) and bool(value.strip()),'machine_credential_missing');return value
     def _request(self,method,procedure,data=None):
         body=None if data is None else canonical({'json':data}).encode()

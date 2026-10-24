@@ -1,4 +1,4 @@
-import {NATIVE_EVIDENCE_PROTOCOL,nativeEvidenceIdentity,nativeEvidenceUpload,requireEvidenceObservation,validateNativeEvidence,localEvidenceSource,nativeEvidenceReceipt} from "./nativeLocalEvidence";
+import {NATIVE_EVIDENCE_PROTOCOL,nativeEvidenceIdentity,nativeEvidenceUpload,requireEvidenceObservation,validateNativeEvidence,localEvidenceSource,nativeEvidenceReceipt,isNativeLocalEvidenceSource} from "./nativeLocalEvidence";
 import { LOCAL_LEDGER_PROTOCOL, localLedgerInputSchema, parseLocalLedger } from "./localCupLedger";
 import { PlatformLocalLedgerStore, saveLocalLedger, readLocalLedger, readLocalLedgerReceipt, readLocalEvidenceObservation } from "./localCupLedgerStorage";
 import { classifyHandoffCupSizes } from "./autoCupSizes";
@@ -417,6 +417,10 @@ async function processHandoffVisualEvent(input: {
   deferAnalysis?: boolean;
   requiredSourceDetail?: string;
 }) {
+  const nativeOnly = isNativeLocalEvidenceSource(input.sourceDetail);
+  if (nativeOnly && (input.requiredSourceDetail !== input.sourceDetail || input.deferAnalysis !== true)) {
+    throw new TRPCError({ code: "CONFLICT", message: "Native local evidence cannot enter visual analysis" });
+  }
   const decoded = decodeHandoffImageDataUrl(input.imageDataUrl);
   if (decoded.checksum !== input.metadata.imageSha256) {
     throw new Error("Capture metadata image_sha256 does not match the submitted image");
@@ -458,7 +462,7 @@ async function processHandoffVisualEvent(input: {
     return { eventId: event.id, status: event.analysisStatus, disposition: "already_processed" as const, retryable: false };
   }
 
-  if (!reserved.created && input.metadata.normalizationAudit && event.captureMetadataJson) {
+  if (!nativeOnly && !reserved.created && input.metadata.normalizationAudit && event.captureMetadataJson) {
     const corrected = metadataWithNormalizationAudit(event.captureMetadataJson,
       handoffCaptureMetadataJson(input.metadata), input.metadata.normalizationAudit);
     if (corrected) {
@@ -987,6 +991,9 @@ export const appRouter = router({
           throw new TRPCError({ code: "UNAUTHORIZED", message: "Unauthorized" });
         }
         clearCredentialFailures("frigate", clientKey);
+        if (isNativeLocalEvidenceSource(input.sourceDetail)) {
+          throw new TRPCError({ code: "CONFLICT", message: "Native local evidence requires its credential-scoped route" });
+        }
 
         const metadata = parseHandoffCaptureMetadata({
           camera: input.capture.camera,

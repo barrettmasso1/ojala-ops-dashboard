@@ -8,13 +8,14 @@ import argparse,base64,fcntl,hashlib,json,os,signal,sqlite3,sys,time
 from pathlib import Path
 from datetime import datetime,timezone
 from zoneinfo import ZoneInfo
-from native_sync import NativeHttp,SyncError
+from native_sync import NativeHttp,SyncError,ORIGIN
 from ledger import require,canonical,digest,InvalidEvidence,parse_aware
 from collector import atomic
 PROTOCOL='ojala_local_cup_evidence_v1'
 RECEIPT='ojala_local_cup_evidence_receipt_v1'
 
 class PhotoHttp(NativeHttp):
+ def _key(self):return super()._key(ORIGIN+'/api/trpc/frigate.submitLocalCupEvidence')
  def capabilities(self):return self._request('GET','frigate.localEvidenceCapabilities')
  def receipt(self,o):return self._request('POST','frigate.localCupEvidenceReceipt',{'apiKey':self._key(),'deviceId':o['deviceId'],'businessDate':o['businessDate'],'observationId':o['observationId']}).get('receipt')
  def send(self,payload):return self._request('POST','frigate.submitLocalCupEvidence',{'apiKey':self._key(),**payload})
