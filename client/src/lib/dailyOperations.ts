@@ -139,7 +139,7 @@ export function buildDailyOperations(input: DailyOperationsInput, selectedDate: 
       ? "Waiting for the sales closing record for this date."
       : "Waiting for a reviewed camera count with complete coverage.";
   const cameraLabel = {
-    missing: "Conteo pendiente",
+    missing: "Entregas sin consolidar",
     invalid: "Check record",
     unclassified: "Method unconfirmed",
     partial: "Partial evidence",

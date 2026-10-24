@@ -17,19 +17,19 @@ export default function DailyOperationsPanel({ view, timeZone }: { view: DailyOp
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-[#65716b]">Daily operations · {view.businessDate}</p>
-          <h2 id="daily-operations-title" className="mt-3 font-serif text-3xl text-[#1f2b27]">Sales &amp; physical camera count</h2>
+          <h2 id="daily-operations-title" className="mt-3 font-serif text-3xl text-[#1f2b27]">Cierre y conteo revisado de entregas</h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-[#65716b]">Daily physical counts and visual evidence are separate. Images and AI labels do not become cups, sales, or deliveries.</p>
         </div>
         <span className="w-fit rounded-full bg-[#f1e8da] px-4 py-2 text-sm font-medium text-[#52665f]">{view.cameraLabel}</span>
       </div>
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
         <div className="rounded-2xl bg-[#f7f2ea] p-5">
-          <h3 className="text-sm text-[#52665f]">Sales entered at closing</h3>
+          <h3 className="text-sm text-[#52665f]">Unidades registradas en el cierre</h3>
           <p className="mt-3 text-3xl font-semibold text-[#1f2b27]">{view.salesCount ?? "—"}</p>
-          <p className="mt-3 text-sm leading-6 text-[#65716b]">{view.salesCount === null ? "No valid closing count for this date." : "Reported containers across sizes. No automatic POS connection is implied."}</p>
+          <p className="mt-3 text-sm leading-6 text-[#65716b]">{view.salesCount === null ? "Sin cierre manual registrado para esta fecha." : "Reported containers across sizes. No automatic POS connection is implied."}</p>
         </div>
         <div className="rounded-2xl bg-[#f7f2ea] p-5">
-          <h3 className="text-sm text-[#52665f]">Conteo de vasos por cámara</h3>
+          <h3 className="text-sm text-[#52665f]">Entregas revisadas del turno</h3>
           <p className="mt-3 text-3xl font-semibold text-[#1f2b27]">{view.cameraValue}</p>
           <p className="mt-3 text-sm leading-6 text-[#65716b]">{view.cameraMessage}</p>
           <dl className="mt-4 space-y-2 text-sm leading-6 text-[#65716b]">
@@ -39,7 +39,7 @@ export default function DailyOperationsPanel({ view, timeZone }: { view: DailyOp
           </dl>
         </div>
         <div className="rounded-2xl bg-[#f7f2ea] p-5">
-          <h3 className="text-sm text-[#52665f]">Difference to review</h3>
+          <h3 className="text-sm text-[#52665f]">Diferencia comparable</h3>
           <p className="mt-3 text-3xl font-semibold text-[#1f2b27]">{view.difference === null ? "—" : `${view.difference > 0 ? "+" : ""}${view.difference}`}</p>
           <p className="mt-3 text-sm leading-6 text-[#65716b]">{view.differenceMessage}</p>
         </div>
