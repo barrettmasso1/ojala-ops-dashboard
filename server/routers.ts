@@ -82,6 +82,7 @@ import { isHandoffCaptureZoneCoherent, parseStoredHandoffZoneGeometry } from "./
 import { prepareReviewedCountImport } from "./reviewedCountImport";
 import { REVIEWED_COUNT_IMPORT_LIMIT } from "../shared/reviewedCountImport";
 import { metadataWithNormalizationAudit, validateVerifiedZoneNormalization } from "./handoffZoneNormalization";
+import { getRetroactiveClosingStatus, saveRetroactiveClosing } from "./retroactiveClosing";
 
 const PHASE1_OJALA_STORE_ID = 1;
 
@@ -304,6 +305,22 @@ function normalizeFrontendOrigin(origin?: string) {
   } catch {
     return "";
   }
+}
+
+function requireCurrentStaffBusinessDate(date: string | undefined, timeZone?: string) {
+  // Production protected contexts resolve the active store timezone before the
+  // handler runs. Tests that intentionally use a minimal context may omit it;
+  // those fixtures must not be mistaken for a production date boundary.
+  if (!timeZone) return date ?? getBusinessDate(new Date());
+  const current = getBusinessDate(new Date(), timeZone);
+  const requested = date ?? current;
+  if (requested !== current) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Staff submissions are limited to the current business date. Use the admin retroactive closing workflow for a past date.",
+    });
+  }
+  return requested;
 }
 
 function buildDashboardUrl(
@@ -592,6 +609,7 @@ export const appRouter = router({
       return { success: true, item } as const;
     }),
     submitInventorySubmissionSummary: protectedProcedure.input(inventorySubmissionSummarySchema).mutation(async ({ ctx, input }) => {
+      const businessDate = requireCurrentStaffBusinessDate(input.businessDate, ctx.storeTimezone);
       if (input.notifyOwner) {
         const previewItems = input.itemSummaries
           .slice(0, 10)
@@ -602,17 +620,18 @@ export const appRouter = router({
         const gelatoLabel = input.gelatoEntryCount > 0 ? ` Ready-made gelato entries saved: ${input.gelatoEntryCount}.` : "";
 
         await notifyOwner({
-          title: `Inventory updated for ${input.businessDate}`,
-          content: `${input.staffName || ctx.user.name || "A team member"} submitted ${input.itemSummaries.length} inventory updates for ${input.businessDate}.${gelatoLabel} Updated items: ${previewItems}${remainingLabel}. Review: ${buildDashboardUrl(ctx.req, input.origin)}`,
+          title: `Inventory updated for ${businessDate}`,
+          content: `${input.staffName || ctx.user.name || "A team member"} submitted ${input.itemSummaries.length} inventory updates for ${businessDate}.${gelatoLabel} Updated items: ${previewItems}${remainingLabel}. Review: ${buildDashboardUrl(ctx.req, input.origin)}`,
         });
       }
 
       return { success: true } as const;
     }),
     submitSubmissionHistory: protectedProcedure.input(submissionHistorySchema).mutation(async ({ ctx, input }) => {
+      const businessDate = requireCurrentStaffBusinessDate(input.businessDate, ctx.storeTimezone);
       const entry = await createSubmissionHistoryEntry({
         storeId: ctx.user.storeId,
-        businessDate: input.businessDate,
+        businessDate,
         submissionType: input.submissionType,
         staffName: input.staffName,
         submittedByUserId: ctx.user.id,
@@ -639,9 +658,10 @@ export const appRouter = router({
       } as const;
     }),
     submitReadyMadeGelato: protectedProcedure.input(readyMadeGelatoSchema).mutation(async ({ ctx, input }) => {
+      const businessDate = requireCurrentStaffBusinessDate(input.businessDate, ctx.storeTimezone);
       const records = await saveReadyMadeGelatoWeights({
         storeId: ctx.user.storeId,
-        businessDate: input.businessDate,
+        businessDate,
         shiftType: input.shiftType,
         submittedByUserId: ctx.user.id,
         entries: input.entries.map(entry => ({
@@ -656,14 +676,15 @@ export const appRouter = router({
 
       if (input.notifyOwner) {
         await notifyOwner({
-          title: `Ready-made gelato ${input.shiftType} saved: ${input.businessDate || new Date().toISOString().slice(0, 10)}`,
-          content: `${ctx.user.name || "A team member"} saved ${records.length} ${input.shiftType} gelato measurements for ${input.businessDate || new Date().toISOString().slice(0, 10)}. Review: ${buildDashboardUrl(ctx.req, input.origin)}`,
+          title: `Ready-made gelato ${input.shiftType} saved: ${businessDate}`,
+          content: `${ctx.user.name || "A team member"} saved ${records.length} ${input.shiftType} gelato measurements for ${businessDate}. Review: ${buildDashboardUrl(ctx.req, input.origin)}`,
         });
       }
 
       return { success: true, records } as const;
     }),
     submitOpening: protectedProcedure.input(openingChecklistSchema).mutation(async ({ ctx, input }) => {
+      const businessDate = requireCurrentStaffBusinessDate(input.businessDate, ctx.storeTimezone);
       const answersBySection = input.checklistAnswers.reduce<Record<string, Array<string>>>((acc, answer) => {
         const line = `${answer.prompt}: ${answer.answer}${answer.detail ? ` — ${answer.detail}` : ""}`;
         acc[answer.sectionTitle] = [...(acc[answer.sectionTitle] ?? []), line];
@@ -672,7 +693,7 @@ export const appRouter = router({
 
       const record = await createOpeningChecklist({
         storeId: ctx.user.storeId,
-        businessDate: input.businessDate ?? new Date().toISOString().slice(0, 10),
+        businessDate,
         staffName: input.staffName,
         equipmentStatus: (answersBySection.Equipment ?? []).join("\n") || "No equipment responses provided",
         cleanlinessStatus: (answersBySection.Cleanliness ?? []).join("\n") || "No cleanliness responses provided",
@@ -705,6 +726,7 @@ export const appRouter = router({
       return { success: true } as const;
     }),
     submitClosing: protectedProcedure.input(closingChecklistSchema).mutation(async ({ ctx, input }) => {
+      const businessDate = requireCurrentStaffBusinessDate(input.businessDate, ctx.storeTimezone);
       const answersBySection = input.checklistAnswers.reduce<Record<string, Array<string>>>((acc, answer) => {
         const line = `${answer.prompt}: ${answer.answer}${answer.detail ? ` — ${answer.detail}` : ""}`;
         acc[answer.sectionTitle] = [...(acc[answer.sectionTitle] ?? []), line];
@@ -714,7 +736,7 @@ export const appRouter = router({
 
       const record = await createClosingChecklist({
         storeId: ctx.user.storeId,
-        businessDate: input.businessDate ?? new Date().toISOString().slice(0, 10),
+        businessDate,
         staffName: input.staffName,
         cashCounted: input.cashCounted.toFixed(2),
         cashMatchesSystem: input.cashMatchesSystem,
@@ -739,9 +761,11 @@ export const appRouter = router({
       return { success: true } as const;
     }),
     submitEndOfDay: protectedProcedure.input(endOfDayReportSchema).mutation(async ({ ctx, input }) => {
+      const businessDate = requireCurrentStaffBusinessDate(input.businessDate, ctx.storeTimezone);
       const record = await createEndOfDayReport({
         storeId: ctx.user.storeId,
         ...input,
+        businessDate,
         cups4oz: input.cups4ozHere + input.cups4ozToGo,
         cups8oz: input.cups8ozHere + input.cups8ozToGo,
         cupsPint: input.cupsPintToGo,
@@ -770,6 +794,64 @@ export const appRouter = router({
 
     return { success: true } as const;
     }),
+    adminRetroactiveClosingStatus: adminProcedure
+      .input(z.object({ businessDate: requiredBusinessDateSchema }))
+      .query(async ({ ctx, input }) => {
+        const store = await getActiveStoreById(ctx.user.storeId);
+        if (!store) throw new TRPCError({ code: "FORBIDDEN", message: "The current store is not active" });
+        try {
+          return await getRetroactiveClosingStatus({ storeId: store.id, businessDate: input.businessDate, timeZone: store.timezone });
+        } catch (error) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Unable to read the selected historical date" });
+        }
+      }),
+    saveAdminRetroactiveClosing: adminProcedure
+      .input(z.object({
+        businessDate: requiredBusinessDateSchema,
+        mode: z.enum(["weights_only", "complete"]),
+        expectedRevision: z.string().regex(/^[a-f0-9]{64}$/),
+        reason: z.string().min(12).max(500),
+        source: z.enum(["original_closing_form", "operator_statement", "historical_ledger"]),
+        staffName: z.string().min(1).max(160),
+        checklistAnswers: z.array(checklistAnswerSchema).default([]),
+        report: z.object({
+          staffName: z.string().min(1).max(160),
+          cashCounted: z.number().min(0),
+          cashMatchesSystem: z.enum(["Yes", "No"]),
+          cups4ozHere: z.number().int().min(0), cups4ozToGo: z.number().int().min(0),
+          cups8ozHere: z.number().int().min(0), cups8ozToGo: z.number().int().min(0),
+          cupsPintHere: z.number().int().min(0), cupsPintToGo: z.number().int().min(0),
+          cupsLiterHere: z.number().int().min(0), cupsLiterToGo: z.number().int().min(0),
+          cashTotal: z.number().min(0), cardTotal: z.number().min(0), zelleTotal: z.number().min(0), venmoTotal: z.number().min(0),
+          sampleOunces: z.number().min(0), wasteOunces: z.number().min(0),
+          wasteNotes: z.string().max(4000).optional(), lowItemNotes: z.string().max(4000).optional(), generalNotes: z.string().max(4000).optional(),
+        }).optional(),
+        weights: z.array(readyMadeGelatoEntrySchema).min(1).max(100),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const store = await getActiveStoreById(ctx.user.storeId);
+        if (!store) throw new TRPCError({ code: "FORBIDDEN", message: "The current store is not active" });
+        try {
+          return await saveRetroactiveClosing({
+            storeId: store.id,
+            submittedByUserId: ctx.user.id,
+            timeZone: store.timezone,
+            businessDate: input.businessDate,
+            mode: input.mode,
+            expectedRevision: input.expectedRevision,
+            reason: input.reason,
+            source: input.source,
+            staffName: input.staffName,
+            checklistAnswers: input.checklistAnswers,
+            report: input.report,
+            weights: input.weights,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Unable to save the retroactive closing";
+          const code = message.includes("changed") || message.includes("already has closing data") || message.includes("overwritten") ? "CONFLICT" : message === "Database not available" ? "INTERNAL_SERVER_ERROR" : "BAD_REQUEST";
+          throw new TRPCError({ code, message });
+        }
+      }),
   }),
   frigate: router({
     submitCounts: publicProcedure

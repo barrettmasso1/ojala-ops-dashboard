@@ -1190,6 +1190,23 @@ describe("operations router", () => {
     );
   });
 
+  it("blocks a staff closing submission for a past business date when the store timezone is authenticated", async () => {
+    const context = { ...createContext("user"), storeTimezone: "America/Mazatlan" };
+    await expect(appRouter.createCaller(context).forms.submitClosing({
+      businessDate: "2026-10-23",
+      staffName: "Marco",
+      cashCounted: 210,
+      cashMatchesSystem: "No",
+      checklistAnswers: [{ questionId: 7, sectionTitle: "Final", prompt: "Store closed properly", answer: "Yes", detail: "" }],
+      notes: "Historical staff attempt",
+    })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("current business date") });
+    expect(dbMocks.createClosingChecklist).not.toHaveBeenCalled();
+  });
+
+  it.each([null, "user"] as const)("keeps retroactive closing admin-only for %s", async role => {
+    await expect(appRouter.createCaller({ ...createContext(role), storeTimezone: "America/Mazatlan" }).forms.adminRetroactiveClosingStatus({ businessDate: "2026-10-22" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
   it("lets employees submit inventory updates and notifies the owner with the saved quantity", async () => {
     dbMocks.updateInventoryCount.mockResolvedValue({
       id: 41,

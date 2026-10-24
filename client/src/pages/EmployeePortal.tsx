@@ -12,6 +12,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Link, useLocation } from "wouter";
 import { READY_MADE_GELATO_FLAVORS } from "../../../shared/opsCatalog";
+import AdminRetroactiveClosingPanel from "@/components/AdminRetroactiveClosingPanel";
 
 type YesNo = "Yes" | "No";
 type PortalView = "hub" | "opening" | "closing" | "inventory";
@@ -2258,6 +2259,16 @@ export default function EmployeePortal(props: any) {
                   ) : null}
                 </SectionCard>
               </form>
+            ) : null}
+
+            {portalView === "closing" && user?.role === "admin" ? (
+              <AdminRetroactiveClosingPanel
+                storeId={user.storeId}
+                adminName={user.name ?? "Admin"}
+                currentBusinessDate={currentBusinessDate}
+                timeZone={timeZone}
+                closingQuestions={closingQuestions}
+              />
             ) : null}
 
             {portalView === "closing" ? (
