@@ -4,7 +4,8 @@ NOW=1792861200;DAY='2026-10-24'
 from datetime import datetime,timezone
 def at(delta=0):return datetime.fromtimestamp(NOW+delta,timezone.utc).isoformat()
 def baseline():
- r={k:{'checkedAt':at(),'status':'running'} for k in ['capture','collector','ledgerSync','photoSync','calibration']}
+ r={k:{'checkedAt':at(),'status':'running'} for k in ['capture','collector','ledgerSync','photoSync','calibration','archive']}
+ r['archive'].update(status='ok',archive_bytes=10,max_archive_bytes=100)
  r['capture'].update(operating_hours=True,process_fps=5,max_temperature_c=65)
  r['ledgerSync']['results']=[{'businessDate':DAY,'status':'acknowledged'}]
  r['photoSync']['photoStateCounts']={'acknowledged':8}
@@ -46,4 +47,10 @@ class HealthTests(unittest.TestCase):
   r,s=baseline();r['photoSync']['photoStateCounts']={'queued':3,'delivery_unknown':2,'excluded':8};self.assertEqual(self.report(r,s)['photoBacklog'],5)
  def test_no_mutation(self):
   r,s=baseline();old=copy.deepcopy(r);self.report(r,s);self.assertEqual(r,old)
+ def test_archive_pause_cannot_be_green(self):
+  r,s=baseline();r['archive']['status']='paused_storage_limit';self.assertIn('recording_archive_not_healthy',self.report(r,s)['issues'])
+ def test_archive_quota_warns_before_stop(self):
+  r,s=baseline();r['archive']['archive_bytes']=96;self.assertIn('recording_archive_quota_nearly_full',self.report(r,s)['issues'])
+ def test_archive_timestamp_format_is_supported(self):
+  r,s=baseline();r['archive'].pop('checkedAt');r['archive']['checked_at_utc']=at();self.assertNotIn('archive_missing_or_stale',self.report(r,s)['issues'])
 if __name__=='__main__':unittest.main()
