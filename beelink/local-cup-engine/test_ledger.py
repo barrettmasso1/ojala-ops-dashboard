@@ -85,6 +85,21 @@ class EvidenceTests(unittest.TestCase):
         m=meta();m['schema_version']=2
         with self.assertRaisesRegex(InvalidEvidence,'unsupported_sidecar'):verify_sidecar(m,IMAGE,track())
 
+class TenantCalendarTests(unittest.TestCase):
+    def test_tokyo_capture_uses_local_tenant_day(self):
+        t=track();t['businessDate']='2026-10-23'
+        self.assertIsNotNone(verify_sidecar(meta(t),IMAGE,t,'Asia/Tokyo'))
+    def test_wrong_tenant_day_is_rejected(self):
+        t=track()
+        with self.assertRaisesRegex(InvalidEvidence,'capture_day_mismatch'):verify_sidecar(meta(t),IMAGE,t,'Asia/Tokyo')
+    def test_utc_original_calendar(self):
+        t=track();self.assertIsNotNone(verify_sidecar(meta(t),IMAGE,t,'UTC'))
+    def test_mazatlan_existing_semantics_unchanged(self):
+        t=track();self.assertEqual(verify_sidecar(meta(t),IMAGE,t),verify_sidecar(meta(t),IMAGE,t,'America/Mazatlan'))
+    def test_time_validation_not_relaxed(self):
+        t=track(end=START+1);m=meta(t);m['captured_at_utc']=timestamp(START+4)
+        with self.assertRaisesRegex(InvalidEvidence,'capture_after_event_end'):verify_sidecar(m,IMAGE,t,'UTC')
+
 class LedgerTests(unittest.TestCase):
     def setUp(self):self.tmp=tempfile.TemporaryDirectory();self.path=Path(self.tmp.name)/'ledger.sqlite3';self.ledger=Ledger(self.path)
     def tearDown(self):self.ledger.close();self.tmp.cleanup()

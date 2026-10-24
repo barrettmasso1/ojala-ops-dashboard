@@ -32,3 +32,9 @@ The logger now records only whitelisted storage error codes, no paths or secrets
 The exact historic storage exception was not recoverable from the old logs; no
 claim is made that restart diagnosed its deeper cause. Runtime monitoring keeps
 this failure visible if it recurs. Reserve/UUID checks remain unchanged.
+
+The collector sidecar verifier used a fixed Mexico timezone even when the tenant
+configuration declared another zone. The collector now passes its configured
+zone into the calendar check. Five tests cover Tokyo/UTC/Mazatlan boundaries
+and keep the end-of-event timing guard intact; 117 collector/transport tests
+pass. Ojala's own timezone and historical records are unchanged.

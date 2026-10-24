@@ -83,7 +83,7 @@ def normalize_track(raw,device_id,model_sha,time_zone='America/Mazatlan'):
       'verification':'detector_track_only','size':'unknown','sizeBasis':'local_model_has_no_size_classes',
       'physicalDeliveryConfirmed':False,'salesCreated':False,'sameFrameEvidence':None}
 
-def verify_sidecar(meta,image_bytes,track):
+def verify_sidecar(meta,image_bytes,track,time_zone="America/Mazatlan"):
     require(isinstance(meta,dict) and meta.get('schema_version')==3,'unsupported_sidecar')
     require(meta.get('camera')=='handoff' and meta.get('cup_zone')=='handoff_zone','wrong_capture_scope')
     require(meta.get('cup_event_id')==track['sourceEventId'],'event_identity_mismatch')
@@ -94,7 +94,7 @@ def verify_sidecar(meta,image_bytes,track):
     end=parse_aware(track['endedAt']) if track['endedAt'] else None
     require(start.timestamp()-2<=at.timestamp()<=start.timestamp()+600,'capture_outside_event_window')
     require(end is None or at.timestamp()<=end.timestamp()+2,'capture_after_event_end')
-    require(at.astimezone(ZoneInfo('America/Mazatlan')).date().isoformat()==track['businessDate'],'capture_day_mismatch')
+    require(at.astimezone(ZoneInfo(time_zone)).date().isoformat()==track['businessDate'],'capture_day_mismatch')
     dims=meta.get('image_dimensions');require(isinstance(dims,dict) and all(type(dims.get(k)) is int and 1<=dims[k]<=16384 for k in ('width','height')),'invalid_dimensions')
     geometry=meta.get('zone_geometry');require(isinstance(geometry,dict) and geometry.get('coordinate_system')=='normalized' and geometry.get('membership_rule')=='box_bottom_center','invalid_geometry')
     require(digest(canonical(geometry))==meta.get('zone_config_sha256'),'geometry_hash_mismatch')

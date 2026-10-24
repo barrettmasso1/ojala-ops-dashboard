@@ -87,7 +87,7 @@ class Collector:
                                 evidence=cached[1]
                             else:
                                 rawmeta=meta_path.read_bytes();meta=json.loads(rawmeta)
-                                pixels=image.read_bytes();evidence=verify_sidecar(meta,pixels,track)
+                                pixels=image.read_bytes();evidence=verify_sidecar(meta,pixels,track,self.config['timezone'])
                                 evidence['originalSidecarSha256']=digest(rawmeta)
                                 self.guard(self.base,self.root,writable=True,required_bytes=len(pixels)+len(rawmeta)+65536)
                                 folder=self.root/'evidence';folder.mkdir(mode=0o700,exist_ok=True)
