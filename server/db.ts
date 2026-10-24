@@ -2654,10 +2654,12 @@ export async function reserveHandoffVisualEvent(input: {
   zoneGeometryJson?: string;
   evidenceOrigin?: "verified_snapshot" | "recording_extracted_frame";
   sourceDetail?: string;
+  requiredSourceDetail?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const storeId = requireStoreId(input.storeId);
+  if(input.requiredSourceDetail!==undefined && input.requiredSourceDetail!==input.sourceDetail)throw Error("native_evidence_source_conflict");
 
   const where = and(
     eq(frigateHandoffVisualEvents.storeId, storeId),
@@ -2666,6 +2668,7 @@ export async function reserveHandoffVisualEvent(input: {
   );
   const existing = await db.select().from(frigateHandoffVisualEvents).where(where).limit(1);
   if (existing[0]) {
+    if(input.requiredSourceDetail!==undefined && existing[0].sourceDetail!==input.requiredSourceDetail)throw Error("native_evidence_source_conflict");
     if (existing[0].evidenceOrigin !== (input.evidenceOrigin ?? "verified_snapshot")) {
       throw new Error("cup_event_id is already reserved for a different evidence origin");
     }
@@ -2693,6 +2696,7 @@ export async function reserveHandoffVisualEvent(input: {
     // The unique key is the concurrency boundary when two sender retries race.
     const concurrent = await db.select().from(frigateHandoffVisualEvents).where(where).limit(1);
     if (concurrent[0]) {
+      if(input.requiredSourceDetail!==undefined && concurrent[0].sourceDetail!==input.requiredSourceDetail)throw Error("native_evidence_source_conflict");
       if (concurrent[0].evidenceOrigin !== (input.evidenceOrigin ?? "verified_snapshot")) {
         throw new Error("cup_event_id is already reserved for a different evidence origin");
       }

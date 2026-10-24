@@ -398,6 +398,7 @@ async function processHandoffVisualEvent(input: {
   evidenceOrigin: HandoffEvidenceOrigin;
   imageDataUrl: string;
   deferAnalysis?: boolean;
+  requiredSourceDetail?: string;
 }) {
   const decoded = decodeHandoffImageDataUrl(input.imageDataUrl);
   if (decoded.checksum !== input.metadata.imageSha256) {
@@ -418,8 +419,10 @@ async function processHandoffVisualEvent(input: {
     zoneGeometryJson: activeZone?.polygonJson,
     evidenceOrigin: input.evidenceOrigin,
     sourceDetail: input.sourceDetail,
+    requiredSourceDetail: input.requiredSourceDetail,
   });
   let event = reserved.event;
+  if(input.requiredSourceDetail!==undefined && event.sourceDetail!==input.requiredSourceDetail)throw new TRPCError({code:"CONFLICT",message:"Native photo source conflicts with existing evidence"});
 
   // The store/camera/event tuple identifies a capture. A retry must preserve
   // its original identity and provenance; reusing an ID across capture origins
@@ -844,7 +847,7 @@ export const appRouter = router({
         try{return {receipt:await readLocalLedgerReceipt(new PlatformLocalLedgerStore(),store.id,input.deviceId,input.businessDate,store.timezone)};}
         catch{throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"Local receipt is not available"});}
       }),
-    localEvidenceCapabilities: publicProcedure.query(()=>({protocol:NATIVE_EVIDENCE_PROTOCOL,browserRequired:false,externalAiRequired:false,requiresPersistedLocalObservation:true,persistedReadbackRequired:true,source:"verified_snapshot",createsPhysicalCounts:false})),
+    localEvidenceCapabilities: publicProcedure.query(()=>({protocol:NATIVE_EVIDENCE_PROTOCOL,scopedByCredential:true,browserRequired:false,externalAiRequired:false,requiresPersistedLocalObservation:true,persistedReadbackRequired:true,source:"verified_snapshot",createsPhysicalCounts:false})),
     submitLocalCupEvidence: publicProcedure.input(nativeEvidenceUpload.extend({apiKey:z.string().min(1).max(2048)})).mutation(async({ctx,input})=>{
       const clientKey=credentialClientKey(ctx.req);enforceCredentialRateLimit("frigate",clientKey);
       const store=await resolveFrigateStore(input.apiKey);
@@ -852,10 +855,10 @@ export const appRouter = router({
       clearCredentialFailures("frigate",clientKey);
       const original=await readLocalEvidenceObservation(new PlatformLocalLedgerStore(),store.id,input.deviceId,input.businessDate,input.observationId,store.timezone);
       let observation;let metadata;
-      try{observation=requireEvidenceObservation(original,input,true);metadata=validateNativeEvidence(observation,input);}
+      try{observation=requireEvidenceObservation(original,input,true);metadata=validateNativeEvidence(observation,input,store.timezone);}
       catch{throw new TRPCError({code:"BAD_REQUEST",message:"Evidence must match its persisted local observation"});}
       // No deferred source envelope: neither this call nor the AI worker may analyze this upload.
-      const result=await processHandoffVisualEvent({storeId:store.id,storeTimeZone:store.timezone,metadata,imageDataUrl:input.imageDataUrl,evidenceOrigin:"verified_snapshot",sourceDetail:localEvidenceSource(observation),deferAnalysis:true});
+      const result=await processHandoffVisualEvent({storeId:store.id,storeTimeZone:store.timezone,metadata,imageDataUrl:input.imageDataUrl,evidenceOrigin:"verified_snapshot",sourceDetail:localEvidenceSource(observation),requiredSourceDetail:localEvidenceSource(observation),deferAnalysis:true});
       const row=await getHandoffVisualEventById({id:result.eventId,storeId:store.id});
       const receipt=nativeEvidenceReceipt(row,observation,store.id);
       if(!receipt)throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"Native photo not confirmed in storage"});
@@ -869,7 +872,7 @@ export const appRouter = router({
       const original=await readLocalEvidenceObservation(new PlatformLocalLedgerStore(),store.id,input.deviceId,input.businessDate,input.observationId,store.timezone);
       let observation;try{observation=requireEvidenceObservation(original,input);}catch{throw new TRPCError({code:"BAD_REQUEST",message:"Persisted local observation unavailable"});}
       const row=await getHandoffVisualEventByCapture({storeId:store.id,businessDate:observation.businessDate,cameraName:observation.cameraName,cupEventId:observation.sourceEventId});
-      return {receipt:nativeEvidenceReceipt(row,observation,store.id)};
+      try{return {receipt:nativeEvidenceReceipt(row,observation,store.id)};}catch{throw new TRPCError({code:"CONFLICT",message:"Photo provenance conflicts; no native receipt issued"});}
     }),
     ingestionCapabilities: publicProcedure.query(() => ({
       protocol: HANDOFF_RECEIPT_PROTOCOL, receiptModes: ["after_analysis", "after_storage"],

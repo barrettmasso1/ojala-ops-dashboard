@@ -13,7 +13,7 @@ def receipt(o):
  return {'protocol':RECEIPT,'persisted':True,'storeId':1,'deviceId':o['deviceId'],'businessDate':o['businessDate'],'cameraName':'handoff','observationId':o['observationId'],'sourceEventId':o['sourceEventId'],'imageSha256':o['sameFrameEvidence']['imageSha256'],'capturedAt':o['sameFrameEvidence']['capturedAt'],'evidenceOrigin':'verified_snapshot','eventId':123,'receivedAt':datetime.now(timezone.utc).isoformat(),'externalAiInvoked':False,'physicalDeliveryCountCreated':False,'countsAreSales':False}
 class Fake:
  def __init__(self,o):self.o=o;self.saved=None;self.posts=0;self.reads=0;self.fail=None
- def capabilities(self):return {'protocol':PROTOCOL,'browserRequired':False,'externalAiRequired':False,'requiresPersistedLocalObservation':True,'persistedReadbackRequired':True}
+ def capabilities(self):return {'protocol':PROTOCOL,'scopedByCredential':True,'browserRequired':False,'externalAiRequired':False,'requiresPersistedLocalObservation':True,'persistedReadbackRequired':True}
  def receipt(self,o):self.reads+=1;return self.saved
  def send(self,p):
   self.posts+=1
@@ -56,6 +56,9 @@ class QueueTests(unittest.TestCase):
   self.q.discover([observation(2)]);self.api.fail='http_403';x=self.cycle();self.assertEqual(x['status'],'authorization_hold');self.assertEqual(self.api.posts,1)
  def test_invalid_server_capability_does_not_read_credentials_or_upload(self):
   self.api.capabilities=lambda:{'protocol':'other'};self.cycle();self.assertEqual(self.api.posts+self.api.reads,0);self.assertEqual(self.state()['status'],'blocked')
+ def test_missing_tenant_scope_capability_blocks_before_key_or_upload(self):
+  caps=self.api.capabilities();caps.pop('scopedByCredential');self.api.capabilities=lambda:caps
+  self.cycle();self.assertEqual(self.api.posts+self.api.reads,0);self.assertEqual(self.state()['status'],'blocked')
  def test_wrong_receipt_does_not_mark_success(self):
   self.api.saved=receipt(self.o);self.api.saved['imageSha256']='f'*64;self.cycle();self.assertEqual(self.state()['status'],'blocked');self.assertEqual(self.api.posts,0)
  def test_source_excluded_after_uncertain_upload_still_reconciles(self):
@@ -84,16 +87,24 @@ class OriginalBytesTests(unittest.TestCase):
  def tearDown(self):self.module.stop();self.temp.cleanup()
  def test_preserves_source_image_and_metadata_bytes(self):
   import base64
-  p=photo_payload(self.o,self.root,self.root);self.assertEqual(base64.b64decode(p['imageDataUrl'].split(',')[1]),self.image);self.assertEqual(p['normalizationProof']['sourceMetadataJson'].encode(),self.raw);self.assertEqual(p['capture']['cup_event_id'],self.o['sourceEventId'])
+  p=photo_payload(self.o,self.root,self.root,'America/Mazatlan');self.assertEqual(base64.b64decode(p['imageDataUrl'].split(',')[1]),self.image);self.assertEqual(p['normalizationProof']['sourceMetadataJson'].encode(),self.raw);self.assertEqual(p['capture']['cup_event_id'],self.o['sourceEventId'])
  def test_tampered_photo_rejected(self):
   (self.root/'photo.jpg').write_bytes(self.image+b'bad')
-  with self.assertRaises(InvalidEvidence):photo_payload(self.o,self.root,self.root)
+  with self.assertRaises(InvalidEvidence):photo_payload(self.o,self.root,self.root,'America/Mazatlan')
  def test_symlink_not_read(self):
   (self.root/'linked.jpg').symlink_to(self.root/'photo.jpg');self.o['sameFrameEvidence']['storedImageRelativePath']='linked.jpg'
-  with self.assertRaises(InvalidEvidence):photo_payload(self.o,self.root,self.root)
+  with self.assertRaises(InvalidEvidence):photo_payload(self.o,self.root,self.root,'America/Mazatlan')
  def test_traversal_not_read(self):
   with self.assertRaises(InvalidEvidence):safe_evidence(self.root,'../../etc/passwd','a'*64,999999)
  def test_metadata_hash_not_recomputed_to_hide_changes(self):
   (self.root/'sidecar.json').write_text('{}')
-  with self.assertRaises(InvalidEvidence):photo_payload(self.o,self.root,self.root)
+  with self.assertRaises(InvalidEvidence):photo_payload(self.o,self.root,self.root,'America/Mazatlan')
+ def test_configured_tenant_timezone_not_hardcoded(self):
+  self.o['businessDate']='2026-10-24'
+  p=photo_payload(self.o,self.root,self.root,'Asia/Tokyo');self.assertEqual(p['businessDate'],'2026-10-24')
+ def test_wrong_tenant_day_rejected(self):
+  with self.assertRaisesRegex(InvalidEvidence,'photo_day_mismatch'):photo_payload(self.o,self.root,self.root,'Asia/Tokyo')
+ def test_missing_timezone_rejected(self):
+  with self.assertRaisesRegex(InvalidEvidence,'timezone_required'):photo_payload(self.o,self.root,self.root,None)
+
 if __name__=='__main__':unittest.main()

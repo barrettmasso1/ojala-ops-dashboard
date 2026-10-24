@@ -1,4 +1,5 @@
 import {z} from "zod";
+import {getBusinessDate} from "../shared/businessDate";
 import {hashText,type LocalObservation} from "./localCupLedger";
 import {parseHandoffCaptureMetadata} from "./handoffVisualPayload";
 import {validateVerifiedZoneNormalization} from "./handoffZoneNormalization";
@@ -18,18 +19,23 @@ export function requireEvidenceObservation(o:LocalObservation|null,input:z.infer
  if(upload&&(o.verification!=="same_frame_local_cv"||o.sourceFalsePositive||o.ownerSizeReview?.label==="not_cup"))throw Error("local_observation_not_eligible");
  return o;
 }
-export function validateNativeEvidence(o:LocalObservation,input:z.infer<typeof nativeEvidenceUpload>){
+export function validateNativeEvidence(o:LocalObservation,input:z.infer<typeof nativeEvidenceUpload>,timeZone:string){
  requireEvidenceObservation(o,input,true);const proof=o.sameFrameEvidence!;
  const metadata=parseHandoffCaptureMetadata({camera:input.capture.camera,cupZone:input.capture.cup_zone,cupEventId:input.capture.cup_event_id,capturedAtUtc:input.capture.captured_at_utc,imageSha256:input.capture.image_sha256,schemaVersion:3,zoneGeometry:input.capture.zone_geometry,zoneConfigSha256:input.capture.zone_config_sha256,imageDimensions:input.capture.image_dimensions});
  if(metadata.cupEventId!==o.sourceEventId||metadata.imageSha256!==proof.imageSha256||metadata.capturedAtUtc!==proof.capturedAt
   ||!proof.originalSidecarSha256||input.normalizationProof.sourceMetadataSha256!==proof.originalSidecarSha256
   ||hashText(input.normalizationProof.sourceMetadataJson)!==proof.originalSidecarSha256
   ||hashText(input.normalizationProof.sourceZoneCanonicalJson)!==proof.sourceZoneSha256)throw Error("native_evidence_binding_mismatch");
+ if(getBusinessDate(metadata.capturedAt,timeZone)!==o.businessDate)throw Error("native_evidence_tenant_day_mismatch");
  metadata.normalizationAudit=validateVerifiedZoneNormalization(input.normalizationProof,metadata);
  return metadata;
 }
 export function localEvidenceSource(o:LocalObservation){return `native_local_cv_only_v1:${o.observationId}`;}
-export function nativeEvidenceReceipt(row:PersistedHandoffRow|null,o:LocalObservation,storeId:number){
+export function requireNativeEvidenceSource(row:(PersistedHandoffRow & {analysisAttempts?:number})|null,o:LocalObservation){
+ if(row && (row.sourceDetail!==localEvidenceSource(o) || (row.analysisAttempts??0)>0 || row.analysisStatus==="approved_by_ai"))throw Error("native_evidence_source_conflict");
+}
+export function nativeEvidenceReceipt(row:(PersistedHandoffRow & {analysisAttempts?:number})|null,o:LocalObservation,storeId:number){
+ requireNativeEvidenceSource(row,o);
  if(!row||!row.imageKey)return null;
  const proof=o.sameFrameEvidence;if(!proof)throw Error("native_evidence_missing");
  let capture:Record<string,unknown>;try{capture=JSON.parse(row.captureMetadataJson??"{}");}catch{throw Error("stored_metadata_unreadable");}

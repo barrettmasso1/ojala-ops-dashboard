@@ -36,12 +36,14 @@ def safe_evidence(root,relative,expected,max_bytes):
  require(0<p.stat().st_size<=max_bytes,'photo_evidence_size');raw=p.read_bytes();require(digest(raw)==expected,'photo_evidence_hash')
  return raw
 
-def photo_payload(o,root,base):
+def photo_payload(o,root,base,time_zone):
+ require(isinstance(time_zone,str) and bool(time_zone),'photo_tenant_timezone_required')
+ zone=ZoneInfo(time_zone)
  proof=o['sameFrameEvidence'];raw=safe_evidence(root,proof['storedSidecarRelativePath'],proof['originalSidecarSha256'],65536)
  image=safe_evidence(root,proof['storedImageRelativePath'],proof['imageSha256'],8*1024*1024)
  require(image.startswith(b'\xff\xd8\xff'),'photo_not_jpeg');s=json.loads(raw)
  require(s.get('cup_event_id')==o['sourceEventId'] and s.get('image_sha256')==proof['imageSha256'] and s.get('captured_at_utc')==proof['capturedAt'] and s.get('schema_version')==3 and s.get('camera')=='handoff' and s.get('cup_zone')=='handoff_zone','photo_original_metadata_mismatch')
- require(parse_aware(s['captured_at_utc']).astimezone(ZoneInfo('America/Mazatlan')).date().isoformat()==o['businessDate'],'photo_day_mismatch')
+ require(parse_aware(s['captured_at_utc']).astimezone(zone).date().isoformat()==o['businessDate'],'photo_day_mismatch')
  sys.path.insert(0,str(base/'handoff-visual-sender'));from handoff_visual_sender import normalize_capture_zone
  geometry,original_hash=normalize_capture_zone(s['zone_geometry'],s['zone_config_sha256'],s['image_dimensions'])
  original_geometry=canonical(s['zone_geometry']);require(original_hash==proof['sourceZoneSha256'] and digest(original_geometry)==proof['sourceZoneSha256'],'photo_geometry_binding')
@@ -79,7 +81,7 @@ class PhotoQueue:
   for row in self.db.execute("SELECT * FROM photos WHERE status IN ('queued','delivery_unknown') ORDER BY day DESC,id LIMIT ?",(limit,)).fetchall():
    o=json.loads(row['observation']);eid=row['id']
    try:
-    caps=transport.capabilities();require(caps.get('protocol')==PROTOCOL and caps.get('browserRequired') is False and caps.get('externalAiRequired') is False and caps.get('requiresPersistedLocalObservation') is True and caps.get('persistedReadbackRequired') is True,'photo_protocol_not_ready')
+    caps=transport.capabilities();require(caps.get('protocol')==PROTOCOL and caps.get('scopedByCredential') is True and caps.get('browserRequired') is False and caps.get('externalAiRequired') is False and caps.get('requiresPersistedLocalObservation') is True and caps.get('persistedReadbackRequired') is True,'photo_protocol_not_ready')
     # Always reconcile by original identity before uploading or retrying.
     receipt=transport.receipt(o)
     if receipt is not None:
@@ -130,7 +132,7 @@ def main():
     verify_external(base,root,writable=True,required_bytes=32*1024*1024)
     q.discover(acknowledged_observations(ledger_root,c['startDate'],c['deviceId']))
     if (root/'authorization-hold.json').exists():result={'status':'authorization_hold','networkAttempted':False}
-    else:result=q.cycle(transport,c,lambda o:photo_payload(o,ledger_root,base),limit=a.limit)
+    else:result=q.cycle(transport,c,lambda o:photo_payload(o,ledger_root,base,c['timezone']),limit=a.limit)
     if result.get('status')=='authorization_hold' and result.get('holdReason'):atomic(root/'authorization-hold.json',{'createdAt':datetime.now(timezone.utc).isoformat(),'reason':result['holdReason'],'requiresSupportedCorrection':True})
     report={'checkedAt':datetime.now(timezone.utc).isoformat(),'browserRequired':False,'externalAiRequired':False,'physicalCountCreated':False,'photoStateCounts':dict(q.db.execute('SELECT status,count(*) FROM photos GROUP BY status').fetchall()),**result};atomic(root/'health.json',report)
     if not a.daemon:print(canonical(report),flush=True);break
