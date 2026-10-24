@@ -19,13 +19,22 @@ const proof = z.object({
   originalSidecarSha256: sha.optional(),
   storedImageRelativePath: z.string().max(180).optional(), storedSidecarRelativePath: z.string().max(180).optional(),
 }).strict();
+const localSizeAssessmentSchema = z.object({
+  size:z.enum(["chico","mediano","pint","litro"]),status:z.literal("classified"),
+  reason:z.literal("matched_owner_labeled_local_references"),basis:z.literal("local_reference_estimate"),
+  modelSha256:sha,classifierVersion:z.literal("ojala_reference_sizes_v1"),imageSha256:sha,
+  referenceImageHashes:z.array(sha).length(2).refine(v=>new Set(v).size===2,"Distinct reference images required"),
+  distance:z.number().min(0).max(.28),margin:z.number().min(.04).max(1),
+  externalAiUsed:z.literal(false),notACertifiedVolume:z.literal(true),
+}).strict();
 export const localObservationSchema = z.object({
   schema: z.literal("ojala_local_cup_observation_v1"), observationId: sha, deviceId: device,
   cameraName: z.literal("handoff"), sourceEventId: eventId, businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   startedAt: iso, endedAt: iso.nullable(), detectorModelSha256: sha, detectorScore: z.number().min(0).max(1),
   targetBox: box, enteredHandoffZone: z.boolean(), sourceFalsePositive: z.boolean(),
   verification: z.enum(["detector_track_only","same_frame_local_cv","detector_rejected"]),
-  size: z.literal("unknown"), sizeBasis: z.literal("local_model_has_no_size_classes"),
+  size: z.enum(["chico","mediano","pint","litro","unknown"]), sizeBasis: z.enum(["local_model_has_no_size_classes","local_reference_estimate"]),
+  sizeAssessment:localSizeAssessmentSchema.optional(),
   physicalDeliveryConfirmed: z.literal(false), salesCreated: z.literal(false), sameFrameEvidence: proof.nullable(),
   sourceDetectorModelHash: z.string().max(100).nullable().optional(), sourceDetectorType: z.string().max(50).nullable().optional(),
 }).strict();
@@ -53,6 +62,11 @@ export function parseLocalLedger(input:z.infer<typeof localLedgerInputSchema>, t
     if(o.endedAt && (Date.parse(o.endedAt)<Date.parse(o.startedAt)||Date.parse(o.endedAt)>now.getTime()+120000))throw Error("observation_end");
     if(o.sourceFalsePositive !== (o.verification==="detector_rejected"))throw Error("rejected_source_scope");
     if(o.verification==="same_frame_local_cv" && !o.sameFrameEvidence)throw Error("verification_without_evidence");
+    if(o.size!=="unknown") {
+      if(o.verification!=="same_frame_local_cv" || !o.sameFrameEvidence || !o.sizeAssessment
+          || o.sizeBasis!=="local_reference_estimate" || o.sizeAssessment.size!==o.size
+          || o.sizeAssessment.imageSha256!==o.sameFrameEvidence.imageSha256)throw Error("size_calibration_provenance_required");
+    } else if(o.sizeAssessment || o.sizeBasis!=="local_model_has_no_size_classes")throw Error("unknown_size_provenance_conflict");
     if(o.sameFrameEvidence){
       const at=Date.parse(o.sameFrameEvidence.capturedAt), start=Date.parse(o.startedAt);
       if(getBusinessDate(new Date(at),timeZone)!==doc.businessDate || at<start-2000 || at>start+600000 || (o.endedAt && at>Date.parse(o.endedAt)+2000))throw Error("local_evidence_time");
@@ -121,13 +135,15 @@ export function possibleLocalRepeats(rows:LocalObservation[]) {
 }
 export function summarizeLocalLedger(p:ParsedLocalLedger,receivedAt:string) {
   const rows=p.observations;const verified=rows.filter(o=>o.verification==="same_frame_local_cv");const repeats=possibleLocalRepeats(rows);
+  const sizeBreakdown={chico:0,mediano:0,pint:0,litro:0,unknown:0};
+  for(const observation of verified)sizeBreakdown[observation.size]++;
   return {protocol:LOCAL_LEDGER_PROTOCOL,businessDate:p.document.businessDate,deviceId:p.document.deviceId,receivedAt,
     scope:"detector_tracks_not_certified_unique_deliveries",detectedTracks:rows.length,locallyVerifiedTargets:verified.length,
     withoutSameFrameEvidence:rows.filter(o=>o.verification==="detector_track_only").length,rejectedByDetector:rows.filter(o=>o.verification==="detector_rejected").length,
     potentialRepeatedTracks:Object.keys(repeats).length,repeatLinks:repeats,repeatFlagsAreNotAutomaticMerges:true,
-    sizeBreakdown:{chico:0,mediano:0,pint:0,litro:0,unknown:verified.length},
+    sizeBreakdown,localSizeClassifiedTargets:verified.filter(o=>o.size!=="unknown").length,
     uniquePhysicalDeliveries:null,externalAiRequired:false,manualOrSalesCountsUsed:false,
     records:rows.map(o=>({id:o.observationId,sourceEventId:o.sourceEventId,startedAt:o.startedAt,endedAt:o.endedAt,
-      verification:o.verification,score:o.detectorScore,size:o.size,enteredHandoffZone:o.enteredHandoffZone,
+      verification:o.verification,score:o.detectorScore,size:o.size,sizeBasis:o.sizeBasis,sizeModelSha256:o.sizeAssessment?.modelSha256??null,enteredHandoffZone:o.enteredHandoffZone,
       possibleRepeatOf:repeats[o.observationId]??[],imageSha256:o.sameFrameEvidence?.imageSha256??null}))};
 }
