@@ -10,6 +10,8 @@ export type HandoffVisualEvidenceStatusCounts = {
 export type HandoffVisualEvidenceThumbnail = {
   id: number;
   cupEventId: string;
+  sourceDetail?: string | null;
+  imageSha256?: string | null;
   analysisStatus: "pending_review" | "approved_by_ai" | "discarded" | "approved_by_manager" | "discarded_by_manager";
   evidenceOrigin: "verified_snapshot" | "recording_extracted_frame";
   receivedAt: string | Date | null;

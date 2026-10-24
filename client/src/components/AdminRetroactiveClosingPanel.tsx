@@ -63,6 +63,14 @@ function initialWeights(): WeightRow[] {
   return READY_MADE_GELATO_FLAVORS.map(flavor => ({ flavor, smallPanCount: "", smallGrossWeightKg: "", largePanCount: "", largeGrossWeightKg: "", combinedGrossWeightKg: "" }));
 }
 
+export function weightRowHasMeasurements(row: WeightRow) {
+  return Boolean(row.smallPanCount.trim() || row.smallGrossWeightKg.trim() || row.largePanCount.trim() || row.largeGrossWeightKg.trim() || row.combinedGrossWeightKg.trim());
+}
+
+export function populatedWeightRows(rows: WeightRow[]) {
+  return rows.filter(weightRowHasMeasurements);
+}
+
 function numeric(value: string, field: string) {
   if (value.trim() === "") throw new Error(`${field} is required.`);
   const parsed = Number(value);
@@ -96,6 +104,15 @@ export default function AdminRetroactiveClosingPanel({ storeId, adminName, curre
   }, [adminName]);
 
   useEffect(() => {
+    // A date change must never carry unsaved values from the previous date.
+    // Reset first, then hydrate only the draft belonging to the new store/date key.
+    setMode("weights_only");
+    setReason("");
+    setSource("operator_statement");
+    setReport(initialReport(adminName));
+    setWeights(initialWeights());
+    setAnswers({});
+    setDraftSavedAt(null);
     const draft = loadRetroactiveClosingDraft<{
       mode: "weights_only" | "complete";
       reason: string;
@@ -126,7 +143,7 @@ export default function AdminRetroactiveClosingPanel({ storeId, adminName, curre
   }
 
   function buildWeights() {
-    return weights.filter(row => row.flavor.trim() || row.smallPanCount || row.smallGrossWeightKg || row.largePanCount || row.largeGrossWeightKg || row.combinedGrossWeightKg).map((row, index) => ({
+    return populatedWeightRows(weights).map((row, index) => ({
       flavor: row.flavor.trim(),
       smallPanCount: integer(row.smallPanCount, `Weight row ${index + 1} small-pan count`),
       smallGrossWeightKg: row.smallGrossWeightKg.trim() ? numeric(row.smallGrossWeightKg, `Weight row ${index + 1} small gross kg`) : undefined,

@@ -3033,6 +3033,8 @@ export async function getHandoffVisualEvidenceOverview(input: {
       return {
         id: row.id,
         cupEventId: row.cupEventId,
+        sourceDetail: row.sourceDetail,
+        imageSha256: row.imageSha256,
         analysisStatus: row.analysisStatus,
         evidenceOrigin: row.evidenceOrigin,
         receivedAt: row.receivedAt,

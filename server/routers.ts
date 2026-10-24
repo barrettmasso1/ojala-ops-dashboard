@@ -1331,6 +1331,32 @@ export const appRouter = router({
         try{return await readLocalLedger(new PlatformLocalLedgerStore(),store.id,input.deviceId,input.businessDate,store.timezone);}
         catch{throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"Local detection registry is temporarily unavailable"});}
       }),
+    manualCameraComparison: adminProcedure
+      .input(z.object({businessDate:requiredBusinessDateSchema,deviceId:z.string().uuid()}))
+      .query(async ({ctx,input}) => {
+        const store=await getActiveStoreById(ctx.user.storeId);
+        if(!store)throw new TRPCError({code:"FORBIDDEN",message:"Store unavailable"});
+        const daily=await getDailyOperationsSnapshot(input.businessDate,store.id);
+        let nativeLedger=null;
+        let nativeLedgerState:"received"|"absent"|"unavailable"="absent";
+        try {
+          nativeLedger=await readLocalLedger(new PlatformLocalLedgerStore(),store.id,input.deviceId,input.businessDate,store.timezone);
+          nativeLedgerState=nativeLedger?"received":"absent";
+        } catch {
+          // Preserve the manual/physical read but never represent an unavailable private ledger as zero.
+          nativeLedgerState="unavailable";
+        }
+        return {
+          selectedDate:input.businessDate,
+          manual:{businessDate:daily.businessDate,reportCount:daily.reportCount,cups:daily.cups,cupsHere:daily.cupsHere,cupsToGo:daily.cupsToGo},
+          nativeLedger,
+          nativeLedgerState,
+          reviewedPhysicalCount:daily.frigateCounts?{
+            businessDate:daily.frigateCounts.businessDate,cameraName:daily.frigateCounts.cameraName,
+            cupsDetected:daily.frigateCounts.cupsDetected,sourceDetail:daily.frigateCounts.sourceDetail,
+          }:null,
+        };
+      }),
     cameraSizeBreakdown: adminProcedure.input(z.object({businessDate:requiredBusinessDateSchema})).query(async ({ctx,input}) => getHandoffCameraSizeBreakdown({storeId:ctx.user.storeId,businessDate:input.businessDate})),
     classifyHandoffCupSizes: adminProcedure.input(z.object({id:z.number().int().positive()}).strict()).mutation(async ({ctx,input}) => {
       try{return await classifyHandoffCupSizes({id:input.id,storeId:ctx.user.storeId});}
