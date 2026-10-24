@@ -1735,6 +1735,7 @@ export default function ManagerDashboard() {
                 <p className="text-[11px] uppercase tracking-[0.18em] text-[#8b9088] md:text-xs md:tracking-[0.24em]">
                   {isOverviewRoute ? `Daily snapshot for ${selectedDate}` : isTimeBookRoute ? "Time Book summary" : "Workspace snapshot"}
                 </p>
+                {isOverviewRoute && !dailyQuery.isLoading && !dailyQuery.error && !closingRecorded && <p role="status" className="mt-4 rounded-xl border border-[#e5d3a8] bg-[#fff7e5] p-4 text-sm text-[#735825]">Cierre manual de {selectedDate} sin registrar. Ventas y pesos de cierre se muestran como no registrados; no se rellenan con datos de la cámara. Las detecciones y los tamaños recibidos siguen visibles arriba.</p>}
                 {dailyQuery.isLoading && isOverviewRoute ? (
                   <div className="mt-5 grid gap-4 sm:grid-cols-2">
                     {Array.from({ length: 4 }).map((_, index) => (
@@ -1771,14 +1772,18 @@ export default function ManagerDashboard() {
                 {manualCupRows(daily?.businessDate === selectedDate ? daily.cups : undefined, daily?.businessDate === selectedDate ? daily.reportCount : 0).map(item => (
                   <div key={item.key} className="rounded-2xl border border-[#e5ddd0] bg-[#fbf7f0] p-4">
                     <p className="text-sm font-medium">{item.label}</p>
-                    <p className="mt-2 text-2xl">{item.count === null ? "Pendiente" : item.count}</p>
+                    <p className="mt-2 text-2xl">{item.count === null ? "Sin cierre registrado" : item.count}</p>
                   </div>
                 ))}
               </div>
             </SurfaceCard>
             {isAdmin && <HandoffVisualEvidenceOverviewPanel presentation={handoffVisualEvidencePresentation} businessDate={selectedDate} timeZone={timeZone} />}
 
-            {isAdmin && <CameraSizeBreakdown businessDate={selectedDate} />}
+            {isAdmin && <details className="rounded-2xl border border-[#d8e2da] bg-white p-5" aria-label="Archivo independiente de etiquetas de fotografías">
+              <summary className="cursor-pointer text-sm font-medium">Ver etiquetas de fotografías de la ruta anterior</summary>
+              <p className="my-3 text-sm text-[#65716b]">Archivo independiente. No se suma a las detecciones locales ni al cierre manual; su ausencia no indica que el registro automático esté vacío.</p>
+              <CameraSizeBreakdown businessDate={selectedDate} />
+            </details>}
             {isAdmin && <ReviewedCountImport key={selectedDate} businessDate={selectedDate} />}
             <SurfaceCard>
               <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
