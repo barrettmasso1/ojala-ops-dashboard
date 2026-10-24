@@ -45,6 +45,13 @@ def summarize(records,services,now,day,store,device):
     if photos.get('status') in ('authorization_hold','disabled','blocked'):issues.append('photo_transport_'+photos['status'])
     if counts.get('blocked',0):issues.append('photo_items_blocked')
     if counts.get('delivery_unknown',0):issues.append('photo_receipts_unresolved')
+    automatic=photos.get('automaticValidation')
+    if not isinstance(automatic,dict):
+        issues.append('photo_automatic_validation_missing');automatic={}
+    elif automatic.get('status') not in ('checked',):issues.append('photo_automatic_validation_'+str(automatic.get('status','unknown')))
+    validation_counts=automatic.get('states') or {}
+    if validation_counts.get('blocked',0):issues.append('photo_automatic_validation_blocked')
+    if validation_counts.get('unknown',0):issues.append('photo_automatic_validation_readback_pending')
     backlog=sum(v for k,v in counts.items() if k in ('queued','delivery_unknown') and type(v) is int and v>=0)
     for unit in UNITS:
         if services.get(unit)!='active':issues.append('service_not_active:'+unit)
@@ -53,7 +60,7 @@ def summarize(records,services,now,day,store,device):
     return {'protocol':VERSION,'checkedAt':datetime.fromtimestamp(now,timezone.utc).isoformat(),'businessDate':day,'storeId':store,'deviceId':device,
         'status':'attention_required' if issues else 'running','issues':issues,'components':components,'services':services,
         'cameraScheduledActive':operating,'processFps':camera.get('process_fps'),'temperatureC':temp,
-        'todayLedgerAcknowledged':bool(today) and all(r.get('status')=='acknowledged' for r in today),'photoQueue':counts,'photoBacklog':backlog,
+        'todayLedgerAcknowledged':bool(today) and all(r.get('status')=='acknowledged' for r in today),'photoQueue':counts,'photoBacklog':backlog,'photoAutomaticValidation':validation_counts,
         'locallySupportedSizes':supported,'sizesNotYetValidated':missing,'uniquePhysicalCountValidated':False,'commercialAcceptanceComplete':False,
         'cameraObservationsAreSales':False,'generativeAiRequired':False,'browserRequired':False,'externalMessagesSent':False,
         'note':'Technical reception health is separate from counting accuracy, manual tally, POS and billing activation.'}
