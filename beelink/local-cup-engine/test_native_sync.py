@@ -17,6 +17,7 @@ class FakeNative:
         self.saved={'protocol':RECEIPT,'persisted':True,'storeId':1,'deviceId':d['deviceId'],'businessDate':d['businessDate'],'cameraName':'handoff','sequence':e['sequence'],'documentSha256':e['documentSha256'],'receivedAt':datetime.now(timezone.utc).isoformat(),'observationsPersisted':len(d['records']),'externalAiInvoked':False,'physicalDeliveryCountCreated':False,'countsAreSales':False}
         if self.after_send:self.after_send()
         if self.fail=='timeout_after_persist':raise SyncError('network_or_response_uncertain')
+        if self.fail=='conflict_after_persist':raise SyncError('http_409')
         if self.fail=='wrong_hash':self.saved['documentSha256']='f'*64
         if self.fail=='not_persisted':self.saved['persisted']=False
         return {'success':True,'receipt':self.saved}
@@ -99,5 +100,52 @@ class NativeSyncTests(unittest.TestCase):
     def test_new_evidence_kept_while_transport_held(self):
         self.api.fail='http_403';self.sync.cycle('2026-10-22');self.ledger.put(track(2));self.sync.cycle('2026-10-22')
         self.assertEqual(self.ledger.snapshot('2026-10-22')['detectorTracksRecorded'],2);self.assertEqual(self.api.sends,1)
+
+
+    def test_409_after_write_reconciles_without_resend(self):
+        self.api.fail='conflict_after_persist';r=self.sync.cycle('2026-10-22');self.assertEqual(r['status'],'delivery_unknown')
+        r=self.sync.cycle('2026-10-22');self.assertEqual(r['status'],'acknowledged');self.assertEqual(self.api.sends,1)
+    def test_three_consecutive_updates_with_delayed_receipts(self):
+        self.api.fail='conflict_after_persist'
+        for i in range(1,4):
+            if i>1:self.ledger.put(track(i))
+            self.assertEqual(self.sync.cycle('2026-10-22')['status'],'delivery_unknown')
+            r=self.sync.cycle('2026-10-22');self.assertEqual(r['status'],'acknowledged');self.assertEqual(r['receipt']['observationsPersisted'],i)
+        self.assertEqual(self.api.sends,3)
+    def old_readback_setup(self):
+        self.sync.cycle('2026-10-22');old=copy.deepcopy(self.api.saved)
+        self.ledger.put(track(2));self.api.fail='conflict_after_persist';self.sync.cycle('2026-10-22');return old
+    def test_old_readback_waits_for_matching_revision_without_resend(self):
+        old=self.old_readback_setup()
+        with patch.object(self.api,'receipt',return_value=old):
+            r=self.sync.cycle('2026-10-22');self.assertEqual(r['status'],'delivery_unknown');self.assertFalse(r['resent'])
+        r=self.sync.cycle('2026-10-22');self.assertEqual(r['status'],'acknowledged');self.assertEqual(self.api.sends,2)
+    def test_foreign_older_receipt_is_rejected(self):
+        old=self.old_readback_setup();old['storeId']=2
+        with patch.object(self.api,'receipt',return_value=old):self.assertEqual(self.sync.cycle('2026-10-22')['status'],'blocked')
+        self.assertEqual(self.api.sends,2)
+    def test_malformed_older_receipt_is_rejected(self):
+        old=self.old_readback_setup();old['documentSha256']='invalid'
+        with patch.object(self.api,'receipt',return_value=old):self.assertEqual(self.sync.cycle('2026-10-22')['status'],'blocked')
+    def test_foreign_ai_claim_on_older_receipt_rejected(self):
+        old=self.old_readback_setup();old['externalAiInvoked']=True
+        with patch.object(self.api,'receipt',return_value=old):self.assertEqual(self.sync.cycle('2026-10-22')['status'],'blocked')
+    def test_older_receipts_stop_after_grace_without_post_replay(self):
+        old=self.old_readback_setup();future=time.time()+121
+        with patch.object(self.api,'receipt',return_value=old),patch('native_sync.time.time',return_value=future):
+            for _ in range(6):r=self.sync.cycle('2026-10-22')
+        self.assertEqual(r['status'],'blocked');self.assertEqual(self.api.sends,2)
+    def test_higher_receipt_is_a_real_conflict(self):
+        self.api.fail='conflict_after_persist';self.sync.cycle('2026-10-22');self.api.saved['sequence']=3
+        self.assertEqual(self.sync.cycle('2026-10-22')['status'],'blocked');self.assertEqual(self.api.sends,1)
+    def test_same_revision_different_hash_remains_blocked(self):
+        self.api.fail='conflict_after_persist';self.sync.cycle('2026-10-22');self.api.saved['documentSha256']='f'*64
+        self.assertEqual(self.sync.cycle('2026-10-22')['status'],'blocked');self.assertEqual(self.api.sends,1)
+    def test_restart_after_conflict_reads_without_resend(self):
+        self.api.fail='conflict_after_persist';self.sync.cycle('2026-10-22');self.ledger.close();self.ledger=Ledger(self.path);self.sync=Sync(self.ledger,self.config,self.api)
+        self.assertEqual(self.sync.cycle('2026-10-22')['status'],'acknowledged');self.assertEqual(self.api.sends,1)
+    def test_capability_conflict_does_not_claim_dispatch(self):
+        with patch.object(self.api,'capabilities',side_effect=SyncError('http_409')):r=self.sync.cycle('2026-10-22')
+        self.assertEqual(r['status'],'blocked');self.assertEqual(self.api.sends,0)
 
 if __name__=='__main__':unittest.main()
