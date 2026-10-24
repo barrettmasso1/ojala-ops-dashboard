@@ -108,7 +108,7 @@ export function buildManualCameraComparison(input: ManualCameraComparisonInput) 
   const native = nativeIssue === null ? input.nativeLedger : null;
   const physical = physicalView(input);
   const manualTotal = manualAvailable ? SIZE_KEYS.reduce<number>((sum, item) => sum + (input.manual.cups[item.manualKey] as number), 0) : null;
-  const comparable = manualAvailable && physical.comparable && manualTotal !== null && physical.value !== null;
+  const comparable = manualAvailable && nativeIssue === null && physical.comparable && manualTotal !== null && physical.value !== null;
   const difference = comparable ? physical.value - manualTotal : null;
   const percentage = comparable && manualTotal > 0 ? difference! / manualTotal : null;
   const comparisonReason = comparable
@@ -119,6 +119,8 @@ export function buildManualCameraComparison(input: ManualCameraComparisonInput) 
         : input.manual.reportCount !== 1
           ? "No disponible: falta un único cierre manual para comparar esta fecha."
           : "No disponible: el cierre manual no conserva un desglose completo y consistente por modo."
+      : nativeIssue !== null
+        ? `No disponible: ${nativeIssue}`
       : !physical.comparable
         ? `No disponible: ${physical.reason}`
         : "No disponible: no hay unidad o intervalo común verificable.";

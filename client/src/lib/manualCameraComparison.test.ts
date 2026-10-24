@@ -110,6 +110,7 @@ describe("strict common observed interval",()=>{
  it("negative duration is rejected",()=>{const x=complete();x.manual.observationPeriod={startedAt:period.endedAt,endedAt:period.startedAt};expect(buildManualCameraComparison(x).difference).toBeNull();});
  it("zero duration is rejected",()=>{const x=complete();x.manual.observationPeriod={startedAt:period.startedAt,endedAt:period.startedAt};expect(buildManualCameraComparison(x).difference).toBeNull();});
  it("inconsistent native size sums are unavailable",()=>{const x=base();x.nativeLedger!.sizeBreakdown.unknown=13;expect(buildManualCameraComparison(x).native.received).toBe(false);});
+ it("inconsistent native totals also block manual-camera difference and percentage",()=>{const x=complete();x.nativeLedger!.sizeBreakdown.unknown=13;const v=buildManualCameraComparison(x);expect(v.native.received).toBe(false);expect(v.difference).toBeNull();expect(v.percentage).toBeNull();expect(v.comparisonReason).toContain("desglose nativo");});
  it("excluded and usable partitions cannot exceed all tracks",()=>{const x=base();x.nativeLedger!.ownerExcludedTargets=57;expect(buildManualCameraComparison(x).native.received).toBe(false);});
  it("the actually observed Friday sources still do not certify a unique count",()=>{const x=base();delete x.manual.observationPeriod;const v=buildManualCameraComparison(x);expect(v.manual.total).toBe(19);expect(v.native).toMatchObject({usableObservations:21});expect(v.percentage).toBeNull();});
 });
