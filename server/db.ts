@@ -2612,6 +2612,15 @@ function handoffVisualPublicRow(row: typeof frigateHandoffVisualEvents.$inferSel
   };
 }
 
+/** Read-only native receipt lookup; tenant and original capture identity are mandatory. */
+export async function getHandoffVisualEventByCapture(input:{storeId:number;businessDate:string;cameraName:string;cupEventId:string}){
+ const db=await getDb();if(!db)throw Error("Database not available");
+ const rows=await db.select().from(frigateHandoffVisualEvents).where(and(
+  eq(frigateHandoffVisualEvents.storeId,requireStoreId(input.storeId)),eq(frigateHandoffVisualEvents.businessDate,input.businessDate),
+  eq(frigateHandoffVisualEvents.cameraName,input.cameraName),eq(frigateHandoffVisualEvents.cupEventId,input.cupEventId))).limit(1);
+ return rows[0]??null;
+}
+
 export async function getHandoffVisualEventById(input: { id: number; storeId: number }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

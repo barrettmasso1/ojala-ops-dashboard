@@ -1,5 +1,6 @@
+import {NATIVE_EVIDENCE_PROTOCOL,nativeEvidenceIdentity,nativeEvidenceUpload,requireEvidenceObservation,validateNativeEvidence,localEvidenceSource,nativeEvidenceReceipt} from "./nativeLocalEvidence";
 import { LOCAL_LEDGER_PROTOCOL, localLedgerInputSchema, parseLocalLedger } from "./localCupLedger";
-import { PlatformLocalLedgerStore, saveLocalLedger, readLocalLedger, readLocalLedgerReceipt } from "./localCupLedgerStorage";
+import { PlatformLocalLedgerStore, saveLocalLedger, readLocalLedger, readLocalLedgerReceipt, readLocalEvidenceObservation } from "./localCupLedgerStorage";
 import { classifyHandoffCupSizes } from "./autoCupSizes";
 import { CUP_SIZE_KEYS } from "../shared/cupDescriptions";
 import { HANDOFF_RECEIPT_PROTOCOL, deferredHandoffSource, persistedHandoffReceipt } from "./handoffDurableReceipt";
@@ -31,6 +32,7 @@ import {
   getHandoffVisualEvidenceOverview,
   getHandoffCameraSizeBreakdown,
   getHandoffVisualEventById,
+  getHandoffVisualEventByCapture,
   getLatestHandoffCameraEvidenceDate,
   listHandoffVisualEvents,
   getSubmissionStatusForBusinessDate,
@@ -842,6 +844,33 @@ export const appRouter = router({
         try{return {receipt:await readLocalLedgerReceipt(new PlatformLocalLedgerStore(),store.id,input.deviceId,input.businessDate,store.timezone)};}
         catch{throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"Local receipt is not available"});}
       }),
+    localEvidenceCapabilities: publicProcedure.query(()=>({protocol:NATIVE_EVIDENCE_PROTOCOL,browserRequired:false,externalAiRequired:false,requiresPersistedLocalObservation:true,persistedReadbackRequired:true,source:"verified_snapshot",createsPhysicalCounts:false})),
+    submitLocalCupEvidence: publicProcedure.input(nativeEvidenceUpload.extend({apiKey:z.string().min(1).max(2048)})).mutation(async({ctx,input})=>{
+      const clientKey=credentialClientKey(ctx.req);enforceCredentialRateLimit("frigate",clientKey);
+      const store=await resolveFrigateStore(input.apiKey);
+      if(!store){recordCredentialFailure("frigate",clientKey);throw new TRPCError({code:"UNAUTHORIZED",message:"Unauthorized"});}
+      clearCredentialFailures("frigate",clientKey);
+      const original=await readLocalEvidenceObservation(new PlatformLocalLedgerStore(),store.id,input.deviceId,input.businessDate,input.observationId,store.timezone);
+      let observation;let metadata;
+      try{observation=requireEvidenceObservation(original,input,true);metadata=validateNativeEvidence(observation,input);}
+      catch{throw new TRPCError({code:"BAD_REQUEST",message:"Evidence must match its persisted local observation"});}
+      // No deferred source envelope: neither this call nor the AI worker may analyze this upload.
+      const result=await processHandoffVisualEvent({storeId:store.id,storeTimeZone:store.timezone,metadata,imageDataUrl:input.imageDataUrl,evidenceOrigin:"verified_snapshot",sourceDetail:localEvidenceSource(observation),deferAnalysis:true});
+      const row=await getHandoffVisualEventById({id:result.eventId,storeId:store.id});
+      const receipt=nativeEvidenceReceipt(row,observation,store.id);
+      if(!receipt)throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"Native photo not confirmed in storage"});
+      return {success:true,receipt};
+    }),
+    localCupEvidenceReceipt: publicProcedure.input(nativeEvidenceIdentity.extend({apiKey:z.string().min(1).max(2048)})).mutation(async({ctx,input})=>{
+      const clientKey=credentialClientKey(ctx.req);enforceCredentialRateLimit("frigate",clientKey);
+      const store=await resolveFrigateStore(input.apiKey);
+      if(!store){recordCredentialFailure("frigate",clientKey);throw new TRPCError({code:"UNAUTHORIZED",message:"Unauthorized"});}
+      clearCredentialFailures("frigate",clientKey);
+      const original=await readLocalEvidenceObservation(new PlatformLocalLedgerStore(),store.id,input.deviceId,input.businessDate,input.observationId,store.timezone);
+      let observation;try{observation=requireEvidenceObservation(original,input);}catch{throw new TRPCError({code:"BAD_REQUEST",message:"Persisted local observation unavailable"});}
+      const row=await getHandoffVisualEventByCapture({storeId:store.id,businessDate:observation.businessDate,cameraName:observation.cameraName,cupEventId:observation.sourceEventId});
+      return {receipt:nativeEvidenceReceipt(row,observation,store.id)};
+    }),
     ingestionCapabilities: publicProcedure.query(() => ({
       protocol: HANDOFF_RECEIPT_PROTOCOL, receiptModes: ["after_analysis", "after_storage"],
       scopedByCredential: true, physicalCupCountCreatedByVisualIngestion: false,
