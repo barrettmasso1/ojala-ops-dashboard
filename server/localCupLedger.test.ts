@@ -73,3 +73,28 @@ describe("cross-track repetition warnings",()=>{
  it("does not merge simultaneously visible source tracks",()=>{const a=observation(1);a.endedAt="2026-01-20T23:00:20Z";const b=observation(2);b.startedAt="2026-01-20T23:00:05Z";expect(possibleLocalRepeats(parse(envelope([a,b])).observations)).toEqual({});});
  it("does not identify new servings after a long gap as duplicates",()=>{const a=observation(1);a.endedAt="2026-01-20T23:00:02Z";const b=observation(2);b.startedAt="2026-01-20T23:05:00Z";expect(possibleLocalRepeats(parse(envelope([a,b])).observations)).toEqual({});});
 });
+
+describe("locally calibrated capacity provenance",()=>{
+ function sized(size="chico") {
+  const o=withProof();return {...o,size,sizeBasis:"local_reference_estimate",sizeAssessment:{
+   size,status:"classified",reason:"matched_owner_labeled_local_references",basis:"local_reference_estimate",
+   modelSha256:"1".repeat(64),classifierVersion:"ojala_reference_sizes_v1",imageSha256:o.sameFrameEvidence.imageSha256,
+   referenceImageHashes:["2".repeat(64),"3".repeat(64)],distance:.02,margin:.10,externalAiUsed:false,notACertifiedVolume:true,
+  }};
+ }
+ it.each(["chico","mediano","pint","litro"])("accepts local calibrated %s without creating a delivery",size=>{
+  const p=parse(envelope([sized(size)]));expect(p.observations[0].size).toBe(size);expect(p.observations[0].physicalDeliveryConfirmed).toBe(false);
+ });
+ it("computes size breakdown from stored classified records",()=>{const a=sized("pint"),b=withProof();b.sourceEventId+="two";b.observationId=hashText(DEVICE+"/handoff/"+b.sourceEventId);
+  const summary=summarizeLocalLedger(parse(envelope([a,b])),new Date().toISOString());expect(summary.sizeBreakdown).toEqual({chico:0,mediano:0,pint:1,litro:0,unknown:1});expect(summary.manualOrSalesCountsUsed).toBe(false);
+ });
+ it("does not accept a size without the original image proof",()=>{const o=sized();o.sameFrameEvidence=null;expect(()=>parse(envelope([o]))).toThrow();});
+ it("rejects a model estimate about a different image",()=>{const o=sized();o.sizeAssessment.imageSha256="f".repeat(64);expect(()=>parse(envelope([o]))).toThrow("size_calibration_provenance_required");});
+ it("rejects mismatched class and assessment",()=>{const o=sized();o.sizeAssessment.size="litro";expect(()=>parse(envelope([o]))).toThrow();});
+ it("rejects copied references masquerading as independent support",()=>{const o=sized();o.sizeAssessment.referenceImageHashes=["2".repeat(64),"2".repeat(64)];expect(()=>parse(envelope([o]))).toThrow();});
+ it("rejects external model output labelled local",()=>{const o=sized();o.sizeAssessment.externalAiUsed=true;expect(()=>parse(envelope([o]))).toThrow();});
+ it("rejects ambiguous or out-of-radius assignments",()=>{const o=sized();o.sizeAssessment.margin=.001;expect(()=>parse(envelope([o]))).toThrow();o.sizeAssessment.margin=.1;o.sizeAssessment.distance=.8;expect(()=>parse(envelope([o]))).toThrow();});
+ it("supports an audited size revision without changing source identity",()=>{const old=withProof();expect(compareRevision(storedLedger(parse(envelope([old])),1),parse(envelope([sized()],2,2)))).toBe("update");});
+ it("cannot classify a detector-rejected observation",()=>{const o=sized();o.verification="detector_rejected";o.sourceFalsePositive=true;expect(()=>parse(envelope([o]))).toThrow();});
+ it("does not attach classified provenance to an unknown size",()=>{const o=sized();o.size="unknown";expect(()=>parse(envelope([o]))).toThrow("unknown_size_provenance_conflict");});
+});

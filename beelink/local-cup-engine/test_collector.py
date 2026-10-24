@@ -64,4 +64,23 @@ class CollectorIntegrationTests(unittest.TestCase):
   self.assertEqual(r['cloudSyncStatus'],'reported_by_separate_native_sync')
   self.assertNotIn('receiptVerified',r)
 
+
+ def test_reference_size_enriches_same_detection_without_new_cup(self):
+  self.proof();self.collector.cycle('2026-10-22')
+  self.collector.size_runtime=types.SimpleNamespace(status='ready',assess=lambda track,evidence:{'size':'mediano','status':'classified','imageSha256':evidence['imageSha256']})
+  r=self.collector.cycle('2026-10-22');snap=self.collector.db.snapshot('2026-10-22')
+  self.assertEqual(snap['detectorTracksRecorded'],1);self.assertEqual(snap['sizeBreakdownOfVerifiedObservations']['mediano'],1)
+  self.assertIsNone(snap['uniquePhysicalDeliveries']);self.assertEqual(r['sizeClassificationStatus'],'ready')
+ def test_absent_size_model_preserves_unknown(self):
+  self.proof();self.collector.size_runtime=types.SimpleNamespace(status='calibration_required',assess=lambda *a:None)
+  self.collector.cycle('2026-10-22');self.assertEqual(self.collector.db.snapshot('2026-10-22')['sizeBreakdownOfVerifiedObservations']['unknown'],1)
+ def test_size_model_failure_does_not_drop_detection(self):
+  self.proof();self.collector.size_runtime=types.SimpleNamespace(status='invalid',assess=lambda *a:(_ for _ in ()).throw(ValueError('bad-model')))
+  r=self.collector.cycle('2026-10-22');self.assertEqual(self.collector.db.snapshot('2026-10-22')['detectorTracksRecorded'],1)
+  self.assertEqual(r['invalidEvidence'][0]['reason'],'size_calibration_unavailable')
+ def test_source_rejection_cannot_retain_size(self):
+  self.proof();self.collector.size_runtime=types.SimpleNamespace(status='ready',assess=lambda track,evidence:{'size':'chico','status':'classified'})
+  self.collector.cycle('2026-10-22');db=sqlite3.connect(self.dbpath);db.execute('UPDATE event SET false_positive=1');db.commit();db.close()
+  self.collector.cycle('2026-10-22');s=self.collector.db.snapshot('2026-10-22');self.assertEqual(s['sameFrameVerifiedObservations'],0);self.assertEqual(sum(s['sizeBreakdownOfVerifiedObservations'].values()),0)
+
 if __name__=='__main__':unittest.main()

@@ -53,6 +53,11 @@ class Collector:
         require(self.model_sha==config.get('expectedModelSha256'),'model_fingerprint_mismatch')
         self.model_stat=(self.model.stat().st_ino,self.model.stat().st_mtime_ns,self.model.stat().st_size)
         self.last_snapshot_sha={};self.sidecar_cache={}
+        self.size_runtime=None
+        if config.get('sizeClassificationEnabled') is True:
+            from size_runtime import SizeRuntime
+            size_path=Path(config['sizeModelPath']);self.guard(self.base,size_path.parent,writable=False,required_bytes=0)
+            self.size_runtime=SizeRuntime(size_path,self.root)
     def close(self):self.db.close()
     def cycle(self,day=None):
         now=datetime.now(self.zone);day=day or now.date().isoformat()
@@ -102,6 +107,17 @@ class Collector:
                             verified+=1
                     except (OSError,ValueError,KeyError,TypeError) as exc:
                         evidence_errors.append({'sourceEventId':raw['id'],'reason':str(exc) if isinstance(exc,InvalidEvidence) else type(exc).__name__})
+                if self.size_runtime and not track['sourceFalsePositive']:
+                    try:
+                        proof=evidence
+                        if not proof:
+                            previous=self.db.db.execute('SELECT payload FROM observations WHERE id=?',(track['observationId'],)).fetchone()
+                            if previous:proof=json.loads(previous['payload']).get('sameFrameEvidence')
+                        assessment=self.size_runtime.assess(track,proof)
+                        if assessment:
+                            track['size']=assessment['size'];track['sizeBasis']='local_reference_estimate';track['sizeAssessment']=assessment
+                    except (OSError,ValueError,KeyError,TypeError):
+                        evidence_errors.append({'sourceEventId':raw['id'],'reason':'size_calibration_unavailable'})
                 changed+=self.db.put(track,evidence)
             except (OSError,ValueError,KeyError,TypeError) as exc:
                 bad.append({'sourceEventId':raw.get('id'),'reason':str(exc) if isinstance(exc,InvalidEvidence) else type(exc).__name__})
@@ -111,6 +127,7 @@ class Collector:
         health={'checkedAt':now.isoformat(),'status':'attention_required' if bad or evidence_errors else 'recording_local_observations',
           'businessDate':day,'sourceDatabaseReadOnly':True,'sourceTracksRead':len(rows),'changedObservations':changed,
           'verifiedLocalEvidence':verified,'invalidTracks':bad,'invalidEvidence':evidence_errors,
+          'sizeClassificationStatus':self.size_runtime.status if self.size_runtime else 'not_configured',
           'snapshotSha256':snapshot_sha,'stateRoot':str(self.root),'networkWrites':0,'browserRequired':False,
           'generativeAiRequired':False,'usesExistingFrigateDetector':True,'startsCamera':False,
           'physicalDeliveryCountCreated':False,'productionApprovedCountsChanged':False,'cloudSyncStatus':'reported_by_separate_native_sync','cloudSyncHealthFile':str(self.root/'sync-health.json')}
