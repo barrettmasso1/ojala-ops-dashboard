@@ -83,4 +83,19 @@ class CollectorIntegrationTests(unittest.TestCase):
   self.collector.cycle('2026-10-22');db=sqlite3.connect(self.dbpath);db.execute('UPDATE event SET false_positive=1');db.commit();db.close()
   self.collector.cycle('2026-10-22');s=self.collector.db.snapshot('2026-10-22');self.assertEqual(s['sameFrameVerifiedObservations'],0);self.assertEqual(sum(s['sizeBreakdownOfVerifiedObservations'].values()),0)
 
+
+ def test_owner_reference_classification_is_not_ai_assessment(self):
+  self.proof();review={'label':'pint','sourceEventId':self.track['sourceEventId']}
+  self.collector.size_runtime=types.SimpleNamespace(status='calibration_required',assess=lambda *a:{'size':'pint','basis':'owner_confirmed_reference','ownerReview':review})
+  self.collector.cycle('2026-10-22');r=self.collector.db.rows('2026-10-22')[0]
+  self.assertEqual(r['size'],'pint');self.assertEqual(r['sizeBasis'],'owner_confirmed_reference');self.assertNotIn('sizeAssessment',r)
+ def test_owner_noncup_excluded_without_removing_observation(self):
+  self.proof();self.collector.size_runtime=types.SimpleNamespace(status='ready',assess=lambda *a:{'size':'unknown','basis':'owner_confirmed_reference','ownerReview':{'label':'not_cup'}})
+  self.collector.cycle('2026-10-22');r=self.collector.db.snapshot('2026-10-22')
+  self.assertEqual(r['detectorTracksRecorded'],1);self.assertEqual(r['ownerExcludedNonCups'],1);self.assertEqual(r['sameFrameVerifiedObservations'],0);self.assertEqual(sum(r['sizeBreakdownOfVerifiedObservations'].values()),0)
+ def test_previous_owner_annotation_survives_temporary_model_absence(self):
+  self.proof();self.collector.size_runtime=types.SimpleNamespace(status='ready',assess=lambda *a:{'size':'litro','basis':'owner_confirmed_reference','ownerReview':{'label':'litro'}})
+  self.collector.cycle('2026-10-22');self.collector.size_runtime=None;self.collector.cycle('2026-10-22')
+  self.assertEqual(self.collector.db.rows('2026-10-22')[0]['size'],'litro')
+
 if __name__=='__main__':unittest.main()

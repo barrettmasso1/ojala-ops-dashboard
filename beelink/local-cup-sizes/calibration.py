@@ -95,6 +95,22 @@ def train_from_annotations(annotations,output,ledger_root):
             'labelSource':'owner_confirmed_capacity','sourceEventId':s['sourceEventId'],'startedAt':s['startedAt']})
     return fit(references,binding)
 
+
+def owner_review_index(annotations,annotation_sha,confirmed_at,output,ledger_root):
+    # Reuse the full input validation, including image hashes and original manifest.
+    train_from_annotations(annotations,output,ledger_root)
+    mh=annotations['manifestSha256'];manifest=json.loads((output/'manifests'/(mh+'.json')).read_text())
+    byid={item['sampleId']:item for item in manifest['samples']};records={}
+    for label in annotations['labels']:
+        original=byid[label['sampleId']];eid=original['observationId']
+        if eid in records:raise CalibrationError('duplicate_reviewed_observation')
+        records[eid]={'protocol':'ojala_owner_size_review_v1','annotationSha256':annotation_sha,'manifestSha256':mh,
+            'sampleId':label['sampleId'],'sourceEventId':original['sourceEventId'],'imageSha256':original['imageSha256'],
+            'label':label['size'],'labelSource':'owner_confirmed_capacity','confirmedAt':confirmed_at,
+            'targetBox':original['targetBox'],'binding':original['binding']}
+    index={'schemaVersion':1,'annotationSha256':annotation_sha,'manifestSha256':mh,'records':records}
+    return {'index':index,'indexSha256':sha(canonical(index))}
+
 def cycle(config):
     base=Path(config['basePath']);root=Path(config['stateRoot']);ledger=Path(config['ledgerRoot']);sys.path.insert(0,str(base/'manus-bridge'))
     from package_storage import verify_external
@@ -112,10 +128,15 @@ def cycle(config):
         try:
             if annotation.is_symlink() or annotation.stat().st_size>65536:raise CalibrationError('annotation_file_invalid')
             raw=annotation.read_bytes();marker=root/'annotation-import.json';last=json.loads(marker.read_text()) if marker.exists() else {}
-            if last.get('inputSha256')==sha(raw) and (root/'model.json').exists():model=json.loads((root/'model.json').read_text())
+            if last.get('inputSha256')==sha(raw) and last.get('calibrationPolicy')=='scene_selective_abstention_v2' and (root/'model.json').exists():model=json.loads((root/'model.json').read_text())
             else:
                 model=train_from_annotations(json.loads(raw),root,ledger)
-                save(root/'models'/(model['modelSha256']+'.json'),model);save(root/'model.json',model);save(marker,{'inputSha256':sha(raw),'modelSha256':model['modelSha256'],'ownerConfirmed':True})
+                save(root/'models'/(model['modelSha256']+'.json'),model);save(root/'model.json',model);save(marker,{'inputSha256':sha(raw),'modelSha256':model['modelSha256'],'ownerConfirmed':True,'calibrationPolicy':'scene_selective_abstention_v2'})
+            review_path=root/'owner-reviews.json'
+            existing=json.loads(review_path.read_text()) if review_path.exists() else {}
+            if existing.get('index',{}).get('annotationSha256')!=sha(raw):
+                reviewed=owner_review_index(json.loads(raw),sha(raw),datetime.fromtimestamp(annotation.stat().st_mtime,timezone.utc).isoformat(),root,ledger)
+                save(root/'owner-reviews-history'/(sha(raw)+'.json'),reviewed);save(review_path,reviewed)
         except (OSError,ValueError,KeyError) as exc:import_error=str(exc) if isinstance(exc,CalibrationError) else type(exc).__name__
     results=[]
     for sample in samples:

@@ -151,6 +151,8 @@ class Ledger:
             if previous['sameFrameEvidence']:
                 value['sameFrameEvidence']=previous['sameFrameEvidence'];value['verification']='same_frame_local_cv'
             if previous['endedAt'] and value['endedAt'] is None:value['endedAt']=previous['endedAt']
+            if previous.get('ownerSizeReview') and not value.get('ownerSizeReview'):
+                value['ownerSizeReview']=previous['ownerSizeReview'];value['size']=previous['size'];value['sizeBasis']='owner_confirmed_reference';value.pop('sizeAssessment',None)
         if evidence:
             require(not value['sourceFalsePositive'],'source_marked_false_positive')
             if value['sameFrameEvidence']:require(value['sameFrameEvidence']['imageSha256']==evidence['imageSha256'],'evidence_replacement_forbidden')
@@ -167,10 +169,12 @@ class Ledger:
     def rows(self,day):return [json.loads(r[0]) for r in self.db.execute('SELECT payload FROM observations WHERE day=? ORDER BY first_seen,id',(day,))]
     def snapshot(self,day):
         rows=self.rows(day);repeats=possible_repeats(rows);counts={k:0 for k in SIZES}
-        verified=[r for r in rows if r['verification']=='same_frame_local_cv']
+        raw_verified=[r for r in rows if r['verification']=='same_frame_local_cv']
+        owner_excluded=[r for r in raw_verified if r.get('ownerSizeReview',{}).get('label')=='not_cup']
+        verified=[r for r in raw_verified if r.get('ownerSizeReview',{}).get('label')!='not_cup']
         for r in verified:counts[r['size']]+=1
         return {'schema':'ojala_local_cup_ledger_v1','businessDate':day,'semantics':'detector_observations_not_certified_deliveries',
-          'detectorTracksRecorded':len(rows),'sameFrameVerifiedObservations':len(verified),
+          'detectorTracksRecorded':len(rows),'sameFrameVerifiedObservations':len(verified),'rawSameFrameVerifiedObservations':len(raw_verified),'ownerExcludedNonCups':len(owner_excluded),
           'detectorOnlyObservations':sum(r['verification']=='detector_track_only' for r in rows),
           'rejectedSourceObservations':sum(r['verification']=='detector_rejected' for r in rows),
           'potentialRepeatObservations':len(repeats),'possibleRepeatLinks':repeats,'sizeBreakdownOfVerifiedObservations':counts,

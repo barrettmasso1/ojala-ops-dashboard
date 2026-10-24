@@ -115,7 +115,11 @@ class Collector:
                             if previous:proof=json.loads(previous['payload']).get('sameFrameEvidence')
                         assessment=self.size_runtime.assess(track,proof)
                         if assessment:
-                            track['size']=assessment['size'];track['sizeBasis']='local_reference_estimate';track['sizeAssessment']=assessment
+                            track['size']=assessment['size']
+                            if assessment.get('basis')=='owner_confirmed_reference':
+                                track['sizeBasis']='owner_confirmed_reference';track['ownerSizeReview']=assessment['ownerReview']
+                            else:
+                                track['sizeBasis']='local_reference_estimate';track['sizeAssessment']=assessment
                     except (OSError,ValueError,KeyError,TypeError):
                         evidence_errors.append({'sourceEventId':raw['id'],'reason':'size_calibration_unavailable'})
                 changed+=self.db.put(track,evidence)

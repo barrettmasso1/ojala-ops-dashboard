@@ -9,7 +9,7 @@ from size_classifier import descriptor,predict,canonical,sha,CalibrationError
 
 class SizeRuntime:
     def __init__(self,model_path,ledger_root):
-        self.path=Path(model_path);self.root=Path(ledger_root);self.stamp=None;self.model=None;self.cache={};self.status='calibration_required'
+        self.path=Path(model_path);self.root=Path(ledger_root);self.stamp=None;self.model=None;self.cache={};self.status='calibration_required';self.review_stamp=None;self.reviews={}
     def reload(self):
         if not self.path.exists():
             self.model=None;self.status='calibration_required';self.stamp=None;return
@@ -20,9 +20,29 @@ class SizeRuntime:
         if sha(canonical(m.get('model')))!=m.get('modelSha256'):raise CalibrationError('model_checksum')
         if m['model'].get('labelProvenance')!='owner_confirmed_capacity' or m['model'].get('runtimeGenerativeAi') is not False:raise CalibrationError('model_provenance')
         self.model=m;self.stamp=stamp;self.cache={};self.status=m['model'].get('status','calibration_required')
+    def owner_review(self,track,evidence):
+        p=self.path.parent/'owner-reviews.json'
+        if not p.exists():return None
+        if p.is_symlink() or p.stat().st_size>1024*1024:raise CalibrationError('owner_review_file_invalid')
+        st=p.stat();stamp=(st.st_ino,st.st_mtime_ns,st.st_size)
+        if stamp!=self.review_stamp:
+            value=json.loads(p.read_text());index=value.get('index')
+            if sha(canonical(index))!=value.get('indexSha256'):raise CalibrationError('owner_review_checksum')
+            self.reviews=index['records'];self.review_stamp=stamp
+        review=self.reviews.get(track.get('observationId'))
+        if not review:return None
+        binding={'deviceId':track['deviceId'],'cameraName':track['cameraName'],'zoneSha256':evidence['sourceZoneSha256'],'detectorModelSha256':track['detectorModelSha256']}
+        if (review.get('sourceEventId')!=track['sourceEventId'] or review.get('imageSha256')!=evidence['imageSha256']
+            or review.get('targetBox')!=evidence['targetBox'] or review.get('binding')!=binding
+            or review.get('labelSource')!='owner_confirmed_capacity' or review.get('label') not in ('chico','mediano','pint','litro','not_cup')):
+            raise CalibrationError('owner_review_identity_mismatch')
+        return {'size':review['label'] if review['label']!='not_cup' else 'unknown','basis':'owner_confirmed_reference','status':'owner_confirmed','ownerReview':review}
     def assess(self,track,evidence):
         self.reload()
-        if not evidence or track.get('sourceFalsePositive') or not self.model or self.status!='ready':return None
+        if not evidence or track.get('sourceFalsePositive'):return None
+        review=self.owner_review(track,evidence)
+        if review:return review
+        if not self.model or self.status!='ready':return None
         binding={'deviceId':track['deviceId'],'cameraName':track['cameraName'],'zoneSha256':evidence['sourceZoneSha256'],'detectorModelSha256':track['detectorModelSha256']}
         key=(self.model['modelSha256'],evidence['imageSha256'],canonical(evidence['targetBox']))
         if key in self.cache:return self.cache[key]

@@ -27,13 +27,20 @@ const localSizeAssessmentSchema = z.object({
   distance:z.number().min(0).max(.28),margin:z.number().min(.04).max(1),
   externalAiUsed:z.literal(false),notACertifiedVolume:z.literal(true),
 }).strict();
+const ownerSizeReviewSchema = z.object({
+  protocol:z.literal("ojala_owner_size_review_v1"),annotationSha256:sha,manifestSha256:sha,sampleId:sha,
+  sourceEventId:eventId,imageSha256:sha,label:z.enum(["chico","mediano","pint","litro","not_cup"]),
+  labelSource:z.literal("owner_confirmed_capacity"),confirmedAt:iso,targetBox:box,
+  binding:z.object({deviceId:device,cameraName:z.literal("handoff"),zoneSha256:sha,detectorModelSha256:sha}).strict(),
+}).strict();
 export const localObservationSchema = z.object({
   schema: z.literal("ojala_local_cup_observation_v1"), observationId: sha, deviceId: device,
   cameraName: z.literal("handoff"), sourceEventId: eventId, businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   startedAt: iso, endedAt: iso.nullable(), detectorModelSha256: sha, detectorScore: z.number().min(0).max(1),
   targetBox: box, enteredHandoffZone: z.boolean(), sourceFalsePositive: z.boolean(),
   verification: z.enum(["detector_track_only","same_frame_local_cv","detector_rejected"]),
-  size: z.enum(["chico","mediano","pint","litro","unknown"]), sizeBasis: z.enum(["local_model_has_no_size_classes","local_reference_estimate"]),
+  size: z.enum(["chico","mediano","pint","litro","unknown"]), sizeBasis: z.enum(["local_model_has_no_size_classes","local_reference_estimate","owner_confirmed_reference"]),
+  ownerSizeReview:ownerSizeReviewSchema.optional(),
   sizeAssessment:localSizeAssessmentSchema.optional(),
   physicalDeliveryConfirmed: z.literal(false), salesCreated: z.literal(false), sameFrameEvidence: proof.nullable(),
   sourceDetectorModelHash: z.string().max(100).nullable().optional(), sourceDetectorType: z.string().max(50).nullable().optional(),
@@ -62,7 +69,16 @@ export function parseLocalLedger(input:z.infer<typeof localLedgerInputSchema>, t
     if(o.endedAt && (Date.parse(o.endedAt)<Date.parse(o.startedAt)||Date.parse(o.endedAt)>now.getTime()+120000))throw Error("observation_end");
     if(o.sourceFalsePositive !== (o.verification==="detector_rejected"))throw Error("rejected_source_scope");
     if(o.verification==="same_frame_local_cv" && !o.sameFrameEvidence)throw Error("verification_without_evidence");
-    if(o.size!=="unknown") {
+    if(o.ownerSizeReview) {
+      const review=o.ownerSizeReview;
+      if(!o.sameFrameEvidence || o.sizeAssessment || o.sizeBasis!=="owner_confirmed_reference"
+        || o.size!==(review.label==="not_cup"?"unknown":review.label)
+        || review.sourceEventId!==o.sourceEventId || review.imageSha256!==o.sameFrameEvidence.imageSha256
+        || JSON.stringify(review.targetBox)!==JSON.stringify(o.sameFrameEvidence.targetBox)
+        || review.binding.deviceId!==o.deviceId || review.binding.cameraName!==o.cameraName
+        || review.binding.detectorModelSha256!==o.detectorModelSha256 || review.binding.zoneSha256!==o.sameFrameEvidence.sourceZoneSha256
+        || Date.parse(review.confirmedAt)>now.getTime()+120000)throw Error("owner_size_review_scope_mismatch");
+    } else if(o.size!=="unknown") {
       if(o.verification!=="same_frame_local_cv" || !o.sameFrameEvidence || !o.sizeAssessment
           || o.sizeBasis!=="local_reference_estimate" || o.sizeAssessment.size!==o.size
           || o.sizeAssessment.imageSha256!==o.sameFrameEvidence.imageSha256)throw Error("size_calibration_provenance_required");
@@ -134,7 +150,7 @@ export function possibleLocalRepeats(rows:LocalObservation[]) {
   return links;
 }
 export function summarizeLocalLedger(p:ParsedLocalLedger,receivedAt:string) {
-  const rows=p.observations;const verified=rows.filter(o=>o.verification==="same_frame_local_cv");const repeats=possibleLocalRepeats(rows);
+  const rows=p.observations;const rawVerified=rows.filter(o=>o.verification==="same_frame_local_cv");const ownerExcluded=rawVerified.filter(o=>o.ownerSizeReview?.label==="not_cup");const verified=rawVerified.filter(o=>o.ownerSizeReview?.label!=="not_cup");const repeats=possibleLocalRepeats(rows);
   const sizeBreakdown={chico:0,mediano:0,pint:0,litro:0,unknown:0};
   for(const observation of verified)sizeBreakdown[observation.size]++;
   return {protocol:LOCAL_LEDGER_PROTOCOL,businessDate:p.document.businessDate,deviceId:p.document.deviceId,receivedAt,
@@ -142,8 +158,12 @@ export function summarizeLocalLedger(p:ParsedLocalLedger,receivedAt:string) {
     withoutSameFrameEvidence:rows.filter(o=>o.verification==="detector_track_only").length,rejectedByDetector:rows.filter(o=>o.verification==="detector_rejected").length,
     potentialRepeatedTracks:Object.keys(repeats).length,repeatLinks:repeats,repeatFlagsAreNotAutomaticMerges:true,
     sizeBreakdown,localSizeClassifiedTargets:verified.filter(o=>o.size!=="unknown").length,
+    rawLocallyVerifiedTargets:rawVerified.length,ownerExcludedTargets:ownerExcluded.length,
+    ownerConfirmedSizeTargets:verified.filter(o=>o.ownerSizeReview&&o.size!=="unknown").length,
+    automaticallyEstimatedSizeTargets:verified.filter(o=>o.sizeBasis==="local_reference_estimate"&&o.size!=="unknown").length,
     uniquePhysicalDeliveries:null,externalAiRequired:false,manualOrSalesCountsUsed:false,
     records:rows.map(o=>({id:o.observationId,sourceEventId:o.sourceEventId,startedAt:o.startedAt,endedAt:o.endedAt,
       verification:o.verification,score:o.detectorScore,size:o.size,sizeBasis:o.sizeBasis,sizeModelSha256:o.sizeAssessment?.modelSha256??null,enteredHandoffZone:o.enteredHandoffZone,
+      ownerExcluded:o.ownerSizeReview?.label==="not_cup",ownerConfirmedSize:Boolean(o.ownerSizeReview&&o.ownerSizeReview.label!=="not_cup"),
       possibleRepeatOf:repeats[o.observationId]??[],imageSha256:o.sameFrameEvidence?.imageSha256??null}))};
 }

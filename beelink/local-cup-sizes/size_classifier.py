@@ -106,26 +106,33 @@ def fit(references,binding):
         refs.append({'size':r['size'],'sourceEventId':r['sourceEventId'],'sceneGroup':group,'imageSha256':h,'feature':r['feature']})
     groups={c:len({r['sceneGroup'] for r in refs if r['size']==c}) for c in CLASSES}
     candidates={c for c in CLASSES if groups[c]>=MIN_SCENES}
-    supported={};validation={}
-    for category in sorted(candidates):
-        if len(candidates)<2:
-            validation[category]={'status':'needs_contrasting_reference_class','independentScenes':groups[category]};continue
-        own=[r for r in refs if r['size']==category];positives=[];failures=0
-        for r in own:
-            near=nearest(r['feature'],refs,r['sceneGroup']);same=near.get(category,[])
-            rivals=[d for c,items in near.items() if c!=category for d,_ in items]
-            # Two support images from independent scenes, never the held-out scene.
+    supported={};validation={};heldout=[]
+    for ref in refs:
+        near=nearest(ref['feature'],refs,ref['sceneGroup']);ranked=[]
+        for category in candidates:
             by_scene={}
-            for d,ref in same:by_scene.setdefault(ref['sceneGroup'],d)
-            ds=sorted(by_scene.values())
-            if len(ds)<2 or not rivals or ds[1]>MAX_DISTANCE or min(rivals)-ds[1]<MIN_MARGIN:
-                failures+=1;continue
-            positives.append(ds[1])
-        validation[category]={'status':'validated' if not failures and positives else 'not_separable','heldOutSceneFailures':failures,'referenceImages':len(own),'independentScenes':groups[category]}
-        if not failures and positives:supported[category]={'radius':round(min(MAX_DISTANCE,max(.035,max(positives)*1.15+.01)),7),'minimumMargin':MIN_MARGIN,'minimumSupportingScenes':2}
+            for d,r in near.get(category,[]):by_scene.setdefault(r['sceneGroup'],d)
+            distances=sorted(by_scene.values())
+            if len(distances)>=2:ranked.append((distances[1],category))
+        ranked.sort();chosen=None;score=None;margin=None
+        if ranked:
+            score,category=ranked[0];rivals=[d for c,items in near.items() if c!=category for d,_ in items]
+            margin=min(rivals)-score if rivals else None
+            if score<=MAX_DISTANCE and margin is not None and margin>=MIN_MARGIN:chosen=category
+        heldout.append({'sourceEventId':ref['sourceEventId'],'sceneGroup':ref['sceneGroup'],'expected':ref['size'],'predicted':chosen,'distance':score,'margin':margin})
+    for category in sorted(candidates):
+        good=[r for r in heldout if r['predicted']==category and r['expected']==category]
+        wrong=[r for r in heldout if r['predicted']==category and r['expected']!=category]
+        scenes=len({r['sceneGroup'] for r in good})
+        accepted=not wrong and scenes>=MIN_SCENES and len(candidates)>=2
+        validation[category]={'status':'selectively_validated' if accepted else 'insufficient_selective_validation',
+            'correctAcceptedReferences':len(good),'correctAcceptedScenes':scenes,'incorrectAcceptedReferences':len(wrong),
+            'referenceImages':sum(r['size']==category for r in refs),'independentScenes':groups[category],
+            'heldOutSceneFailures':sum(r['expected']==category and r['predicted']!=category for r in heldout)}
+        if accepted:supported[category]={'radius':round(min(MAX_DISTANCE,max(.035,max(r['distance'] for r in good)*1.15+.01)),7),'minimumMargin':MIN_MARGIN,'minimumSupportingScenes':2}
     status='ready' if any(c in SIZES for c in supported) else 'calibration_required'
     core={'protocol':VERSION,'binding':binding,'status':status,'supported':supported,'validation':validation,'references':refs,
-          'labelProvenance':'owner_confirmed_capacity','runtimeGenerativeAi':False,'similarityIsProbability':False,
+          'calibrationPolicy':'scene_selective_abstention_v2','heldOutSceneResults':heldout,'labelProvenance':'owner_confirmed_capacity','runtimeGenerativeAi':False,'similarityIsProbability':False,
           'generalizationValidated':False,'missingCategories':[c for c in SIZES if c not in supported]}
     return {'model':core,'modelSha256':sha(canonical(core))}
 
