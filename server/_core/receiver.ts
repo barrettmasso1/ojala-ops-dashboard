@@ -8,6 +8,7 @@ import { createContext } from "./context";
 import { getDb } from "../db";
 import { sql } from "drizzle-orm";
 import { startHandoffAnalysisWorker, stopHandoffAnalysisWorker } from "../handoffAnalysisWorker";
+import { receiverProcedureAllowed } from "./receiverPolicy";
 
 /** Optional deployment of the SAME receiver/DB contract, not a proxy around another site's controls. */
 async function startReceiver() {
@@ -28,9 +29,8 @@ async function startReceiver() {
   app.disable("x-powered-by");
   app.use(express.json({ limit: "13mb" }));
   app.get("/healthz", (_req, res) => res.json({ status: "ok", service: "ojala-ingestion", dataRole: "existing_application_database" }));
-  const allowed = new Set(["/frigate.submitHandoffVisual", "/frigate.submitCounts", "/frigate.ingestionCapabilities"]);
   app.use("/api/trpc", (req, res, next) => {
-    if (!allowed.has(req.path) || !["GET", "POST"].includes(req.method)) {
+    if (!receiverProcedureAllowed(req.path, req.method)) {
       res.status(404).json({ error: "not_found" }); return;
     }
     next();

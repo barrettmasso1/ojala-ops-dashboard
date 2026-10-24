@@ -5,11 +5,13 @@ import {parseAutoCupSizes,sizeObservationEligible,type AutoCupSizeAssessment} fr
 import {parseCupReviewNotes} from "../shared/cupDescriptions";
 import {storageGetSignedUrl} from "./storage";
 import {analyzeCupSizes} from "./autoCupSizeAnalysis";
+import {isNativeLocalEvidenceSource} from "./nativeLocalEvidence";
 function object(raw:string|null){if(!raw)return {};const x=JSON.parse(raw);if(!x||typeof x!=="object"||Array.isArray(x))throw Error("Stored analysis evidence is malformed");return x as Record<string,unknown>;}
 export async function classifyHandoffCupSizes(input:{id:number;storeId:number}){
- const db=await getDb();if(!db)throw Error("Database not available");
- const row=await getHandoffVisualEventById(input);if(!row)throw Error("Handoff visual event was not found in this store");
- const annotation=parseCupReviewNotes(row.reviewNotes);if(annotation.malformed)throw Error("Stored descriptions malformed");
+	 const db=await getDb();if(!db)throw Error("Database not available");
+	 const row=await getHandoffVisualEventById(input);if(!row)throw Error("Handoff visual event was not found in this store");
+	 if(isNativeLocalEvidenceSource(row.sourceDetail))return {eventId:row.id,status:"native_local_only"};
+	 const annotation=parseCupReviewNotes(row.reviewNotes);if(annotation.malformed)throw Error("Stored descriptions malformed");
  if(annotation.annotation)return {eventId:row.id,status:"manual_preserved"};
  if(!sizeObservationEligible(row))return {eventId:row.id,status:"excluded_visual_state"};
  if(!row.imageKey)throw Error("Image storage pending");

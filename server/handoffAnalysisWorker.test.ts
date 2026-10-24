@@ -39,6 +39,11 @@ describe("persistent analysis worker", () => {
     mocks.getHandoffVisualEventById.mockResolvedValue({...base(),sourceDetail:"verified_snapshot"});
     await runHandoffAnalysisCycle();expect(mocks.analyzePersistedHandoffVisual).not.toHaveBeenCalled();
   });
+  it("holds native local evidence before any reanalysis",async()=>{
+    mocks.getHandoffVisualEventById.mockResolvedValue({...base(),sourceDetail:"native_local_cv_only_v1:fixture"});
+    expect(await runHandoffAnalysisCycle()).toMatchObject({held:1});
+    expect(mocks.analyzePersistedHandoffVisual).not.toHaveBeenCalled();
+  });
   it("holds inconsistent stored identity rather than analyzing it",async()=>{
     mocks.getHandoffVisualEventById.mockResolvedValue({...base(),imageSha256:"b".repeat(64)});
     expect(await runHandoffAnalysisCycle()).toMatchObject({held:1});
