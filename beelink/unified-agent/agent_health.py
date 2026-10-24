@@ -19,15 +19,19 @@ def stamp(value):
 
 def fresh(record,now,maximum):
     if not isinstance(record,dict):return False
-    at=stamp(record.get('checkedAt') or record.get('checked_at'))
+    at=stamp(record.get('checkedAt') or record.get('checked_at') or record.get('checked_at_utc'))
     return at is not None and -30<=now-at<=maximum
 
 def summarize(records,services,now,day,store,device):
     issues=[];components={}
-    for key,max_age in [('capture',150),('collector',90),('ledgerSync',90),('photoSync',150),('calibration',180)]:
+    for key,max_age in [('capture',150),('collector',90),('ledgerSync',90),('photoSync',150),('calibration',180),('archive',420)]:
         r=records.get(key);valid=fresh(r,now,max_age)
-        components[key]={'available':isinstance(r,dict),'fresh':valid,'reportedStatus':r.get('status') if isinstance(r,dict) else None,'checkedAt':(r.get('checkedAt') or r.get('checked_at')) if isinstance(r,dict) else None}
+        components[key]={'available':isinstance(r,dict),'fresh':valid,'reportedStatus':r.get('status') if isinstance(r,dict) else None,'checkedAt':(r.get('checkedAt') or r.get('checked_at') or r.get('checked_at_utc')) if isinstance(r,dict) else None}
         if not valid:issues.append(key+'_missing_or_stale')
+    archive=records.get('archive') or {}
+    if archive.get('status') not in ('ok','catching_up','already_running'):issues.append('recording_archive_not_healthy')
+    used=archive.get('archive_bytes');limit=archive.get('max_archive_bytes')
+    if type(used) is int and type(limit) is int and limit>0 and used>=limit*.95:issues.append('recording_archive_quota_nearly_full')
     camera=records.get('capture') or {};operating=camera.get('operating_hours') is True or camera.get('manual_session_outside_schedule') is True
     if operating and isinstance(camera.get('process_fps'),(int,float)) and camera['process_fps']<4.5:issues.append('camera_processing_degraded')
     temp=camera.get('max_temperature_c')
