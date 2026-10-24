@@ -1,0 +1,49 @@
+import unittest,copy
+from agent_health import summarize,fresh,UNITS
+NOW=1792861200;DAY='2026-10-24'
+from datetime import datetime,timezone
+def at(delta=0):return datetime.fromtimestamp(NOW+delta,timezone.utc).isoformat()
+def baseline():
+ r={k:{'checkedAt':at(),'status':'running'} for k in ['capture','collector','ledgerSync','photoSync','calibration']}
+ r['capture'].update(operating_hours=True,process_fps=5,max_temperature_c=65)
+ r['ledgerSync']['results']=[{'businessDate':DAY,'status':'acknowledged'}]
+ r['photoSync']['photoStateCounts']={'acknowledged':8}
+ r['calibration']['supportedCategories']=['mediano','not_cup']
+ return r,{u:'active' for u in UNITS}
+class HealthTests(unittest.TestCase):
+ def report(self,records,services):return summarize(records,services,NOW,DAY,1,'device-test')
+ def test_running_is_not_commercial_certification(self):
+  r,s=baseline();o=self.report(r,s);self.assertEqual(o['status'],'running');self.assertFalse(o['commercialAcceptanceComplete']);self.assertFalse(o['uniquePhysicalCountValidated'])
+ def test_missing_photos_never_green(self):
+  r,s=baseline();r.pop('photoSync');self.assertIn('photoSync_missing_or_stale',self.report(r,s)['issues'])
+ def test_old_photo_health_never_green(self):
+  r,s=baseline();r['photoSync']['checkedAt']=at(-160);self.assertEqual(self.report(r,s)['status'],'attention_required')
+ def test_yesterday_ack_is_not_today(self):
+  r,s=baseline();r['ledgerSync']['results'][0]['businessDate']='2026-10-23';self.assertFalse(self.report(r,s)['todayLedgerAcknowledged'])
+ def test_unknown_receipt_not_acknowledged(self):
+  r,s=baseline();r['ledgerSync']['results'][0]['status']='delivery_unknown';self.assertIn('ledger_reception_not_acknowledged',self.report(r,s)['issues'])
+ def test_temperature_not_hidden_by_fps(self):
+  r,s=baseline();r['capture']['max_temperature_c']=88;self.assertIn('physical_cooling_attention',self.report(r,s)['issues'])
+ def test_degraded_processing_reported(self):
+  r,s=baseline();r['capture']['process_fps']=2.8;self.assertIn('camera_processing_degraded',self.report(r,s)['issues'])
+ def test_outside_schedule_not_a_processing_failure(self):
+  r,s=baseline();r['capture'].update(operating_hours=False,process_fps=0);self.assertNotIn('camera_processing_degraded',self.report(r,s)['issues'])
+ def test_manual_session_treated_as_active(self):
+  r,s=baseline();r['capture'].update(operating_hours=False,manual_session_outside_schedule=True,process_fps=0);self.assertIn('camera_processing_degraded',self.report(r,s)['issues'])
+ def test_auth_hold_visible(self):
+  r,s=baseline();r['photoSync']['status']='authorization_hold';self.assertIn('photo_transport_authorization_hold',self.report(r,s)['issues'])
+ def test_blocked_item_visible(self):
+  r,s=baseline();r['photoSync']['photoStateCounts']['blocked']=1;self.assertIn('photo_items_blocked',self.report(r,s)['issues'])
+ def test_disabled_service_visible(self):
+  r,s=baseline();s[UNITS[3]]='inactive';self.assertIn('service_not_active:'+UNITS[3],self.report(r,s)['issues'])
+ def test_only_validated_sizes_listed(self):
+  r,s=baseline();o=self.report(r,s);self.assertEqual(o['locallySupportedSizes'],['mediano']);self.assertEqual(o['sizesNotYetValidated'],['chico','pint','litro'])
+ def test_evidence_rejection_not_hidden(self):
+  r,s=baseline();r['collector']['invalidEvidence']=[{'reason':'capture_after_event_end'}];self.assertIn('capture_evidence_rejected',self.report(r,s)['issues'])
+ def test_timezone_free_or_future_timestamp_not_fresh(self):
+  self.assertFalse(fresh({'checkedAt':'2026-10-24T12:00:00'},NOW,100));self.assertFalse(fresh({'checkedAt':at(100)},NOW,100))
+ def test_backlog_does_not_count_exclusions(self):
+  r,s=baseline();r['photoSync']['photoStateCounts']={'queued':3,'delivery_unknown':2,'excluded':8};self.assertEqual(self.report(r,s)['photoBacklog'],5)
+ def test_no_mutation(self):
+  r,s=baseline();old=copy.deepcopy(r);self.report(r,s);self.assertEqual(r,old)
+if __name__=='__main__':unittest.main()

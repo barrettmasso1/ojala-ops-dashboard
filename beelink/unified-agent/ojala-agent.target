@@ -1,0 +1,7 @@
+[Unit]
+Description=Ojala camera app - unified autonomous agent
+Wants=ojala-local-cup-ledger.service ojala-local-cup-sync.service ojala-local-size-calibration.service ojala-local-photo-sync.service ojala-agent-health.service
+After=network-online.target
+
+[Install]
+WantedBy=default.target
