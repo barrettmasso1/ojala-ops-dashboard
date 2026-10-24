@@ -98,3 +98,31 @@ describe("locally calibrated capacity provenance",()=>{
  it("cannot classify a detector-rejected observation",()=>{const o=sized();o.verification="detector_rejected";o.sourceFalsePositive=true;expect(()=>parse(envelope([o]))).toThrow();});
  it("does not attach classified provenance to an unknown size",()=>{const o=sized();o.size="unknown";expect(()=>parse(envelope([o]))).toThrow("unknown_size_provenance_conflict");});
 });
+
+
+describe("owner-confirmed reference annotations are not predictions",()=>{
+ function reviewed(label="chico") {
+  const o=withProof();return {...o,size:label==="not_cup"?"unknown":label,sizeBasis:"owner_confirmed_reference",ownerSizeReview:{
+   protocol:"ojala_owner_size_review_v1",annotationSha256:"1".repeat(64),manifestSha256:"2".repeat(64),sampleId:"3".repeat(64),
+   sourceEventId:o.sourceEventId,imageSha256:o.sameFrameEvidence.imageSha256,label,labelSource:"owner_confirmed_capacity",confirmedAt:"2026-01-21T00:00:00Z",targetBox:o.sameFrameEvidence.targetBox,
+   binding:{deviceId:DEVICE,cameraName:"handoff",zoneSha256:o.sameFrameEvidence.sourceZoneSha256,detectorModelSha256:o.detectorModelSha256},
+  }};
+ }
+ it.each(["chico","mediano","pint","litro"])("stores the exact owner %s label separately from estimates",label=>{
+  const p=parse(envelope([reviewed(label)]));const s=summarizeLocalLedger(p,new Date().toISOString());expect(s.ownerConfirmedSizeTargets).toBe(1);expect(s.automaticallyEstimatedSizeTargets).toBe(0);expect(s.records[0].ownerConfirmedSize).toBe(true);expect(s.uniquePhysicalDeliveries).toBeNull();
+ });
+ it("excludes owner-marked noncups without deleting detector history",()=>{
+  const p=parse(envelope([reviewed("not_cup")]));const s=summarizeLocalLedger(p,new Date().toISOString());expect(s.detectedTracks).toBe(1);expect(s.rawLocallyVerifiedTargets).toBe(1);expect(s.locallyVerifiedTargets).toBe(0);expect(s.ownerExcludedTargets).toBe(1);expect(s.sizeBreakdown.unknown).toBe(0);expect(p.observations[0].sourceFalsePositive).toBe(false);
+ });
+ it("rejects a size different from what the owner confirmed",()=>{const o=reviewed();o.size="litro";expect(()=>parse(envelope([o]))).toThrow("owner_size_review_scope_mismatch");});
+ it("rejects copied owner review on another image",()=>{const o=reviewed();o.ownerSizeReview.imageSha256="f".repeat(64);expect(()=>parse(envelope([o]))).toThrow();});
+ it("rejects another source event",()=>{const o=reviewed();o.ownerSizeReview.sourceEventId="another-event";expect(()=>parse(envelope([o]))).toThrow();});
+ it("rejects another device",()=>{const o=reviewed();o.ownerSizeReview.binding.deviceId="00000000-0000-4000-8000-000000000002";expect(()=>parse(envelope([o]))).toThrow();});
+ it("rejects changed detector or zone",()=>{const o=reviewed();o.ownerSizeReview.binding.zoneSha256="f".repeat(64);expect(()=>parse(envelope([o]))).toThrow();o.ownerSizeReview.binding.zoneSha256=o.sameFrameEvidence.sourceZoneSha256;o.ownerSizeReview.binding.detectorModelSha256="e".repeat(64);expect(()=>parse(envelope([o]))).toThrow();});
+ it("rejects different crop of same image",()=>{const o=reviewed();o.ownerSizeReview.targetBox=[.1,.2,.1,.1];expect(()=>parse(envelope([o]))).toThrow();});
+ it("rejects missing original image proof",()=>{const o=reviewed();o.sameFrameEvidence=null;expect(()=>parse(envelope([o]))).toThrow();});
+ it("rejects future confirmation timestamp",()=>{const o=reviewed();o.ownerSizeReview.confirmedAt="2099-01-01T00:00:00Z";expect(()=>parse(envelope([o]))).toThrow();});
+ it("rejects AI estimates labelled owner confirmed",()=>{const o=reviewed();o.ownerSizeReview.labelSource="ai_estimate";expect(()=>parse(envelope([o]))).toThrow();});
+ it("updates annotation without adding a detection or a sale",()=>{const before=parse(envelope([withProof()]));const after=parse(envelope([reviewed()],2,2));expect(compareRevision(storedLedger(before,1),after)).toBe("update");expect(after.observations).toHaveLength(1);expect(after.observations[0].salesCreated).toBe(false);});
+ it("keeps known owner size with detector rejection but does not count it",()=>{const o=reviewed();o.sourceFalsePositive=true;o.verification="detector_rejected";const s=summarizeLocalLedger(parse(envelope([o])),new Date().toISOString());expect(s.sizeBreakdown.chico).toBe(0);expect(s.rejectedByDetector).toBe(1);});
+});

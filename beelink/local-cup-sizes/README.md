@@ -28,3 +28,11 @@ Every model revision is retained under state/models.
 
 The real initial run had 23 preserved candidate images and ZERO confirmed labels.
 No production class assignment or real size-accuracy measurement was claimed.
+
+## Owner review and selective activation
+
+Exact annotations are stored as owner-confirmed references, not predictions.
+Rejected non-cups stay in history but leave capacity summaries. A class may be
+activated only with three correctly accepted held-out scenes and no incorrect
+confident assignments, preserving original distance/margin limits. Unknown cases
+remain unknown. Small-set calibration does not certify generalization.
