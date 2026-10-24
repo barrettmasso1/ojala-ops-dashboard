@@ -1,8 +1,9 @@
 import { hasClosingRecord, closingValue, nativeEvidenceDate, LOCAL_CAMERA_DEVICE_ID } from "@/lib/localLedgerPresentation";
 import { LocalCupLedgerPanel } from "@/components/LocalCupLedgerPanel";
+import { ManualCameraComparisonPanel } from "@/components/ManualCameraComparisonPanel";
 import { CameraSizeBreakdown } from "@/components/CameraSizeBreakdown";
 import { CupDescriptionSummary, CupDescriptionsEditor } from "@/components/CupDescriptions";
-import { MANUAL_CUP_SIZE_LABELS, manualCupRows } from "@shared/cupDescriptions";
+import { MANUAL_CUP_SIZE_LABELS } from "@shared/cupDescriptions";
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import DailyOperationsPanel from "@/components/DailyOperationsPanel";
@@ -121,6 +122,16 @@ function handoffEvidenceOriginLabel(origin: string | null | undefined) {
   return origin === "recording_extracted_frame"
     ? "Recording-extracted frame · manager review required"
     : "Automatic verified snapshot";
+}
+
+function nativePhotoEvidenceLabel(sourceDetail: string | null | undefined, status: HandoffVisualStatus) {
+  const prefix = "native_local_cv_only_v1:";
+  if (!sourceDetail?.startsWith(prefix)) return null;
+  const observationId = sourceDetail.slice(prefix.length);
+  return {
+    observationId,
+    status: status === "pending_review" ? "Foto recibida · validación local · revisión humana pendiente" : "Foto recibida · validación local · decisión humana registrada",
+  };
 }
 
 type DailyStaffActivityRowInput = {
@@ -631,7 +642,12 @@ function HandoffVisualEvidenceOverviewPanel({
                   {thumbnail.imageUrl ? <img src={thumbnail.imageUrl} alt={`Handoff evidence ${thumbnail.cupEventId}`} loading="lazy" decoding="async" className="aspect-[4/3] w-full bg-[#f4ede2] object-cover" /> : null}
                   <div className="p-4">
                     <p className="truncate text-sm font-medium text-[#24332f]" title={thumbnail.cupEventId}>{thumbnail.cupEventId}</p>
-                    <p className="mt-2 text-xs leading-5 text-[#68716b]">{handoffVisualStatusLabel(thumbnail.analysisStatus)} · {handoffEvidenceOriginLabel(thumbnail.evidenceOrigin)}</p>
+                    {nativePhotoEvidenceLabel(thumbnail.sourceDetail, thumbnail.analysisStatus) ? (
+                      <>
+                        <p className="mt-2 text-xs leading-5 text-[#3f6747]">{nativePhotoEvidenceLabel(thumbnail.sourceDetail, thumbnail.analysisStatus)!.status}</p>
+                        <p className="mt-1 break-all text-[11px] leading-5 text-[#68716b]">Ledger observationId: {nativePhotoEvidenceLabel(thumbnail.sourceDetail, thumbnail.analysisStatus)!.observationId} · sourceEventId: {thumbnail.cupEventId} · imageSha256: {thumbnail.imageSha256 ?? "No disponible"}</p>
+                      </>
+                    ) : <p className="mt-2 text-xs leading-5 text-[#68716b]">{handoffVisualStatusLabel(thumbnail.analysisStatus)} · {handoffEvidenceOriginLabel(thumbnail.evidenceOrigin)}</p>}
                     <CupDescriptionSummary items={thumbnail.cupDescriptions} />
                   </div>
                 </article>
@@ -1765,18 +1781,7 @@ export default function ManagerDashboard() {
         {isOverviewRoute ? (
           <>
             {!dailyQuery.isLoading && !dailyQuery.error && dailyOperations && <DailyOperationsPanel view={dailyOperations} timeZone={timeZone} />}
-            <SurfaceCard>
-              <h2 className="font-serif text-2xl text-[#24332f]">Registro manual por tamaño</h2>
-              <p className="mt-2 text-sm text-[#65716b]">Cantidades del cierre registrado manualmente para {selectedDate}. Separadas de las fotografías y del conteo de cámara.</p>
-              <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-                {manualCupRows(daily?.businessDate === selectedDate ? daily.cups : undefined, daily?.businessDate === selectedDate ? daily.reportCount : 0).map(item => (
-                  <div key={item.key} className="rounded-2xl border border-[#e5ddd0] bg-[#fbf7f0] p-4">
-                    <p className="text-sm font-medium">{item.label}</p>
-                    <p className="mt-2 text-2xl">{item.count === null ? "Sin cierre registrado" : item.count}</p>
-                  </div>
-                ))}
-              </div>
-            </SurfaceCard>
+            {isAdmin && <ManualCameraComparisonPanel businessDate={selectedDate} />}
             {isAdmin && <HandoffVisualEvidenceOverviewPanel presentation={handoffVisualEvidencePresentation} businessDate={selectedDate} timeZone={timeZone} />}
 
             {isAdmin && <details className="rounded-2xl border border-[#d8e2da] bg-white p-5" aria-label="Archivo independiente de etiquetas de fotografías">

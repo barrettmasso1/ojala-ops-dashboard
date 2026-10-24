@@ -1994,6 +1994,15 @@ describe("native local detector ledger authorization",()=>{
  it("a storage failure cannot produce a positive receipt",async()=>{localLedgerMocks.saveLocalLedger.mockRejectedValueOnce(Error("unavailable"));await expect(appRouter.createCaller(createContext(null)).frigate.submitLocalCupLedger({apiKey:"test-frigate-key",...envelope()})).rejects.toMatchObject({code:"INTERNAL_SERVER_ERROR"});});
 });
 
+describe("manual camera comparison read model",()=>{
+ const deviceId="00000000-0000-4000-8000-000000000001",businessDate="2026-10-23";
+ const daily=()=>({businessDate,reportCount:1,cups:{"4oz":12,"8oz":4,Pint:3,Liter:0},cupsHere:{"4oz":5,"8oz":1,Pint:0,Liter:0},cupsToGo:{"4oz":7,"8oz":3,Pint:3,Liter:0},frigateCounts:{businessDate,cameraName:"handoff",cupsDetected:19,sourceDetail:"{}"}});
+ beforeEach(()=>{vi.clearAllMocks();dbMocks.getActiveStoreById.mockResolvedValue(storeOne);dbMocks.getDailyOperationsSnapshot.mockResolvedValue(daily());localLedgerMocks.readLocalLedger.mockResolvedValue({businessDate,scope:"detector_tracks_not_certified_unique_deliveries",detectedTracks:57,locallyVerifiedTargets:21,withoutSameFrameEvidence:0,ownerExcludedTargets:0,potentialRepeatedTracks:2,sizeBreakdown:{chico:2,mediano:5,pint:0,litro:0,unknown:14}});});
+ it.each([null,"user"] as const)("blocks comparison reads for %s",async role=>{await expect(appRouter.createCaller(createContext(role)).dashboard.manualCameraComparison({businessDate,deviceId})).rejects.toMatchObject({code:"FORBIDDEN"});expect(dbMocks.getDailyOperationsSnapshot).not.toHaveBeenCalled();expect(localLedgerMocks.readLocalLedger).not.toHaveBeenCalled();});
+ it("uses only the session store and the requested date across both existing read sources",async()=>{dbMocks.getActiveStoreById.mockResolvedValue(storeTwo);const result=await appRouter.createCaller(createContext("admin",2)).dashboard.manualCameraComparison({businessDate,deviceId});expect(dbMocks.getDailyOperationsSnapshot).toHaveBeenCalledWith(businessDate,2);expect(localLedgerMocks.readLocalLedger).toHaveBeenCalledWith(expect.anything(),2,deviceId,businessDate,"America/Los_Angeles");expect(result).toMatchObject({selectedDate:businessDate,manual:{businessDate,reportCount:1,cups:{"4oz":12}},nativeLedgerState:"received",reviewedPhysicalCount:{businessDate,cupsDetected:19}});});
+ it("keeps an unavailable native ledger explicit without turning it into zero or mutating a source",async()=>{localLedgerMocks.readLocalLedger.mockRejectedValueOnce(Error("storage unavailable"));const result=await appRouter.createCaller(createContext("admin")).dashboard.manualCameraComparison({businessDate,deviceId});expect(result).toMatchObject({nativeLedger:null,nativeLedgerState:"unavailable",manual:{reportCount:1}});expect(dbMocks.createEndOfDayReport).not.toHaveBeenCalled();expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();});
+});
+
 describe("native local photo API without browser or cloud analysis",()=>{
  function sample(){
   const {capture,proof}=normalizationFixture();const deviceId="00000000-0000-4000-8000-000000000001";
