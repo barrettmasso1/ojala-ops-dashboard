@@ -159,7 +159,8 @@ def main():
             r=cycle(c);summary={k:v for k,v in r.items() if k!='results'}
             if not a.daemon:print(canonical(summary),flush=True)
         except Exception as exc:
-            print(canonical({'status':'paused','errorType':type(exc).__name__,'productionWrites':False}),flush=True)
+            code=getattr(exc,'code',None);safe_code=code if isinstance(code,str) and re.fullmatch('[a-z_]{1,80}',code) else None
+            print(canonical({'status':'paused','errorType':type(exc).__name__,'errorCode':safe_code,'productionWrites':False}),flush=True)
             if not a.daemon:return 2
         if not a.daemon:break
         for _ in range(120):

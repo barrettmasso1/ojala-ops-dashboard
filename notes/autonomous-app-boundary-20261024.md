@@ -22,3 +22,13 @@ Frigate itself, detector, zone, thresholds and original event IDs are unchanged.
 Only the auxiliary capturer was gracefully restarted after a backup and a check
 that its retention cleanup would delete nothing. New heartbeat/source hash was
 verified. The main camera container was not restarted.
+
+The aggregated monitor exposed another previously invisible issue: the calibration
+unit was active but its assessments heartbeat had been stale for three hours.
+Its journal contained StorageError without a safe reason code. A fresh UUID and
+free-space check passed. A bounded restart recovered periodic updates while
+model, owner-review index and all 23 owner labels remained byte-identical.
+The logger now records only whitelisted storage error codes, no paths or secrets.
+The exact historic storage exception was not recoverable from the old logs; no
+claim is made that restart diagnosed its deeper cause. Runtime monitoring keeps
+this failure visible if it recurs. Reserve/UUID checks remain unchanged.
