@@ -38,3 +38,13 @@ configuration declared another zone. The collector now passes its configured
 zone into the calendar check. Five tests cover Tokyo/UTC/Mazatlan boundaries
 and keep the end-of-event timing guard intact; 117 collector/transport tests
 pass. Ojala's own timezone and historical records are unchanged.
+
+Final UI audit found an important future false-comparison risk: same business day
+and a complete-coverage flag were sufficient for a percentage, even with no
+actual manual/camera interval bounds. The comparison now requires equal explicit
+timezone-bearing observationPeriod startedAt/endedAt timestamps. No historical
+period is invented. Native sums must also match the usable observations, and
+manual totals use exactly the four known sizes. 21 comparison/panel tests pass
+including 11 new period/coherence cases. Friday actual data remains non-comparable
+for a validated physical delta, while its manual and observed quantities show
+side by side. No sales/count rows or camera thresholds are changed.

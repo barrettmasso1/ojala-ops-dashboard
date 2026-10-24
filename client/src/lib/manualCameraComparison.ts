@@ -1,6 +1,9 @@
 export type ComparisonSize = "chico" | "mediano" | "pint" | "litro";
 
+type ObservationPeriod = { startedAt: string; endedAt: string };
+
 type ManualSnapshot = {
+  observationPeriod?: ObservationPeriod | null;
   businessDate: string;
   reportCount: number;
   cups: Record<"4oz" | "8oz" | "Pint" | "Liter", unknown>;
@@ -68,7 +71,18 @@ function nativeReason(input: ManualCameraComparisonInput) {
   if (input.nativeLedger.businessDate !== input.selectedDate) return "La respuesta nativa corresponde a otra fecha; no se mezclan jornadas.";
   if (input.nativeLedger.scope !== "detector_tracks_not_certified_unique_deliveries") return "El alcance del registro nativo no es verificable para esta comparación.";
   const values = [input.nativeLedger.detectedTracks, input.nativeLedger.locallyVerifiedTargets, input.nativeLedger.withoutSameFrameEvidence, input.nativeLedger.ownerExcludedTargets, input.nativeLedger.potentialRepeatedTracks, ...Object.values(input.nativeLedger.sizeBreakdown)];
-  return values.every(isCount) ? null : "El registro nativo contiene valores no verificables; no se sustituyen por ceros.";
+  if(!values.every(isCount))return "El registro nativo contiene valores no verificables; no se sustituyen por ceros.";
+  const n=input.nativeLedger;
+  const sizeTotal=SIZE_KEYS.reduce((sum,item)=>sum+(n.sizeBreakdown[item.key] as number),0)+(n.sizeBreakdown.unknown as number);
+  if(sizeTotal!==n.locallyVerifiedTargets || (n.locallyVerifiedTargets as number)+(n.withoutSameFrameEvidence as number)+(n.ownerExcludedTargets as number)>(n.detectedTracks as number))return "El desglose nativo no coincide con sus totales; se requiere revisar la fuente.";
+  return null;
+}
+
+function observedPeriod(value: unknown): [number, number] | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const period=value as Record<string, unknown>;
+  const parsed=[period.startedAt,period.endedAt].map(v=>typeof v==="string" && /(?:Z|[+-]\d\d:\d\d)$/.test(v) ? Date.parse(v) : NaN);
+  return parsed.every(Number.isFinite) && parsed[1]>parsed[0] ? [parsed[0],parsed[1]] : null;
 }
 
 function physicalView(input: ManualCameraComparisonInput) {
@@ -80,7 +94,11 @@ function physicalView(input: ManualCameraComparisonInput) {
   const source = safeSource(record.sourceDetail);
   const reviewed = source.basis === "reviewed_unique_physical_cups" && source.coverage === "complete" && !source.gaps && isHash(source.recordSha256);
   if (!reviewed) return { value: record.cupsDetected, state: "unconfirmed" as const, reason: "Conteo físico recibido, pero cobertura o método revisado no confirman una comparación.", comparable: false };
-  return { value: record.cupsDetected, state: "comparable" as const, reason: "Conteo físico revisado con cobertura completa para esta misma jornada.", comparable: true };
+  const manualPeriod=observedPeriod(input.manual.observationPeriod);
+  const cameraPeriod=observedPeriod(source.observationPeriod);
+  if(!manualPeriod || !cameraPeriod)return {value:record.cupsDetected,state:"unconfirmed" as const,reason:"Falta el intervalo observado de una fuente; compartir fecha no prueba una cobertura comparable.",comparable:false};
+  if(manualPeriod[0]!==cameraPeriod[0] || manualPeriod[1]!==cameraPeriod[1])return {value:record.cupsDetected,state:"unconfirmed" as const,reason:"Los intervalos observados del registro manual y de cámara no coinciden.",comparable:false};
+  return { value: record.cupsDetected, state: "comparable" as const, reason: "Conteo físico revisado con cobertura completa del mismo intervalo observado.", comparable: true };
 }
 
 /** Pure display model. It never creates a sale, physical count, delivery, label, or receipt. */
@@ -89,7 +107,7 @@ export function buildManualCameraComparison(input: ManualCameraComparisonInput) 
   const nativeIssue = nativeReason(input);
   const native = nativeIssue === null ? input.nativeLedger : null;
   const physical = physicalView(input);
-  const manualTotal = manualAvailable ? Object.values(input.manual.cups).reduce<number>((sum, value) => sum + (value as number), 0) : null;
+  const manualTotal = manualAvailable ? SIZE_KEYS.reduce<number>((sum, item) => sum + (input.manual.cups[item.manualKey] as number), 0) : null;
   const comparable = manualAvailable && physical.comparable && manualTotal !== null && physical.value !== null;
   const difference = comparable ? physical.value - manualTotal : null;
   const percentage = comparable && manualTotal > 0 ? difference! / manualTotal : null;
