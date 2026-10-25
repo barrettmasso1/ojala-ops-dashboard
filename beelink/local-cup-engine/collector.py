@@ -57,7 +57,9 @@ class Collector:
         if config.get('sizeClassificationEnabled') is True:
             from size_runtime import SizeRuntime
             size_path=Path(config['sizeModelPath']);self.guard(self.base,size_path.parent,writable=False,required_bytes=0)
-            self.size_runtime=SizeRuntime(size_path,self.root)
+            template=config.get('sizeTemplateModelPath') if config.get('sizeTemplateEstimatesEnabled') is True else None
+            if template:self.guard(self.base,Path(template).parent,writable=False,required_bytes=0)
+            self.size_runtime=SizeRuntime(size_path,self.root,template,config.get('sizeTemplateStartDate'))
     def close(self):self.db.close()
     def cycle(self,day=None):
         now=datetime.now(self.zone);day=day or now.date().isoformat()
@@ -132,6 +134,7 @@ class Collector:
           'businessDate':day,'sourceDatabaseReadOnly':True,'sourceTracksRead':len(rows),'changedObservations':changed,
           'verifiedLocalEvidence':verified,'invalidTracks':bad,'invalidEvidence':evidence_errors,
           'sizeClassificationStatus':self.size_runtime.status if self.size_runtime else 'not_configured',
+          'sizeTemplateStatus':self.size_runtime.template.status if self.size_runtime and getattr(self.size_runtime,'template',None) else 'not_configured',
           'snapshotSha256':snapshot_sha,'stateRoot':str(self.root),'networkWrites':0,'browserRequired':False,
           'generativeAiRequired':False,'usesExistingFrigateDetector':True,'startsCamera':False,
           'physicalDeliveryCountCreated':False,'productionApprovedCountsChanged':False,'cloudSyncStatus':'reported_by_separate_native_sync','cloudSyncHealthFile':str(self.root/'sync-health.json')}

@@ -930,6 +930,7 @@ export const appRouter = router({
     localLedgerCapabilities: publicProcedure.query(() => ({
       protocol: LOCAL_LEDGER_PROTOCOL, externalAiRequired: false, browserRequired: false,
       sizeClassificationProtocol: "ojala_reference_sizes_v1", sizeAssignmentsRequireLocalCalibration: true,
+      provisionalSizeClassificationProtocol: "ojala_body_templates_v1", provisionalSizeAssignmentsExplicit: true,
       ownerSizeReviewProtocol: "ojala_owner_size_review_v1", ownerReviewDoesNotCertifyDelivery: true,
       scopedByCredential: true, uniquePhysicalDeliveryCountCreated: false,
       persistedReadbackRequired: true, imageUploadsIncluded: false,

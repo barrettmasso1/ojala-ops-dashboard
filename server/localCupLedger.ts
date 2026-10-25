@@ -19,7 +19,7 @@ const proof = z.object({
   originalSidecarSha256: sha.optional(),
   storedImageRelativePath: z.string().max(180).optional(), storedSidecarRelativePath: z.string().max(180).optional(),
 }).strict();
-const localSizeAssessmentSchema = z.object({
+const validatedSizeAssessmentSchema = z.object({
   size:z.enum(["chico","mediano","pint","litro"]),status:z.literal("classified"),
   reason:z.literal("matched_owner_labeled_local_references"),basis:z.literal("local_reference_estimate"),
   modelSha256:sha,classifierVersion:z.literal("ojala_reference_sizes_v1"),imageSha256:sha,
@@ -27,6 +27,22 @@ const localSizeAssessmentSchema = z.object({
   distance:z.number().min(0).max(.28),margin:z.number().min(.04).max(1),
   externalAiUsed:z.literal(false),notACertifiedVolume:z.literal(true),
 }).strict();
+const provisionalSizeAssessmentSchema = z.object({
+  size:z.enum(["chico","mediano","pint","litro"]),status:z.literal("classified"),
+  reason:z.literal("matched_owner_labeled_local_references"),basis:z.literal("local_reference_estimate"),
+  modelSha256:sha,classifierVersion:z.literal("ojala_body_templates_v1"),imageSha256:sha,
+  referenceImageHashes:z.array(sha).length(1),distance:z.number().min(0).max(.28),margin:z.number().min(.04).max(1),
+  externalAiUsed:z.literal(false),notACertifiedVolume:z.literal(true),provisional:z.literal(true),generalizationValidated:z.literal(false),
+  referenceImages:z.number().int().min(1).max(200),referenceScenes:z.number().int().min(1).max(200),
+  validationLevel:z.enum(["calibration_examples_only","single_reference_only","near_reference_only"]),
+  annotationSha256:sha,extractor:z.literal("bottom_body_hog_070"),
+}).strict().superRefine((v,ctx)=>{
+  if(v.referenceScenes>v.referenceImages)ctx.addIssue({code:z.ZodIssueCode.custom,message:"reference_scene_count"});
+  if(v.validationLevel==="single_reference_only"&&(v.referenceImages!==1||v.referenceScenes!==1||v.distance>.12))ctx.addIssue({code:z.ZodIssueCode.custom,message:"single_reference_scope"});
+  if(v.validationLevel==="near_reference_only"&&v.distance>.12)ctx.addIssue({code:z.ZodIssueCode.custom,message:"near_reference_radius"});
+  if(v.validationLevel==="calibration_examples_only"&&v.referenceScenes<3)ctx.addIssue({code:z.ZodIssueCode.custom,message:"insufficient_calibration_scenes"});
+});
+const localSizeAssessmentSchema=z.union([validatedSizeAssessmentSchema,provisionalSizeAssessmentSchema]);
 const ownerSizeReviewSchema = z.object({
   protocol:z.literal("ojala_owner_size_review_v1"),annotationSha256:sha,manifestSha256:sha,sampleId:sha,
   sourceEventId:eventId,imageSha256:sha,label:z.enum(["chico","mediano","pint","litro","not_cup"]),
@@ -161,9 +177,10 @@ export function summarizeLocalLedger(p:ParsedLocalLedger,receivedAt:string) {
     rawLocallyVerifiedTargets:rawVerified.length,ownerExcludedTargets:ownerExcluded.length,
     ownerConfirmedSizeTargets:verified.filter(o=>o.ownerSizeReview&&o.size!=="unknown").length,
     automaticallyEstimatedSizeTargets:verified.filter(o=>o.sizeBasis==="local_reference_estimate"&&o.size!=="unknown").length,
+    provisionalSizeTargets:verified.filter(o=>o.sizeAssessment?.classifierVersion==="ojala_body_templates_v1").length,
     uniquePhysicalDeliveries:null,externalAiRequired:false,manualOrSalesCountsUsed:false,
     records:rows.map(o=>({id:o.observationId,sourceEventId:o.sourceEventId,startedAt:o.startedAt,endedAt:o.endedAt,
-      verification:o.verification,score:o.detectorScore,size:o.size,sizeBasis:o.sizeBasis,sizeModelSha256:o.sizeAssessment?.modelSha256??null,enteredHandoffZone:o.enteredHandoffZone,
+      verification:o.verification,score:o.detectorScore,size:o.size,sizeBasis:o.sizeBasis,sizeModelSha256:o.sizeAssessment?.modelSha256??null,sizeProvisional:o.sizeAssessment?.classifierVersion==="ojala_body_templates_v1",sizeValidationLevel:o.sizeAssessment?.classifierVersion==="ojala_body_templates_v1"?o.sizeAssessment.validationLevel:null,enteredHandoffZone:o.enteredHandoffZone,
       ownerExcluded:o.ownerSizeReview?.label==="not_cup",ownerConfirmedSize:Boolean(o.ownerSizeReview&&o.ownerSizeReview.label!=="not_cup"),
       possibleRepeatOf:repeats[o.observationId]??[],imageSha256:o.sameFrameEvidence?.imageSha256??null}))};
 }

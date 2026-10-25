@@ -8,8 +8,12 @@ import json
 from size_classifier import descriptor,predict,canonical,sha,CalibrationError
 
 class SizeRuntime:
-    def __init__(self,model_path,ledger_root):
-        self.path=Path(model_path);self.root=Path(ledger_root);self.stamp=None;self.model=None;self.cache={};self.status='calibration_required';self.review_stamp=None;self.reviews={}
+    def __init__(self,model_path,ledger_root,template_path=None,template_start_date=None):
+        self.path=Path(model_path);self.root=Path(ledger_root);self.stamp=None;self.model=None;self.cache={};self.status='calibration_required';self.review_stamp=None;self.reviews={};self.annotation_sha=None;self.template=None;self.template_start_date=template_start_date
+        if template_path is not None:
+            from size_template import TemplateRuntime
+            if not isinstance(template_start_date,str) or len(template_start_date)!=10:raise CalibrationError('template_start_date')
+            self.template=TemplateRuntime(template_path)
     def reload(self):
         if not self.path.exists():
             self.model=None;self.status='calibration_required';self.stamp=None;return
@@ -28,7 +32,7 @@ class SizeRuntime:
         if stamp!=self.review_stamp:
             value=json.loads(p.read_text());index=value.get('index')
             if sha(canonical(index))!=value.get('indexSha256'):raise CalibrationError('owner_review_checksum')
-            self.reviews=index['records'];self.review_stamp=stamp
+            self.reviews=index['records'];self.review_stamp=stamp;self.annotation_sha=index.get('annotationSha256')
         review=self.reviews.get(track.get('observationId'))
         if not review:return None
         binding={'deviceId':track['deviceId'],'cameraName':track['cameraName'],'zoneSha256':evidence['sourceZoneSha256'],'detectorModelSha256':track['detectorModelSha256']}
@@ -44,12 +48,20 @@ class SizeRuntime:
         if review:return review
         if not self.model or self.status!='ready':return None
         binding={'deviceId':track['deviceId'],'cameraName':track['cameraName'],'zoneSha256':evidence['sourceZoneSha256'],'detectorModelSha256':track['detectorModelSha256']}
-        key=(self.model['modelSha256'],evidence['imageSha256'],canonical(evidence['targetBox']))
+        use_template=self.template is not None and isinstance(track.get('businessDate'),str) and track['businessDate']>=self.template_start_date
+        if use_template:
+            try:self.template.reload(self.annotation_sha)
+            except (OSError,ValueError,KeyError,TypeError):
+                self.template.model=None;self.template.stamp=None;self.template.status='template_unavailable';use_template=False
+        template_sha=self.template.model['modelSha256'] if use_template and self.template.model else None
+        key=(self.model['modelSha256'],template_sha,evidence['imageSha256'],canonical(evidence['targetBox']))
         if key in self.cache:return self.cache[key]
         relative=evidence.get('storedImageRelativePath');p=self.root/relative if isinstance(relative,str) else None
         if p is None or p.is_symlink() or not p.resolve().is_relative_to(self.root.resolve()) or not p.is_file():raise CalibrationError('size_image_path')
         if p.stat().st_size>8*1024*1024:raise CalibrationError('size_image_too_large')
         raw=p.read_bytes();f=descriptor(raw,evidence['targetBox'],evidence['imageSha256']);result=predict(f,self.model,binding)
         value=result if result.get('status')=='classified' else None
+        if value is None and use_template and result.get('reason')!='matches_confirmed_non_serving_object':
+            value=self.template.assess(raw,evidence['targetBox'],evidence['imageSha256'],binding,self.annotation_sha)
         if len(self.cache)>1000:self.cache={}
         self.cache[key]=value;return value

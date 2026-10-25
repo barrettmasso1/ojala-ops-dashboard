@@ -138,6 +138,16 @@ def cycle(config):
             if existing.get('index',{}).get('annotationSha256')!=sha(raw):
                 reviewed=owner_review_index(json.loads(raw),sha(raw),datetime.fromtimestamp(annotation.stat().st_mtime,timezone.utc).isoformat(),root,ledger)
                 save(root/'owner-reviews-history'/(sha(raw)+'.json'),reviewed);save(review_path,reviewed)
+            if config.get('capacityTemplateModelEnabled') is True:
+                from size_template import build_from_manifest,validate_model
+                template_path=root/'capacity-template-model.json'
+                cached=None
+                if template_path.exists():
+                    if template_path.is_symlink() or template_path.stat().st_size>2*1024*1024:raise CalibrationError('template_file')
+                    cached=json.loads(template_path.read_text());validate_model(cached)
+                if cached is None or cached['model']['annotationSha256']!=sha(raw):
+                    fitted=build_from_manifest(json.loads(raw),sha(raw),root,ledger)
+                    save(root/'template-models'/(fitted['modelSha256']+'.json'),fitted);save(template_path,fitted)
         except (OSError,ValueError,KeyError) as exc:import_error=str(exc) if isinstance(exc,CalibrationError) else type(exc).__name__
     results=[]
     for sample in samples:
