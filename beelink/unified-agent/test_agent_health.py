@@ -65,4 +65,12 @@ class HealthTests(unittest.TestCase):
  def test_human_decisions_are_not_counted_as_machine_validations(self):
   r,s=baseline();r['photoSync']['automaticValidation']['states']={'verified':2,'preserved_manual':3};self.assertEqual(self.report(r,s)['photoAutomaticValidation'],{'verified':2,'preserved_manual':3})
 
+ def test_optional_directional_missing_health_not_green(self):
+  r,s=baseline();r['directionalCounter']=None;r['directionalFrames']=None;o=self.report(r,s);self.assertIn('directionalCounter_missing_or_stale',o['issues'])
+ def test_directional_disabled_transport_not_received(self):
+  r,s=baseline();r['directionalCounter']={'checkedAt':at(),'status':'observing','businessDate':DAY,'transport':{'status':'disabled'}};r['directionalFrames']={'checkedAt':at(),'status':'receiving'};self.assertIn('directional_counter_not_received',self.report(r,s)['issues'])
+ def test_directional_estimate_does_not_certify_full_day(self):
+  r,s=baseline();r['directionalCounter']={'checkedAt':at(),'status':'observing','businessDate':DAY,'estimatedHandoffs':3,'geometryCalibration':'provisional_visual_orientation','transport':{'status':'acknowledged'}};r['directionalFrames']={'checkedAt':at(),'status':'receiving'};o=self.report(r,s);self.assertFalse(o['uniquePhysicalCountValidated']);self.assertEqual(o['directionalCounter']['estimatedHandoffs'],3)
+ def test_directional_not_required_if_not_configured(self):
+  r,s=baseline();self.assertFalse(any('directional' in x for x in self.report(r,s)['issues']))
 if __name__=='__main__':unittest.main()

@@ -55,6 +55,17 @@ def summarize(records,services,now,day,store,device):
     backlog=sum(v for k,v in counts.items() if k in ('queued','delivery_unknown') and type(v) is int and v>=0)
     for unit in UNITS:
         if services.get(unit)!='active':issues.append('service_not_active:'+unit)
+    directional=records.get('directionalCounter');directional_frames=records.get('directionalFrames')
+    if 'directionalCounter' in records:
+        for key,maximum in [('directionalCounter',30),('directionalFrames',15)]:
+            r=records.get(key);valid=fresh(r,now,maximum)
+            components[key]={'available':isinstance(r,dict),'fresh':valid,'reportedStatus':r.get('status') if isinstance(r,dict) else None,'checkedAt':r.get('checkedAt') if isinstance(r,dict) else None}
+            if not valid:issues.append(key+'_missing_or_stale')
+        if operating and isinstance(directional,dict):
+            if directional.get('status')!='observing':issues.append('directional_counter_not_observing')
+            if (directional.get('transport') or {}).get('status')!='acknowledged':issues.append('directional_counter_not_received')
+            if directional.get('businessDate')!=day:issues.append('directional_counter_wrong_day')
+        if operating and isinstance(directional_frames,dict) and directional_frames.get('status')!='receiving':issues.append('directional_frame_source_not_receiving')
     calibration=records.get('calibration') or {};supported=[s for s in calibration.get('supportedCategories',[]) if s in ('chico','mediano','pint','litro')]
     missing=[s for s in ('chico','mediano','pint','litro') if s not in supported]
     return {'protocol':VERSION,'checkedAt':datetime.fromtimestamp(now,timezone.utc).isoformat(),'businessDate':day,'storeId':store,'deviceId':device,
@@ -62,6 +73,7 @@ def summarize(records,services,now,day,store,device):
         'cameraScheduledActive':operating,'processFps':camera.get('process_fps'),'temperatureC':temp,
         'todayLedgerAcknowledged':bool(today) and all(r.get('status')=='acknowledged' for r in today),'photoQueue':counts,'photoBacklog':backlog,'photoAutomaticValidation':validation_counts,
         'locallySupportedSizes':supported,'sizesNotYetValidated':missing,'uniquePhysicalCountValidated':False,'commercialAcceptanceComplete':False,
+        'directionalCounter':{k:directional.get(k) for k in ['status','businessDate','observedFrom','observedUntil','estimatedHandoffs','heldCandidates','transport','geometryCalibration']} if isinstance(directional,dict) else None,
         'cameraObservationsAreSales':False,'generativeAiRequired':False,'browserRequired':False,'externalMessagesSent':False,
         'note':'Technical reception health is separate from counting accuracy, manual tally, POS and billing activation.'}
 
