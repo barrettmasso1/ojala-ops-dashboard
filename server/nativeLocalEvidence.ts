@@ -60,10 +60,10 @@ export function isNativeLocalEvidenceSource(value:string|null|undefined){return 
 function parseStoredCapture(row:PersistedHandoffRow){
  try{return JSON.parse(row.captureMetadataJson??"{}");}catch{throw Error("stored_metadata_unreadable");}
 }
-/** MySQL TIMESTAMP stores whole seconds; the exact timestamp remains in the hash-bound original metadata. */
+/** SQL TIMESTAMP(0) rounds by default or truncates in TIME_TRUNCATE_FRACTIONAL mode; exact time remains in original metadata. */
 export function nativeCaptureTimeMatchesStorage(stored:Date,original:Date){
  const a=stored instanceof Date?stored.getTime():NaN,b=original instanceof Date?original.getTime():NaN;
- return Number.isFinite(a)&&Number.isFinite(b)&&(a===b||a===Math.floor(b/1000)*1000);
+ return Number.isFinite(a)&&Number.isFinite(b)&&(a===b||a===Math.floor(b/1000)*1000||a===Math.round(b/1000)*1000);
 }
 function requireNativeRowIdentity(row:PersistedHandoffRow,o:LocalObservation,timeZone:string){
  const proof=o.sameFrameEvidence;
