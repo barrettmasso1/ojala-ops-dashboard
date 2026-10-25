@@ -6,6 +6,7 @@ Uses a separate durable queue. Legacy sender holds are not read or changed.
 from __future__ import annotations
 import argparse,base64,fcntl,hashlib,json,os,signal,sqlite3,sys,time
 from pathlib import Path
+from contextlib import closing
 from datetime import datetime,timezone
 from zoneinfo import ZoneInfo
 from native_sync import NativeHttp,SyncError,ORIGIN
@@ -112,7 +113,7 @@ class PhotoQueue:
   return {'status':'checked','results':results,'states':dict(self.db.execute('SELECT status,count(*) FROM photos GROUP BY status').fetchall()),'networkAttempted':bool(results)}
 
 def acknowledged_observations(root,start_date,device_id):
- with sqlite3.connect((root/'ledger.sqlite3').as_uri()+'?mode=ro',uri=True,timeout=5) as db:
+ with closing(sqlite3.connect((root/'ledger.sqlite3').as_uri()+'?mode=ro',uri=True,timeout=5)) as db:
   db.execute('PRAGMA query_only=ON')
   rows=db.execute("SELECT o.payload FROM observations o JOIN outbox b ON o.id=b.id AND o.revision=b.revision AND o.payload_sha=b.payload_sha WHERE o.day>=? AND b.status='acknowledged' ORDER BY o.day DESC,o.id LIMIT 2001",(start_date,)).fetchall()
  require(len(rows)<=2000,'photo_window_overflow_no_truncation')
