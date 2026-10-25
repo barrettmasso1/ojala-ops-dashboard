@@ -49,7 +49,10 @@ class Sync:
         envelope={'sequence':row['sequence'],'documentJson':row['document_json'],'documentSha256':row['document_sha']}
         try:
             check_capabilities(self.transport.capabilities())
-            receipt=self.transport.receipt(self.config['deviceId'],day)
+            # A never-dispatched conditional create/update needs no read of a possibly nonexistent object.
+            # Only an uncertain prior write is reconciled; it is never blindly repeated.
+            require(row['status']=='delivery_unknown' or row['attempts']==0,'unexpected_pending_after_dispatch')
+            receipt=self.transport.receipt(self.config['deviceId'],day) if row['status']=='delivery_unknown' else None
             if receipt is not None:
                 if receipt.get('sequence')==row['sequence']:
                     self.accept(day,envelope,receipt);return {'status':'acknowledged','sequence':row['sequence'],'networkAttempted':True,'uploaded':False}
@@ -68,7 +71,7 @@ class Sync:
             reason=str(exc)
             if len(reason)>120 or any(t in reason.lower() for t in ['://','password','api_key','apikey','token']):reason=type(exc).__name__
             current=self.db.execute('SELECT status FROM outbox WHERE day=?',(day,)).fetchone()[0]
-            uncertain=current=='delivery_unknown' and reason in ('http_409','http_500','http_502','http_503','http_504','network_or_response_uncertain','directional_write_not_acknowledged')
+            uncertain=current=='delivery_unknown' and reason in ('http_409','http_429','http_500','http_502','http_503','http_504','network_or_response_uncertain','directional_write_not_acknowledged')
             transient_before_dispatch=current=='pending' and reason in ('http_429','http_500','http_502','http_503','http_504','network_or_response_uncertain')
             state='delivery_unknown' if uncertain else 'pending' if reason=='directional_contract_not_published' or transient_before_dispatch else 'blocked'
             with self.db:self.db.execute('UPDATE outbox SET status=?,last_error=? WHERE day=?',(state,reason,day))

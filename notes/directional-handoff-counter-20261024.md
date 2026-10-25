@@ -33,3 +33,12 @@ Each readonly SQLite handle is now explicitly closed in success/failure paths,
 with two regression tests. Verified open source handles fell from99+99 to0 and
 memory stabilized near20MiB. Streaming detector hash verification and retained
 sanitized failure reports avoid hidden restart causes. Full local suite60 PASS.
+
+First production activation found that reading a receipt before its first object
+existed returned HTTP500, with ZERO dispatch attempts. The sender now issues a
+conditional create exactly once for a never-dispatched snapshot; any uncertain
+write is still reconciled by receipt only. The real first snapshot was accepted
+and independently read back, then the autonomous service advanced to sequence5.
+No fixture, photograph or detector-track total was promoted to a handoff.
+Latest local suite69 PASS; unified monitor60 PASS. Zero accepted routes so far is
+limited to the real observed interval, NOT the whole day or a precision result.

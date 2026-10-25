@@ -78,7 +78,8 @@ class Counter:
         CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,at REAL,source_id TEXT,reason TEXT);
         ''')
         old=self.db.execute("SELECT value FROM settings WHERE name='policy'").fetchone()
-        require(old is None or old[0]==self.policy_sha,'policy_changed_requires_new_partition')
+        if old is not None and old[0]!=self.policy_sha:
+            self.db.close();raise ValueError('policy_changed_requires_new_partition')
         with self.db:self.db.execute("INSERT OR IGNORE INTO settings VALUES('policy',?)",(self.policy_sha,))
     def close(self):self.db.close()
     def cursor(self):

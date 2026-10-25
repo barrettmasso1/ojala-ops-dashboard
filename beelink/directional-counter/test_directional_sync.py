@@ -84,9 +84,16 @@ class SyncTests(unittest.TestCase):
   with patch.object(self.api,'capabilities',side_effect=ValueError('network_or_response_uncertain')):self.assertEqual(self.sync.cycle(self.doc)['status'],'pending')
   self.assertEqual(self.api.posts,0);self.assertEqual(self.sync.cycle(self.doc)['status'],'acknowledged');self.assertEqual(self.api.posts,1)
  def test_rate_limit_before_dispatch_is_not_approval_failure(self):
-  with patch.object(self.api,'receipt',side_effect=ValueError('http_429')):self.assertEqual(self.sync.cycle(self.doc)['status'],'pending')
+  with patch.object(self.api,'capabilities',side_effect=ValueError('http_429')):self.assertEqual(self.sync.cycle(self.doc)['status'],'pending')
   self.assertEqual(self.api.posts,0);self.assertEqual(self.sync.cycle(self.doc)['status'],'acknowledged')
  def test_receipt_read_503_before_new_write_recovers(self):
-  with patch.object(self.api,'receipt',side_effect=ValueError('http_503')):self.assertEqual(self.sync.cycle(self.doc)['status'],'pending')
+  with patch.object(self.api,'capabilities',side_effect=ValueError('http_503')):self.assertEqual(self.sync.cycle(self.doc)['status'],'pending')
   self.assertEqual(self.sync.cycle(self.doc)['status'],'acknowledged');self.assertEqual(self.api.posts,1)
+ def test_first_conditional_write_does_not_require_nonexistent_object_receipt(self):
+  with patch.object(self.api,'receipt',side_effect=ValueError('http_500')):self.assertEqual(self.sync.cycle(self.doc)['status'],'acknowledged')
+  self.assertEqual(self.api.posts,1);self.assertEqual(self.api.reads,0)
+ def test_unknown_write_rate_limit_preserves_read_only_recovery(self):
+  self.api.fail='after';self.sync.cycle(self.doc)
+  with patch.object(self.api,'receipt',side_effect=ValueError('http_429')):self.assertEqual(self.sync.cycle(self.doc)['status'],'delivery_unknown')
+  self.assertEqual(self.api.posts,1);self.assertEqual(self.sync.cycle(self.doc)['status'],'acknowledged')
 if __name__=='__main__':unittest.main()
