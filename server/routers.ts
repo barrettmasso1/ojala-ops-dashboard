@@ -1,6 +1,7 @@
 import {NATIVE_EVIDENCE_PROTOCOL,NATIVE_AUTOMATIC_VALIDATION_PROTOCOL,NATIVE_LOCAL_PROOF_MODEL,nativeEvidenceIdentity,nativeEvidenceUpload,requireEvidenceObservation,validateNativeEvidence,localEvidenceSource,nativeEvidenceReceipt,isNativeLocalEvidenceSource,buildNativeAutomaticValidationProof} from "./nativeLocalEvidence";
 import { LOCAL_LEDGER_PROTOCOL, localLedgerInputSchema, parseLocalLedger } from "./localCupLedger";
-import { PlatformLocalLedgerStore, saveLocalLedger, readLocalLedger, readLocalLedgerReceipt, readLocalEvidenceObservation } from "./localCupLedgerStorage";
+import { PlatformDirectionalHandoffStore, PlatformLocalLedgerStore, saveLocalLedger, readLocalLedger, readLocalLedgerReceipt, readLocalEvidenceObservation } from "./localCupLedgerStorage";
+import { DIRECTIONAL_HANDOFF_PROTOCOL, DIRECTIONAL_HANDOFF_RECEIPT_PROTOCOL, directionalHandoffInputSchema, readDirectionalHandoffReceipt, readDirectionalHandoffs, saveDirectionalHandoffs } from "./directionalHandoff";
 import { classifyHandoffCupSizes } from "./autoCupSizes";
 import { CUP_SIZE_KEYS } from "../shared/cupDescriptions";
 import { HANDOFF_RECEIPT_PROTOCOL, deferredHandoffSource, persistedHandoffReceipt } from "./handoffDurableReceipt";
@@ -934,6 +935,61 @@ export const appRouter = router({
         try{return {receipt:await readLocalLedgerReceipt(new PlatformLocalLedgerStore(),store.id,input.deviceId,input.businessDate,store.timezone)};}
         catch{throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"Local receipt is not available"});}
       }),
+    directionalHandoffCapabilities: publicProcedure.query(() => ({
+      protocol: DIRECTIONAL_HANDOFF_PROTOCOL,
+      receiptProtocol: DIRECTIONAL_HANDOFF_RECEIPT_PROTOCOL,
+      credentialScoped: true,
+      browserRequired: false,
+      externalAiRequired: false,
+      requiresPersistedLocalObservation: true,
+      persistedReadbackRequired: true,
+      createsSales: false,
+      createsReviewedPhysicalCounts: false,
+    })),
+    submitDirectionalHandoffs: publicProcedure
+      .input(directionalHandoffInputSchema.extend({ apiKey: z.string().min(1).max(2048) }))
+      .mutation(async ({ ctx, input }) => {
+        const clientKey = credentialClientKey(ctx.req);
+        enforceCredentialRateLimit("frigate", clientKey);
+        const store = await resolveFrigateStore(input.apiKey);
+        if (!store) {
+          recordCredentialFailure("frigate", clientKey);
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Unauthorized" });
+        }
+        clearCredentialFailures("frigate", clientKey);
+        try {
+          return await saveDirectionalHandoffs(
+            new PlatformDirectionalHandoffStore(),
+            { sequence: input.sequence, documentJson: input.documentJson, documentSha256: input.documentSha256 },
+            store.id,
+            store.timezone,
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "directional_handoff_failed";
+          const conflict = /conflict|stale|omitted|not_monotone|changed|policy_or_scope|windows_omitted|route_changed/i.test(message);
+          const invalid = /checksum|json|policy_|document_|sample_|route_|event_|duplicate_|window_|business_date|scope|identity|evidence_|directional_revision|directional_storage_key/i.test(message);
+          if (conflict) throw new TRPCError({ code: "CONFLICT", message: "Directional handoff revision conflict; reconcile before retrying" });
+          if (invalid) throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid directional handoff document" });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Directional handoff storage unavailable; no receipt confirmed" });
+        }
+      }),
+    directionalHandoffReceipt: publicProcedure
+      .input(z.object({ apiKey: z.string().min(1).max(2048), deviceId: z.string().uuid(), businessDate: requiredBusinessDateSchema }).strict())
+      .mutation(async ({ ctx, input }) => {
+        const clientKey = credentialClientKey(ctx.req);
+        enforceCredentialRateLimit("frigate", clientKey);
+        const store = await resolveFrigateStore(input.apiKey);
+        if (!store) {
+          recordCredentialFailure("frigate", clientKey);
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Unauthorized" });
+        }
+        clearCredentialFailures("frigate", clientKey);
+        try {
+          return { receipt: await readDirectionalHandoffReceipt(new PlatformDirectionalHandoffStore(), store.id, input.deviceId, input.businessDate, store.timezone) };
+        } catch {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Directional handoff receipt is not available" });
+        }
+      }),
     localEvidenceCapabilities: publicProcedure.query(()=>({protocol:NATIVE_EVIDENCE_PROTOCOL,receiptProtocol:"ojala_local_cup_evidence_receipt_v1",automaticValidationProtocol:NATIVE_AUTOMATIC_VALIDATION_PROTOCOL,analysisModel:NATIVE_LOCAL_PROOF_MODEL,finalizeEndpoint:"frigate.finalizeLocalCupEvidence",finalizeRequired:true,humanApprovalRequired:false,scopedByCredential:true,credentialScoped:true,browserRequired:false,externalAiRequired:false,requiresPersistedLocalObservation:true,persistedReadbackRequired:true,source:"verified_snapshot",createsPhysicalCounts:false})),
     submitLocalCupEvidence: publicProcedure.input(nativeEvidenceUpload.extend({apiKey:z.string().min(1).max(2048)})).mutation(async({ctx,input})=>{
       const clientKey=credentialClientKey(ctx.req);enforceCredentialRateLimit("frigate",clientKey);
@@ -1366,6 +1422,17 @@ export const appRouter = router({
         if(!store)throw new TRPCError({code:"FORBIDDEN",message:"Store unavailable"});
         try{return await readLocalLedger(new PlatformLocalLedgerStore(),store.id,input.deviceId,input.businessDate,store.timezone);}
         catch{throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"Local detection registry is temporarily unavailable"});}
+      }),
+    directionalHandoffs: adminProcedure
+      .input(z.object({ businessDate: requiredBusinessDateSchema, deviceId: z.string().uuid() }).strict())
+      .query(async ({ ctx, input }) => {
+        const store = await getActiveStoreById(ctx.user.storeId);
+        if (!store) throw new TRPCError({ code: "FORBIDDEN", message: "Store unavailable" });
+        try {
+          return await readDirectionalHandoffs(new PlatformDirectionalHandoffStore(), store.id, input.deviceId, input.businessDate, store.timezone);
+        } catch {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Directional handoff registry is temporarily unavailable" });
+        }
       }),
     manualCameraComparison: adminProcedure
       .input(z.object({businessDate:requiredBusinessDateSchema,deviceId:z.string().uuid()}))

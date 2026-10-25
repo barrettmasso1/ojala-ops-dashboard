@@ -1,4 +1,4 @@
-import { hasClosingRecord, closingValue } from "@/lib/localLedgerPresentation";
+import { hasClosingRecord, closingValue, LOCAL_CAMERA_DEVICE_ID } from "@/lib/localLedgerPresentation";
 import { LocalCupLedgerPanel } from "@/components/LocalCupLedgerPanel";
 import { ManualCameraComparisonPanel } from "@/components/ManualCameraComparisonPanel";
 import { CameraSizeBreakdown } from "@/components/CameraSizeBreakdown";
@@ -9,6 +9,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import DailyOperationsPanel from "@/components/DailyOperationsPanel";
 import ReviewedCountImport from "@/components/ReviewedCountImport";
 import { buildDailyOperations } from "@/lib/dailyOperations";
+import { buildDirectionalHandoffPanelModel } from "@/lib/directionalHandoffPresentation";
 import { LIVE_CAMERA_REFRESH_MS, dashboardDateHref, latestSuccessfulQueryAt, liveQueryState, resolveDashboardDate, responseMatchesBusinessDate } from "@/lib/dashboardLiveState";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getLoginUrl } from "@/const";
@@ -977,6 +978,32 @@ export default function ManagerDashboard() {
       refetchIntervalInBackground: true,
     }
   );
+  const directionalHandoffsQuery = trpc.dashboard.directionalHandoffs.useQuery(
+    { businessDate: selectedDate, deviceId: LOCAL_CAMERA_DEVICE_ID },
+    {
+      enabled: isAdmin && isOverviewRoute,
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
+      refetchInterval: isAdmin && isOverviewRoute ? LIVE_CAMERA_REFRESH_MS : false,
+      refetchIntervalInBackground: true,
+    }
+  );
+  const directionalQueryState = directionalHandoffsQuery.isLoading && !directionalHandoffsQuery.data
+    ? "loading"
+    : directionalHandoffsQuery.error && directionalHandoffsQuery.data
+      ? "stale"
+      : directionalHandoffsQuery.error
+        ? "offline"
+        : directionalHandoffsQuery.data
+          ? "live"
+          : "empty";
+  const directionalPanel = buildDirectionalHandoffPanelModel(
+    directionalHandoffsQuery.data,
+    selectedDate,
+    timeZone,
+    directionalQueryState,
+    directionalHandoffsQuery.dataUpdatedAt,
+  );
   const selectedDayStaffQuery = trpc.timeclock.todayStatus.useQuery(
     { businessDate: selectedDate },
     { enabled: isAdmin && isOverviewRoute, refetchOnWindowFocus: false }
@@ -1792,7 +1819,13 @@ export default function ManagerDashboard() {
 
         {isOverviewRoute ? (
           <>
-            {!dailyQuery.isLoading && !dailyQuery.error && dailyOperations && <DailyOperationsPanel view={dailyOperations} timeZone={timeZone} />}
+            {(dailyOperations || (isAdmin && isOverviewRoute && directionalPanel)) && <DailyOperationsPanel
+              view={dailyOperations ?? undefined}
+              timeZone={timeZone}
+              businessDate={selectedDate}
+              directional={isAdmin && isOverviewRoute ? directionalPanel : undefined}
+              closingUnavailable={isAdmin && isOverviewRoute && Boolean(dailyQuery.error)}
+            />}
             {isAdmin && <ManualCameraComparisonPanel businessDate={selectedDate} />}
 
             {isAdmin && <details className="rounded-2xl border border-[#d8e2da] bg-white p-5" aria-label="Archivo independiente de etiquetas de fotografías">

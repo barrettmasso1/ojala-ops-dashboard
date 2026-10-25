@@ -81,7 +81,9 @@ const storageMocks = vi.hoisted(() => ({
 }));
 
 const localLedgerMocks=vi.hoisted(()=>({saveLocalLedger:vi.fn(),readLocalLedger:vi.fn(),readLocalLedgerReceipt:vi.fn(),readLocalEvidenceObservation:vi.fn()}));
-vi.mock("./localCupLedgerStorage",()=>({PlatformLocalLedgerStore:class {},...localLedgerMocks}));
+const directionalMocks=vi.hoisted(()=>({saveDirectionalHandoffs:vi.fn(),readDirectionalHandoffReceipt:vi.fn(),readDirectionalHandoffs:vi.fn()}));
+vi.mock("./localCupLedgerStorage",()=>({PlatformLocalLedgerStore:class {},PlatformDirectionalHandoffStore:class {},...localLedgerMocks}));
+vi.mock("./directionalHandoff",async()=>{const actual=await vi.importActual<typeof import("./directionalHandoff")>("./directionalHandoff");return {...actual,...directionalMocks};});
 vi.mock("./db", () => dbMocks);
 vi.mock("./_core/notification", () => notificationMocks);
 vi.mock("./_core/sdk", () => sdkMocks);
@@ -223,6 +225,9 @@ describe("operations router", () => {
     dbMocks.getActiveStoreById.mockResolvedValue(storeOne);
     dbMocks.resolveActiveStoreCredential.mockResolvedValue(null);
     dbMocks.upsertFrigateCupCount.mockResolvedValue({ success: true, disposition: "apply" });
+    directionalMocks.saveDirectionalHandoffs.mockResolvedValue({ success: true, disposition: "create", receipt: { persisted: true, estimatedHandoffs: null } });
+    directionalMocks.readDirectionalHandoffReceipt.mockResolvedValue(null);
+    directionalMocks.readDirectionalHandoffs.mockResolvedValue(null);
     dbMocks.getActiveHandoffCameraZone.mockResolvedValue(visualZone);
     dbMocks.reserveHandoffVisualEvent.mockResolvedValue({
       event: {
@@ -1993,6 +1998,18 @@ describe("native local detector ledger authorization",()=>{
  it.each([null,"user"] as const)("blocks a dashboard read for %s",async role=>{await expect(appRouter.createCaller(createContext(role)).dashboard.localCupLedger({businessDate,deviceId})).rejects.toMatchObject({code:"FORBIDDEN"});expect(localLedgerMocks.readLocalLedger).not.toHaveBeenCalled();});
  it("scopes dashboard reads to the signed-in store",async()=>{dbMocks.getActiveStoreById.mockResolvedValue(storeTwo);await appRouter.createCaller(createContext("admin",2)).dashboard.localCupLedger({businessDate,deviceId});expect(localLedgerMocks.readLocalLedger).toHaveBeenCalledWith(expect.anything(),2,deviceId,businessDate,"America/Los_Angeles");});
  it("a storage failure cannot produce a positive receipt",async()=>{localLedgerMocks.saveLocalLedger.mockRejectedValueOnce(Error("unavailable"));await expect(appRouter.createCaller(createContext(null)).frigate.submitLocalCupLedger({apiKey:"test-frigate-key",...envelope()})).rejects.toMatchObject({code:"INTERNAL_SERVER_ERROR"});});
+ });
+
+describe("directional handoff contract authorization",()=>{
+ const deviceId="00000000-0000-4000-8000-000000000001",businessDate="2026-01-20";
+ const envelope=()=>{const documentJson=JSON.stringify({fixture:true});return {sequence:1,documentJson,documentSha256:createHash("sha256").update(documentJson).digest("hex")};};
+ beforeEach(()=>{vi.clearAllMocks();dbMocks.resolveActiveStoreCredential.mockResolvedValue(null);dbMocks.getActiveStoreById.mockResolvedValue(storeOne);directionalMocks.saveDirectionalHandoffs.mockResolvedValue({success:true,disposition:"create",receipt:{persisted:true,estimatedHandoffs:null}});directionalMocks.readDirectionalHandoffReceipt.mockResolvedValue(null);directionalMocks.readDirectionalHandoffs.mockResolvedValue(null);});
+ it("publishes the exact capability contract without browser or AI",async()=>{const result=await appRouter.createCaller(createContext(null)).frigate.directionalHandoffCapabilities();expect(result).toEqual({protocol:"ojala_directional_handoffs_v1",receiptProtocol:"ojala_directional_handoffs_receipt_v1",credentialScoped:true,browserRequired:false,externalAiRequired:false,requiresPersistedLocalObservation:true,persistedReadbackRequired:true,createsSales:false,createsReviewedPhysicalCounts:false});});
+ it("derives the submit store from the authorized credential and passes no client totals",async()=>{dbMocks.resolveActiveStoreCredential.mockResolvedValue({store:storeTwo});await appRouter.createCaller(createContext(null)).frigate.submitDirectionalHandoffs({apiKey:"test-managed-native",...envelope()});expect(directionalMocks.saveDirectionalHandoffs).toHaveBeenCalledWith(expect.anything(),expect.objectContaining(envelope()),2,"America/Los_Angeles");expect(directionalMocks.saveDirectionalHandoffs.mock.calls[0]?.[1]).not.toHaveProperty("estimatedHandoffs");expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();expect(dbMocks.createEndOfDayReport).not.toHaveBeenCalled();});
+ it("rejects invalid credentials before directional storage",async()=>{await expect(appRouter.createCaller(createContext(null)).frigate.submitDirectionalHandoffs({apiKey:"invalid-native-fixture",...envelope()})).rejects.toMatchObject({code:"UNAUTHORIZED"});expect(directionalMocks.saveDirectionalHandoffs).not.toHaveBeenCalled();});
+ it.each([null,"user"] as const)("blocks dashboard directional reads for %s",async role=>{await expect(appRouter.createCaller(createContext(role)).dashboard.directionalHandoffs({businessDate,deviceId})).rejects.toMatchObject({code:"FORBIDDEN"});expect(directionalMocks.readDirectionalHandoffs).not.toHaveBeenCalled();});
+ it("binds the admin directional query to the authenticated store and requested date",async()=>{dbMocks.getActiveStoreById.mockResolvedValue(storeTwo);await appRouter.createCaller(createContext("admin",2)).dashboard.directionalHandoffs({businessDate,deviceId});expect(directionalMocks.readDirectionalHandoffs).toHaveBeenCalledWith(expect.anything(),2,deviceId,businessDate,"America/Los_Angeles");});
+ it("returns receipt-only null without creating a document",async()=>{const result=await appRouter.createCaller(createContext(null)).frigate.directionalHandoffReceipt({apiKey:"test-frigate-key",deviceId,businessDate});expect(result).toEqual({receipt:null});expect(directionalMocks.saveDirectionalHandoffs).not.toHaveBeenCalled();});
 });
 
 describe("manual camera comparison read model",()=>{
