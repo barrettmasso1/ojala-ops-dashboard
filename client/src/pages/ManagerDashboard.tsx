@@ -10,6 +10,7 @@ import DailyOperationsPanel from "@/components/DailyOperationsPanel";
 import ReviewedCountImport from "@/components/ReviewedCountImport";
 import { buildDailyOperations } from "@/lib/dailyOperations";
 import { buildDirectionalHandoffPanelModel } from "@/lib/directionalHandoffPresentation";
+import { buildCounterPickupPanelModel } from "@/lib/counterPickupPresentation";
 import { LIVE_CAMERA_REFRESH_MS, dashboardDateHref, latestSuccessfulQueryAt, liveQueryState, resolveDashboardDate, responseMatchesBusinessDate } from "@/lib/dashboardLiveState";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getLoginUrl } from "@/const";
@@ -1004,6 +1005,32 @@ export default function ManagerDashboard() {
     directionalQueryState,
     directionalHandoffsQuery.dataUpdatedAt,
   );
+  const counterPickupsQuery = trpc.dashboard.counterPickups.useQuery(
+    { businessDate: selectedDate, deviceId: LOCAL_CAMERA_DEVICE_ID },
+    {
+      enabled: isAdmin && isOverviewRoute,
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
+      refetchInterval: isAdmin && isOverviewRoute ? LIVE_CAMERA_REFRESH_MS : false,
+      refetchIntervalInBackground: true,
+    }
+  );
+  const counterPickupQueryState = counterPickupsQuery.isLoading && !counterPickupsQuery.data
+    ? "loading"
+    : counterPickupsQuery.error && counterPickupsQuery.data
+      ? "stale"
+      : counterPickupsQuery.error
+        ? "offline"
+        : counterPickupsQuery.data
+          ? "live"
+          : "empty";
+  const counterPickupPanel = buildCounterPickupPanelModel(
+    counterPickupsQuery.data,
+    selectedDate,
+    timeZone,
+    counterPickupQueryState,
+    counterPickupsQuery.dataUpdatedAt,
+  );
   const selectedDayStaffQuery = trpc.timeclock.todayStatus.useQuery(
     { businessDate: selectedDate },
     { enabled: isAdmin && isOverviewRoute, refetchOnWindowFocus: false }
@@ -1819,11 +1846,12 @@ export default function ManagerDashboard() {
 
         {isOverviewRoute ? (
           <>
-            {(dailyOperations || (isAdmin && isOverviewRoute && directionalPanel)) && <DailyOperationsPanel
+            {(dailyOperations || (isAdmin && isOverviewRoute && (counterPickupPanel || directionalPanel))) && <DailyOperationsPanel
               view={dailyOperations ?? undefined}
               timeZone={timeZone}
               businessDate={selectedDate}
               directional={isAdmin && isOverviewRoute ? directionalPanel : undefined}
+              counterPickups={isAdmin && isOverviewRoute ? counterPickupPanel : undefined}
               closingUnavailable={isAdmin && isOverviewRoute && Boolean(dailyQuery.error)}
             />}
             {isAdmin && <ManualCameraComparisonPanel businessDate={selectedDate} />}

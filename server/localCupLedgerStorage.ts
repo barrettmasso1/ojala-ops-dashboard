@@ -15,6 +15,7 @@ export class LedgerStorageError extends Error {
 export const LOCAL_LEDGER_READ_HOST="d36hbw14aib5lz.cloudfront.net";
 const safeKey=(key:string)=>/^local-cup-ledger\/v1\/store-[1-9]\d*\/[a-f0-9-]{36}\/\d{4}-\d{2}-\d{2}\.json$/.test(key);
 const safeDirectionalKey=(key:string)=>/^directional-handoffs\/v1\/store-[1-9]\d*\/[a-f0-9-]{36}\/\d{4}-\d{2}-\d{2}\.json$/.test(key);
+const safeCounterPickupKey=(key:string)=>/^counter-pickups\/v1\/store-[1-9]\d*\/[a-f0-9-]{36}\/\d{4}-\d{2}-\d{2}\.json$/.test(key);
 const strongEtag=(value:string|null)=>Boolean(value&&/^"[\x21\x23-\x7e\x80-\xff]+"$/.test(value));
 const validateUrl=(raw:string,allowLedgerReadHost:boolean)=>{
   const u=new URL(raw);
@@ -89,6 +90,35 @@ export class PlatformDirectionalHandoffStore implements LocalLedgerBlobStore {
     const r=await fetch(safePutUrl(data.url),{method:"PUT",headers:conditional,body:text,redirect:"error",signal:AbortSignal.timeout(20000)});
     if(r.status===412||r.status===409)throw new LedgerConflict("concurrent_directional_update");
     if(!r.ok)throw new LedgerStorageError(`directional_storage_write_failed_${r.status}`,"object_put",r.status);
+  }
+}
+
+/** Counter-to-customer optical estimates share hardened read/CAS semantics, but may only read the native ledger as corroborating proof. */
+export class PlatformCounterPickupStore implements LocalLedgerBlobStore {
+  async read(key:string) {
+    if (safeKey(key)) return new PlatformLocalLedgerStore().read(key);
+    if (!safeCounterPickupKey(key)) throw Error("invalid_counter_pickup_storage_key");
+    const signed=await storageGetSignedUrl(key);
+    const r=await fetch(safeReadUrl(signed),{method:"GET",headers:{"Accept-Encoding":"identity","Cache-Control":"no-cache, no-store, max-age=0"},redirect:"error",cache:"no-store",signal:AbortSignal.timeout(15000)});
+    if(r.status===404)return null;
+    if(!r.ok)throw new LedgerStorageError(`counter_pickup_storage_read_failed_${r.status}`,"object_get",r.status);
+    const etag=r.headers.get("etag");if(!etag)throw new LedgerStorageError("counter_pickup_storage_etag_missing","object_get",r.status);
+    if(!strongEtag(etag))throw new LedgerStorageError("counter_pickup_storage_etag_not_strong","object_get",r.status);
+    if(r.headers.get("content-encoding"))throw new LedgerStorageError("counter_pickup_storage_content_encoding_present","object_get",r.status);
+    return {text:await limitedText(r,4*1024*1024*3),etag};
+  }
+  async compareAndPut(key:string,text:string,expectedEtag:string|null) {
+    if(!safeCounterPickupKey(key)||Buffer.byteLength(text)>4*1024*1024*3)throw Error("invalid_counter_pickup_storage_write");
+    if(!ENV.forgeApiUrl||!ENV.forgeApiKey)throw Error("counter_pickup_storage_not_configured");
+    const presign=new URL("v1/storage/presign/put",ENV.forgeApiUrl.replace(/\/+$/,"")+"/");presign.searchParams.set("path",key);
+    const p=await fetch(presign,{headers:{Authorization:`Bearer ${ENV.forgeApiKey}`},redirect:"error",cache:"no-store",signal:AbortSignal.timeout(15000)});
+    if(!p.ok)throw new LedgerStorageError(`counter_pickup_storage_presign_failed_${p.status}`,"presign_put",p.status);
+    const data=await p.json() as {url?:string};if(!data.url)throw Error("counter_pickup_storage_presign_missing");
+    const conditional:Record<string,string>={"Content-Type":"application/json"};
+    conditional[expectedEtag?"If-Match":"If-None-Match"]=expectedEtag??"*";
+    const r=await fetch(safePutUrl(data.url),{method:"PUT",headers:conditional,body:text,redirect:"error",signal:AbortSignal.timeout(20000)});
+    if(r.status===412||r.status===409)throw new LedgerConflict("concurrent_counter_pickup_update");
+    if(!r.ok)throw new LedgerStorageError(`counter_pickup_storage_write_failed_${r.status}`,"object_put",r.status);
   }
 }
 

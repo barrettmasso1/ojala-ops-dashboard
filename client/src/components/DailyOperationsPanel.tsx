@@ -2,6 +2,7 @@ import React from "react";
 import { Link } from "wouter";
 import type { DailyOperationsView } from "@/lib/dailyOperations";
 import type { DirectionalHandoffPanelModel } from "@/lib/directionalHandoffPresentation";
+import type { CounterPickupPanelModel } from "@/lib/counterPickupPresentation";
 
 function receivedLabel(value: string | Date | null, timeZone: string) {
   if (!value) return "Not available";
@@ -35,7 +36,29 @@ function DirectionalHandoffSection({ model }: { model: DirectionalHandoffPanelMo
   </section>;
 }
 
-export default function DailyOperationsPanel({ view, timeZone, businessDate, directional, closingUnavailable = false }: { view?: DailyOperationsView; timeZone: string; businessDate: string; directional?: DirectionalHandoffPanelModel; closingUnavailable?: boolean }) {
+function CounterPickupSection({ model }: { model: CounterPickupPanelModel }) {
+  return <section aria-labelledby="counter-pickup-title" className="mt-6 rounded-[1.6rem] border border-[#d8e2da] bg-[#f4f8f3] p-5 md:p-6">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        <p className="text-xs uppercase tracking-[0.2em] text-[#52665f]">Video local · flujo óptico · sin IA generativa</p>
+        <h3 id="counter-pickup-title" className="mt-2 font-serif text-2xl text-[#24332f]">{model.title}</h3>
+        <p className="mt-2 text-sm leading-6 text-[#56635d]">{model.message}</p>
+      </div>
+      <span className="w-fit rounded-full border border-[#c4d6c9] bg-white px-3 py-2 text-sm font-medium text-[#52665f]">{model.label}</span>
+    </div>
+    <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="rounded-2xl border border-[#d8e2da] bg-white p-4"><p className="text-xs text-[#52665f]">Retiradas estimadas</p><p className="mt-2 font-serif text-3xl text-[#24332f]">{model.value}</p><p className="mt-2 text-xs leading-5 text-[#66706a]">Solo ventanas candidatas; no es total diario.</p></div>
+      <div className="rounded-2xl border border-[#d8e2da] bg-white p-4"><p className="text-xs text-[#52665f]">Ventanas de video</p><p className="mt-2 text-sm leading-6 text-[#24332f]">{model.interval}</p><p className="mt-2 text-xs text-[#66706a]">Ventanas: {model.windowCount}</p></div>
+      <div className="rounded-2xl border border-[#d8e2da] bg-white p-4"><p className="text-xs text-[#52665f]">Consulta y recibo</p><p className="mt-2 text-sm leading-6 text-[#24332f]">{model.connection}</p><p className="mt-2 text-xs text-[#66706a]">Último recibo: {model.receipt}</p></div>
+      <div className="rounded-2xl border border-[#d8e2da] bg-white p-4"><p className="text-xs text-[#52665f]">Seguimientos</p><p className="mt-2 text-sm leading-6 text-[#24332f]">Pendientes de prueba: {model.unresolved}</p><p className="mt-2 text-xs text-[#66706a]">Registros: {model.records}</p></div>
+    </div>
+    <div className="mt-5 overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th className="p-2">Tamaño</th><th className="p-2">Retiradas provisionales</th></tr></thead><tbody>{model.sizeRows.map(row => <tr key={row.key} className="border-t border-[#d8e2da]"><td className="p-2">{row.label}</td><td className="p-2">{row.value}</td></tr>)}</tbody></table></div>
+    <p className="mt-4 text-sm leading-6 text-[#8a4343]">{model.warning}</p>
+    <p className="mt-2 text-xs leading-5 text-[#66706a]">Requiere una foto nativa ya persistida y una observación local válida; no solicita aprobación por foto ni modifica su decisión humana existente.</p>
+  </section>;
+}
+
+export default function DailyOperationsPanel({ view, timeZone, businessDate, directional, counterPickups, closingUnavailable = false }: { view?: DailyOperationsView; timeZone: string; businessDate: string; directional?: DirectionalHandoffPanelModel; counterPickups?: CounterPickupPanelModel; closingUnavailable?: boolean }) {
   const manualContent = <>
     {closingUnavailable ? <p role="alert" className="mt-6 rounded-xl border border-[#ead4d4] bg-[#fff5f5] p-4 text-sm leading-6 text-[#8a4343]">Cierre no disponible para esta consulta. Ventas, pesos y conteos físicos manuales no se rellenan con datos de la cámara.</p> : null}
     {view ? <div className="mt-6 grid gap-4 lg:grid-cols-3">
@@ -75,13 +98,17 @@ export default function DailyOperationsPanel({ view, timeZone, businessDate, dir
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-[#65716b]">Daily operations · {businessDate}</p>
-          <h2 id="daily-operations-title" className="mt-3 font-serif text-3xl text-[#1f2b27]">{directional ? "Conteo automático del día y cierre" : "Cierre y conteo físico revisado"}</h2>
+          <h2 id="daily-operations-title" className="mt-3 font-serif text-3xl text-[#1f2b27]">{counterPickups || directional ? "Conteo automático del día y cierre" : "Cierre y conteo físico revisado"}</h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-[#65716b]">Daily physical counts and visual evidence are separate. Images and AI labels do not become cups, sales, or deliveries.</p>
         </div>
-        <span className="w-fit rounded-full bg-[#f1e8da] px-4 py-2 text-sm font-medium text-[#52665f]">{directional ? `${directional.connection} · ${directional.label}` : view?.cameraLabel ?? "Cierre no disponible"}</span>
+        <span className="w-fit rounded-full bg-[#f1e8da] px-4 py-2 text-sm font-medium text-[#52665f]">{counterPickups ? `${counterPickups.connection} · ${counterPickups.label}` : directional ? `${directional.connection} · ${directional.label}` : view?.cameraLabel ?? "Cierre no disponible"}</span>
       </div>
-      {directional ? <DirectionalHandoffSection model={directional} /> : null}
-      {directional ? <details className="mt-6 rounded-2xl border border-[#ded5c8] bg-[#fcfaf6] p-5" aria-label="Cierre manual y conteo revisado (separados)">
+      {counterPickups ? <CounterPickupSection model={counterPickups} /> : null}
+      {counterPickups && directional ? <details className="mt-6 rounded-2xl border border-[#d8e2da] bg-[#fcfaf6] p-5" aria-label="Diagnóstico direccional separado">
+        <summary className="cursor-pointer text-sm font-medium text-[#52665f]">Diagnóstico direccional separado (no se suma)</summary>
+        <DirectionalHandoffSection model={directional} />
+      </details> : directional ? <DirectionalHandoffSection model={directional} /> : null}
+      {counterPickups || directional ? <details className="mt-6 rounded-2xl border border-[#ded5c8] bg-[#fcfaf6] p-5" aria-label="Cierre manual y conteo revisado (separados)">
         <summary className="cursor-pointer text-sm font-medium text-[#52665f]">Cierre manual y conteo revisado (separados)</summary>
         {manualContent}
       </details> : manualContent}

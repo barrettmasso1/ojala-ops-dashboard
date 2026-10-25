@@ -4,6 +4,7 @@ import {
   LedgerConflict,
   LedgerStorageError,
   LOCAL_LEDGER_READ_HOST,
+  PlatformCounterPickupStore,
   PlatformDirectionalHandoffStore,
   PlatformLocalLedgerStore,
   saveLocalLedger,
@@ -23,6 +24,7 @@ const DEVICE = "00000000-0000-4000-8000-000000000001";
 const DAY = "2026-01-20";
 const KEY = `local-cup-ledger/v1/store-1/${DEVICE}/${DAY}.json`;
 const DIRECTIONAL_KEY = `directional-handoffs/v1/store-1/${DEVICE}/${DAY}.json`;
+const COUNTER_PICKUP_KEY = `counter-pickups/v1/store-1/${DEVICE}/${DAY}.json`;
 const signedReadUrl = `https://${LOCAL_LEDGER_READ_HOST}/bucket/object.json?X-Amz-Algorithm=fixture&X-Amz-Signature=fixture`;
 
 function observation(index = 1) {
@@ -309,6 +311,35 @@ describe("PlatformDirectionalHandoffStore adapter", () => {
     await new PlatformDirectionalHandoffStore().compareAndPut(DIRECTIONAL_KEY, "directional", null);
     expect(String(vi.mocked(fetch).mock.calls[0]?.[0])).toBe("https://forge.test/v1/storage/presign/put?path=" + encodeURIComponent(DIRECTIONAL_KEY));
     envMocks.forgeApiUrl = "https://forge.test";
+  });
+});
+
+describe("PlatformCounterPickupStore adapter", () => {
+  beforeEach(() => {
+    storageMocks.storageGetSignedUrl.mockReset();
+    storageMocks.storageGetSignedUrl.mockResolvedValue(signedReadUrl);
+    vi.stubGlobal("fetch", vi.fn());
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("reads its private document with identity representation and delegates only native-ledger reads", async () => {
+    vi.mocked(fetch).mockResolvedValue(response(200, "pickup", { etag: '"pickup-v1"' }));
+    await expect(new PlatformCounterPickupStore().read(COUNTER_PICKUP_KEY)).resolves.toEqual({ text: "pickup", etag: '"pickup-v1"' });
+    expect(vi.mocked(fetch).mock.calls[0]?.[1]).toMatchObject({ method: "GET", redirect: "error", cache: "no-store" });
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch).mockResolvedValue(response(200, "native", { etag: '"native-v1"' }));
+    await expect(new PlatformCounterPickupStore().read(KEY)).resolves.toEqual({ text: "native", etag: '"native-v1"' });
+  });
+
+  it("uses create-only/CAS for counter objects but rejects directional and native writes before presign", async () => {
+    const putUrl = "https://bucket.s3.amazonaws.com/pickup.json?X-Amz-Signature=fixture";
+    vi.mocked(fetch).mockResolvedValueOnce(response(200, JSON.stringify({ url: putUrl }), { "content-type": "application/json" })).mockResolvedValueOnce(response(200));
+    await new PlatformCounterPickupStore().compareAndPut(COUNTER_PICKUP_KEY, "pickup", null);
+    expect(vi.mocked(fetch).mock.calls[1]?.[1]?.headers).toMatchObject({ "If-None-Match": "*" });
+    vi.mocked(fetch).mockReset();
+    await expect(new PlatformCounterPickupStore().compareAndPut(KEY, "forbidden", null)).rejects.toThrow("invalid_counter_pickup_storage_write");
+    await expect(new PlatformCounterPickupStore().compareAndPut(DIRECTIONAL_KEY, "forbidden", null)).rejects.toThrow("invalid_counter_pickup_storage_write");
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 });
 

@@ -82,8 +82,10 @@ const storageMocks = vi.hoisted(() => ({
 
 const localLedgerMocks=vi.hoisted(()=>({saveLocalLedger:vi.fn(),readLocalLedger:vi.fn(),readLocalLedgerReceipt:vi.fn(),readLocalEvidenceObservation:vi.fn()}));
 const directionalMocks=vi.hoisted(()=>({saveDirectionalHandoffs:vi.fn(),readDirectionalHandoffReceipt:vi.fn(),readDirectionalHandoffs:vi.fn()}));
-vi.mock("./localCupLedgerStorage",()=>({PlatformLocalLedgerStore:class {},PlatformDirectionalHandoffStore:class {},...localLedgerMocks}));
+const counterPickupMocks=vi.hoisted(()=>({saveCounterPickups:vi.fn(),readCounterPickupReceipt:vi.fn(),readCounterPickups:vi.fn()}));
+vi.mock("./localCupLedgerStorage",()=>({PlatformLocalLedgerStore:class {},PlatformDirectionalHandoffStore:class {},PlatformCounterPickupStore:class {},...localLedgerMocks}));
 vi.mock("./directionalHandoff",async()=>{const actual=await vi.importActual<typeof import("./directionalHandoff")>("./directionalHandoff");return {...actual,...directionalMocks};});
+vi.mock("./counterPickups",async()=>{const actual=await vi.importActual<typeof import("./counterPickups")>("./counterPickups");return {...actual,...counterPickupMocks};});
 vi.mock("./db", () => dbMocks);
 vi.mock("./_core/notification", () => notificationMocks);
 vi.mock("./_core/sdk", () => sdkMocks);
@@ -2010,6 +2012,18 @@ describe("directional handoff contract authorization",()=>{
  it.each([null,"user"] as const)("blocks dashboard directional reads for %s",async role=>{await expect(appRouter.createCaller(createContext(role)).dashboard.directionalHandoffs({businessDate,deviceId})).rejects.toMatchObject({code:"FORBIDDEN"});expect(directionalMocks.readDirectionalHandoffs).not.toHaveBeenCalled();});
  it("binds the admin directional query to the authenticated store and requested date",async()=>{dbMocks.getActiveStoreById.mockResolvedValue(storeTwo);await appRouter.createCaller(createContext("admin",2)).dashboard.directionalHandoffs({businessDate,deviceId});expect(directionalMocks.readDirectionalHandoffs).toHaveBeenCalledWith(expect.anything(),2,deviceId,businessDate,"America/Los_Angeles");});
  it("returns receipt-only null without creating a document",async()=>{const result=await appRouter.createCaller(createContext(null)).frigate.directionalHandoffReceipt({apiKey:"test-frigate-key",deviceId,businessDate});expect(result).toEqual({receipt:null});expect(directionalMocks.saveDirectionalHandoffs).not.toHaveBeenCalled();});
+});
+
+describe("counter pickup contract authorization",()=>{
+ const deviceId="00000000-0000-4000-8000-000000000001",businessDate="2026-01-20";
+ const envelope=()=>{const documentJson=JSON.stringify({fixture:true});return {sequence:1,documentJson,documentSha256:createHash("sha256").update(documentJson).digest("hex")};};
+ beforeEach(()=>{vi.clearAllMocks();dbMocks.resolveActiveStoreCredential.mockResolvedValue(null);dbMocks.getActiveStoreById.mockResolvedValue(storeOne);counterPickupMocks.saveCounterPickups.mockResolvedValue({success:true,disposition:"create",receipt:{persisted:true,partial:true,countsAreSales:false}});counterPickupMocks.readCounterPickupReceipt.mockResolvedValue(null);counterPickupMocks.readCounterPickups.mockResolvedValue(null);});
+ it("publishes the exact local-only capability contract",async()=>{const result=await appRouter.createCaller(createContext(null)).frigate.counterPickupCapabilities();expect(result).toEqual({protocol:"ojala_counter_pickups_v1",receiptProtocol:"ojala_counter_pickups_receipt_v1",credentialScoped:true,browserRequired:false,externalAiRequired:false,requiresPersistedLocalObservation:true,requiresPersistedNativePhoto:true,persistedReadbackRequired:true,createsSales:false,createsReviewedPhysicalCounts:false});});
+ it("derives store solely from the credential and sends no client total",async()=>{dbMocks.resolveActiveStoreCredential.mockResolvedValue({store:storeTwo});await appRouter.createCaller(createContext(null)).frigate.submitCounterPickups({apiKey:"test-managed-native",...envelope()});expect(counterPickupMocks.saveCounterPickups).toHaveBeenCalledWith(expect.anything(),expect.objectContaining(envelope()),2,"America/Los_Angeles",expect.any(Function));expect(counterPickupMocks.saveCounterPickups.mock.calls[0]?.[1]).not.toHaveProperty("estimatedPickups");expect(dbMocks.upsertFrigateCupCount).not.toHaveBeenCalled();expect(dbMocks.createEndOfDayReport).not.toHaveBeenCalled();expect(handoffVisualMocks.analyzeHandoffVisualImage).not.toHaveBeenCalled();});
+ it("rejects an invalid credential before reading photos or counter storage",async()=>{await expect(appRouter.createCaller(createContext(null)).frigate.submitCounterPickups({apiKey:"invalid-native-fixture",...envelope()})).rejects.toMatchObject({code:"UNAUTHORIZED"});expect(counterPickupMocks.saveCounterPickups).not.toHaveBeenCalled();expect(dbMocks.getHandoffVisualEventByCapture).not.toHaveBeenCalled();});
+ it.each([null,"user"] as const)("blocks counter-pickup dashboard reads for %s",async role=>{await expect(appRouter.createCaller(createContext(role)).dashboard.counterPickups({businessDate,deviceId})).rejects.toMatchObject({code:"FORBIDDEN"});expect(counterPickupMocks.readCounterPickups).not.toHaveBeenCalled();});
+ it("binds the admin query to the session store and requested date",async()=>{dbMocks.getActiveStoreById.mockResolvedValue(storeTwo);await appRouter.createCaller(createContext("admin",2)).dashboard.counterPickups({businessDate,deviceId});expect(counterPickupMocks.readCounterPickups).toHaveBeenCalledWith(expect.anything(),2,deviceId,businessDate,"America/Los_Angeles",expect.any(Function));});
+ it("reads a null receipt without creating a document or a photo",async()=>{const result=await appRouter.createCaller(createContext(null)).frigate.counterPickupReceipt({apiKey:"test-frigate-key",deviceId,businessDate});expect(result).toEqual({receipt:null});expect(counterPickupMocks.saveCounterPickups).not.toHaveBeenCalled();expect(dbMocks.reserveHandoffVisualEvent).not.toHaveBeenCalled();});
 });
 
 describe("manual camera comparison read model",()=>{

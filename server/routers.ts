@@ -1,7 +1,8 @@
 import {NATIVE_EVIDENCE_PROTOCOL,NATIVE_AUTOMATIC_VALIDATION_PROTOCOL,NATIVE_LOCAL_PROOF_MODEL,nativeEvidenceIdentity,nativeEvidenceUpload,requireEvidenceObservation,validateNativeEvidence,localEvidenceSource,nativeEvidenceReceipt,isNativeLocalEvidenceSource,buildNativeAutomaticValidationProof} from "./nativeLocalEvidence";
 import { LOCAL_LEDGER_PROTOCOL, localLedgerInputSchema, parseLocalLedger } from "./localCupLedger";
-import { PlatformDirectionalHandoffStore, PlatformLocalLedgerStore, saveLocalLedger, readLocalLedger, readLocalLedgerReceipt, readLocalEvidenceObservation } from "./localCupLedgerStorage";
+import { PlatformCounterPickupStore, PlatformDirectionalHandoffStore, PlatformLocalLedgerStore, saveLocalLedger, readLocalLedger, readLocalLedgerReceipt, readLocalEvidenceObservation } from "./localCupLedgerStorage";
 import { DIRECTIONAL_HANDOFF_PROTOCOL, DIRECTIONAL_HANDOFF_RECEIPT_PROTOCOL, directionalHandoffInputSchema, readDirectionalHandoffReceipt, readDirectionalHandoffs, saveDirectionalHandoffs } from "./directionalHandoff";
+import { COUNTER_PICKUP_PROTOCOL, COUNTER_PICKUP_RECEIPT_PROTOCOL, counterPickupInputSchema, readCounterPickupReceipt, readCounterPickups, saveCounterPickups, type CounterPickupPhotoReader } from "./counterPickups";
 import { classifyHandoffCupSizes } from "./autoCupSizes";
 import { CUP_SIZE_KEYS } from "../shared/cupDescriptions";
 import { HANDOFF_RECEIPT_PROTOCOL, deferredHandoffSource, persistedHandoffReceipt } from "./handoffDurableReceipt";
@@ -382,6 +383,31 @@ async function resolveFrigateStore(apiKey: string) {
 
   return null;
 }
+
+/** Optical pickup estimation may only inspect an already persisted native photo. It never uploads, analyzes, or relabels it. */
+const counterPickupPhotoReader: CounterPickupPhotoReader = async input => {
+  const row = await getHandoffVisualEventByCapture({
+    storeId: input.storeId,
+    businessDate: input.businessDate,
+    cameraName: input.cameraName,
+    cupEventId: input.sourceEventId,
+  });
+  if (!row) return null;
+  return {
+    storeId: row.storeId,
+    businessDate: row.businessDate,
+    cameraName: row.cameraName,
+    cupEventId: row.cupEventId,
+    imageSha256: row.imageSha256 ?? "",
+    imageKey: row.imageKey,
+    captureMetadataJson: row.captureMetadataJson ?? null,
+    sourceDetail: row.sourceDetail ?? null,
+    evidenceOrigin: row.evidenceOrigin,
+    analysisStatus: row.analysisStatus,
+    reviewedAt: row.reviewedAt ?? null,
+    reviewedByUserId: row.reviewedByUserId ?? null,
+  };
+};
 
 function credentialClientKey(req: { headers: Record<string, string | string[] | undefined> }) {
   const forwardedFor = req.headers["x-forwarded-for"];
@@ -990,6 +1016,63 @@ export const appRouter = router({
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Directional handoff receipt is not available" });
         }
       }),
+    counterPickupCapabilities: publicProcedure.query(() => ({
+      protocol: COUNTER_PICKUP_PROTOCOL,
+      receiptProtocol: COUNTER_PICKUP_RECEIPT_PROTOCOL,
+      credentialScoped: true,
+      browserRequired: false,
+      externalAiRequired: false,
+      requiresPersistedLocalObservation: true,
+      requiresPersistedNativePhoto: true,
+      persistedReadbackRequired: true,
+      createsSales: false,
+      createsReviewedPhysicalCounts: false,
+    })),
+    submitCounterPickups: publicProcedure
+      .input(counterPickupInputSchema.extend({ apiKey: z.string().min(1).max(2048) }))
+      .mutation(async ({ ctx, input }) => {
+        const clientKey = credentialClientKey(ctx.req);
+        enforceCredentialRateLimit("frigate", clientKey);
+        const store = await resolveFrigateStore(input.apiKey);
+        if (!store) {
+          recordCredentialFailure("frigate", clientKey);
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Unauthorized" });
+        }
+        clearCredentialFailures("frigate", clientKey);
+        try {
+          return await saveCounterPickups(
+            new PlatformCounterPickupStore(),
+            { sequence: input.sequence, documentJson: input.documentJson, documentSha256: input.documentSha256 },
+            store.id,
+            store.timezone,
+            counterPickupPhotoReader,
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "counter_pickup_failed";
+          const conflict = /conflict|stale|omitted|changed|policy_or_scope|revision|readback/i.test(message);
+          const invalid = /checksum|json|policy_|document_|sample_|segment_|record_|event_|duplicate_|business_date|scope|identity|native_binding|persisted_(observation|photo)|source_conflict|source_invalid|seed_|pickup_|counter_pickup_storage_key/i.test(message);
+          if (conflict) throw new TRPCError({ code: "CONFLICT", message: "Counter pickup revision conflict; read the exact receipt before retrying" });
+          if (invalid) throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid optical pickup document or persisted native evidence" });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Counter pickup storage unavailable; no receipt confirmed" });
+        }
+      }),
+    counterPickupReceipt: publicProcedure
+      .input(z.object({ apiKey: z.string().min(1).max(2048), deviceId: z.string().uuid(), businessDate: requiredBusinessDateSchema }).strict())
+      .mutation(async ({ ctx, input }) => {
+        const clientKey = credentialClientKey(ctx.req);
+        enforceCredentialRateLimit("frigate", clientKey);
+        const store = await resolveFrigateStore(input.apiKey);
+        if (!store) {
+          recordCredentialFailure("frigate", clientKey);
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Unauthorized" });
+        }
+        clearCredentialFailures("frigate", clientKey);
+        try {
+          return { receipt: await readCounterPickupReceipt(new PlatformCounterPickupStore(), store.id, input.deviceId, input.businessDate, store.timezone, counterPickupPhotoReader) };
+        } catch {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Counter pickup receipt is not available" });
+        }
+      }),
     localEvidenceCapabilities: publicProcedure.query(()=>({protocol:NATIVE_EVIDENCE_PROTOCOL,receiptProtocol:"ojala_local_cup_evidence_receipt_v1",automaticValidationProtocol:NATIVE_AUTOMATIC_VALIDATION_PROTOCOL,analysisModel:NATIVE_LOCAL_PROOF_MODEL,finalizeEndpoint:"frigate.finalizeLocalCupEvidence",finalizeRequired:true,humanApprovalRequired:false,scopedByCredential:true,credentialScoped:true,browserRequired:false,externalAiRequired:false,requiresPersistedLocalObservation:true,persistedReadbackRequired:true,source:"verified_snapshot",createsPhysicalCounts:false})),
     submitLocalCupEvidence: publicProcedure.input(nativeEvidenceUpload.extend({apiKey:z.string().min(1).max(2048)})).mutation(async({ctx,input})=>{
       const clientKey=credentialClientKey(ctx.req);enforceCredentialRateLimit("frigate",clientKey);
@@ -1432,6 +1515,17 @@ export const appRouter = router({
           return await readDirectionalHandoffs(new PlatformDirectionalHandoffStore(), store.id, input.deviceId, input.businessDate, store.timezone);
         } catch {
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Directional handoff registry is temporarily unavailable" });
+        }
+      }),
+    counterPickups: adminProcedure
+      .input(z.object({ businessDate: requiredBusinessDateSchema, deviceId: z.string().uuid() }).strict())
+      .query(async ({ ctx, input }) => {
+        const store = await getActiveStoreById(ctx.user.storeId);
+        if (!store) throw new TRPCError({ code: "FORBIDDEN", message: "Store unavailable" });
+        try {
+          return await readCounterPickups(new PlatformCounterPickupStore(), store.id, input.deviceId, input.businessDate, store.timezone, counterPickupPhotoReader);
+        } catch {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Counter pickup registry is temporarily unavailable" });
         }
       }),
     manualCameraComparison: adminProcedure

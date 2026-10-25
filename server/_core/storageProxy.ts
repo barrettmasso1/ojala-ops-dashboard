@@ -13,7 +13,7 @@ export function isPrivateLocalLedgerKey(raw:string):boolean {
     if(part===".."){parts.pop();continue;}
     parts.push(part);
   }
-  return parts[0]==="local-cup-ledger" || (parts[0]==="directional-handoffs" && parts[1]==="v1");
+  return parts[0]==="local-cup-ledger" || (parts[0]==="directional-handoffs" && parts[1]==="v1") || (parts[0]==="counter-pickups" && parts[1]==="v1");
 }
 
 export function registerStorageProxy(app: Express) {
