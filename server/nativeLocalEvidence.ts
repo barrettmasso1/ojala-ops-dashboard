@@ -60,12 +60,17 @@ export function isNativeLocalEvidenceSource(value:string|null|undefined){return 
 function parseStoredCapture(row:PersistedHandoffRow){
  try{return JSON.parse(row.captureMetadataJson??"{}");}catch{throw Error("stored_metadata_unreadable");}
 }
+/** SQL TIMESTAMP(0) rounds by default or truncates in TIME_TRUNCATE_FRACTIONAL mode; exact time remains in original metadata. */
+export function nativeCaptureTimeMatchesStorage(stored:Date,original:Date){
+ const a=stored instanceof Date?stored.getTime():NaN,b=original instanceof Date?original.getTime():NaN;
+ return Number.isFinite(a)&&Number.isFinite(b)&&(a===b||a===Math.floor(b/1000)*1000||a===Math.round(b/1000)*1000);
+}
 function requireNativeRowIdentity(row:PersistedHandoffRow,o:LocalObservation,timeZone:string){
  const proof=o.sameFrameEvidence;
  if(!proof||!row.imageKey||row.sourceDetail!==localEvidenceSource(o)||row.storeId<=0||row.businessDate!==o.businessDate||row.cameraName!==o.cameraName||row.cupEventId!==o.sourceEventId||row.imageSha256!==proof.imageSha256||row.evidenceOrigin!=="verified_snapshot"||!(row.receivedAt instanceof Date)||!Number.isFinite(row.receivedAt.getTime()))throw Error("native_evidence_identity_mismatch");
  const saved=parseStoredCapture(row);
  const metadata=parseHandoffCaptureMetadata({camera:saved.camera,cupZone:saved.cup_zone,cupEventId:saved.cup_event_id,capturedAtUtc:saved.captured_at_utc,imageSha256:saved.image_sha256,schemaVersion:saved.schema_version,zoneGeometry:saved.zone_geometry,zoneConfigSha256:saved.zone_config_sha256,imageDimensions:saved.image_dimensions});
- if(metadata.cupEventId!==o.sourceEventId||metadata.imageSha256!==proof.imageSha256||metadata.capturedAtUtc!==proof.capturedAt||getBusinessDate(metadata.capturedAt,timeZone)!==o.businessDate||metadata.schemaVersion!==3||row.capturedAt.getTime()!==metadata.capturedAt.getTime())throw Error("native_evidence_capture_mismatch");
+ if(metadata.cupEventId!==o.sourceEventId||metadata.imageSha256!==proof.imageSha256||metadata.capturedAtUtc!==proof.capturedAt||getBusinessDate(metadata.capturedAt,timeZone)!==o.businessDate||metadata.schemaVersion!==3||!nativeCaptureTimeMatchesStorage(row.capturedAt,metadata.capturedAt))throw Error("native_evidence_capture_mismatch");
  if(!row.zoneId||!row.zoneGeometryVersion||!row.zoneGeometryJson||!metadata.capturedZoneGeometry||!metadata.capturedZoneConfigSha256||!isHandoffCaptureZoneCoherent({capturedGeometry:metadata.capturedZoneGeometry,capturedConfigSha256:metadata.capturedZoneConfigSha256,serverGeometry:parseStoredHandoffZoneGeometry(row.zoneGeometryJson)}))throw Error("native_evidence_zone_mismatch");
  const audit=saved.normalization_audit;
  if(!audit||audit.sourceMetadataSha256!==proof.originalSidecarSha256||audit.sourceZoneConfigSha256!==proof.sourceZoneSha256||hashText(audit.sourceZoneCanonicalJson)!==proof.sourceZoneSha256)throw Error("native_evidence_normalization_audit_missing");
