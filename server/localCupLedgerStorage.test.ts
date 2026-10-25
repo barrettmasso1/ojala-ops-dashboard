@@ -71,6 +71,22 @@ function envelope(rows = [observation()], sequence = 1, revision = 1) {
 }
 
 const parsed = (input = envelope()) => parseLocalLedger(input, "America/Mazatlan");
+function ownerReference() {
+  const o = observation() as any;
+  o.startedAt = "2026-01-21T02:00:00Z";
+  o.verification = "same_frame_local_cv";
+  o.sameFrameEvidence = { imageSha256: "b".repeat(64), capturedAt: "2026-01-21T02:00:01Z", sourceMetadataSha256: "c".repeat(64), sourceZoneSha256: "d".repeat(64), targetBox: o.targetBox, cupScore: .8, personDetections: 1, gateVersion: "test", inferenceLocation: "local_beelink", generativeAiUsed: false };
+  o.ownerSizeReview = { protocol: "ojala_owner_size_review_v1", annotationSha256: "e".repeat(64), manifestSha256: "f".repeat(64), sampleId: "1".repeat(64), sourceEventId: o.sourceEventId, imageSha256: "b".repeat(64), label: "chico", labelSource: "owner_confirmed_capacity", confirmedAt: "2026-01-21T03:00:00Z", targetBox: o.targetBox, binding: { deviceId: DEVICE, cameraName: "handoff", zoneSha256: "d".repeat(64), detectorModelSha256: "a".repeat(64) } };
+  o.size = "chico"; o.sizeBasis = "owner_confirmed_reference";
+  return o;
+}
+function provisionalFrom(reference: any) {
+  const o = observation(2) as any;
+  o.sourceEventId = "1768940000.123456-cup2"; o.observationId = hashText(`${DEVICE}/handoff/${o.sourceEventId}`); o.verification = "same_frame_local_cv";
+  o.sameFrameEvidence = { imageSha256: "c".repeat(64), capturedAt: "2026-01-20T23:00:01Z", sourceMetadataSha256: "9".repeat(64), sourceZoneSha256: "d".repeat(64), targetBox: o.targetBox, cupScore: .8, personDetections: 1, gateVersion: "test", inferenceLocation: "local_beelink", generativeAiUsed: false };
+  o.size = "chico"; o.sizeBasis = "local_reference_estimate"; o.sizeAssessment = { size: "chico", status: "classified", reason: "matched_owner_labeled_local_references", basis: "local_reference_estimate", modelSha256: "1".repeat(64), classifierVersion: "ojala_body_templates_v1", imageSha256: "c".repeat(64), referenceImageHashes: ["b".repeat(64)], distance: .1, margin: .08, externalAiUsed: false, notACertifiedVolume: true, provisional: true, generalizationValidated: false, referenceImages: 1, referenceScenes: 1, validationLevel: "single_reference_only", annotationSha256: "e".repeat(64), extractor: "bottom_body_hog_070", referenceObservationId: reference.observationId, referenceSourceEventId: reference.sourceEventId, referenceBusinessDate: reference.businessDate, referenceOwnerLabel: "chico", referenceAnnotationSha256: "e".repeat(64) };
+  return o;
+}
 const response = (status: number, body = "", headers: Record<string, string> = {}) =>
   new Response(body, { status, headers });
 
@@ -344,6 +360,25 @@ describe("PlatformCounterPickupStore adapter", () => {
 });
 
 describe("saveLocalLedger create-only and readback protocol", () => {
+  it("accepts a provisional update only when its reference is owner-confirmed in the native ledger", async () => {
+    const store = new ScriptedBlobStore();
+    const reference = ownerReference();
+    store.current = { text: JSON.stringify(storedLedger(parsed(envelope([reference])), 1)), etag: '"reference"' };
+    store.createError = new LedgerConflict("if_none_match");
+    const provisional = provisionalFrom(reference);
+    const next = parsed(envelope([reference, provisional], 2, 2));
+    await expect(saveLocalLedger(store, next, 1, "America/Mazatlan")).resolves.toMatchObject({ disposition: "update" });
+    expect(store.calls.filter(call => call.type === "put")).toHaveLength(2);
+  });
+
+  it("rejects an unlisted provisional reference before any write", async () => {
+    const store = new ScriptedBlobStore();
+    const provisional = provisionalFrom(ownerReference());
+    provisional.sizeAssessment.referenceObservationId = "9".repeat(64);
+    await expect(saveLocalLedger(store, parsed(envelope([provisional])), 1, "America/Mazatlan")).rejects.toThrow("provisional_reference_not_owner_confirmed");
+    expect(store.calls).toEqual([{ type: "read" }]);
+  });
+
   it("creates when a pre-read would be 403 and confirms only after a 200 readback", async () => {
     const store = new ScriptedBlobStore();
     store.forbidReadBeforeCreate = true;

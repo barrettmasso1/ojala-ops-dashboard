@@ -45,7 +45,9 @@ def fit(references,binding,annotation_sha):
         need(r.get('ownerConfirmed') is True and r.get('labelSource')=='owner_confirmed_capacity','template_label_source')
         need(r.get('size') in CLASSES,'template_label');valid_feature(r['feature'])
         h=r['imageSha256'];need(h==r['feature']['imageSha256'] and h not in seen,'template_duplicate_or_hash');seen.add(h)
-        refs.append({'size':r['size'],'sourceEventId':r['sourceEventId'],'sceneGroup':scene_group(r['startedAt']),'imageSha256':h,'feature':r['feature']})
+        need(isinstance(r.get('observationId'),str) and re.fullmatch('[a-f0-9]{64}',r['observationId']),'template_reference_observation')
+        need(isinstance(r.get('businessDate'),str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}',r['businessDate']),'template_reference_business_date')
+        refs.append({'size':r['size'],'observationId':r['observationId'],'sourceEventId':r['sourceEventId'],'businessDate':r['businessDate'],'sceneGroup':scene_group(r['startedAt']),'imageSha256':h,'feature':r['feature']})
     diagnostics=[]
     for r in refs:
         pick=choice(r['feature'],refs,r['sceneGroup']);accepted=bool(pick and pick['margin'] is not None and pick['distance']<=MAX_DISTANCE and pick['margin']>=MIN_MARGIN)
@@ -71,10 +73,24 @@ def fit(references,binding,annotation_sha):
 
 def validate_model(model):
     need(isinstance(model,dict) and sha(canonical(model.get('model')))==model.get('modelSha256'),'template_model_checksum')
-    m=model['model'];need(m.get('protocol')==PROTOCOL and m.get('classifierVersion')==VERSION and m.get('bodyRatio')==BODY_RATIO,'template_model_version')
+    m=model['model'];need(m.get('protocol')==PROTOCOL and m.get('classifierVersion')==VERSION and m.get('extractor')=='bottom_body_hog_070' and m.get('bodyRatio')==BODY_RATIO,'template_model_version')
     need(m.get('runtimeGenerativeAi') is False and m.get('generalizationValidated') is False and m.get('labelSource')=='owner_confirmed_capacity','template_model_scope')
+    references=m.get('references');need(isinstance(references,list) and 1<=len(references)<=200,'template_references')
+    seen=set()
+    for ref in references:
+        need(ref.get('size') in CLASSES and isinstance(ref.get('sourceEventId'),str) and ref.get('sourceEventId'),'template_reference_identity')
+        need(isinstance(ref.get('observationId'),str) and re.fullmatch('[a-f0-9]{64}',ref['observationId']),'template_reference_observation')
+        need(isinstance(ref.get('businessDate'),str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}',ref['businessDate']),'template_reference_business_date')
+        valid_feature(ref.get('feature'));image_hash=ref.get('imageSha256');need(image_hash==ref['feature'].get('imageSha256') and image_hash not in seen,'template_reference_hash')
+        seen.add(image_hash)
     for label,policy in m['classPolicies'].items():
         need(label in CLASSES and 0<=policy['radius']<=MAX_DISTANCE and policy['minimumMargin']==MIN_MARGIN,'template_policy')
+        own=[ref for ref in references if ref['size']==label]
+        scenes=len({ref.get('sceneGroup') for ref in own})
+        need(len(own)==policy['referenceImages'] and scenes==policy['referenceScenes'] and scenes>=1,'template_reference_coverage')
+        if policy['validationLevel'] in ('single_reference_only','near_reference_only'):need(policy['radius']<=.12,'template_low_data_radius')
+        if policy['validationLevel']=='single_reference_only':need(len(own)==1 and scenes==1,'template_single_reference_scope')
+        if policy['validationLevel']=='calibration_examples_only':need(scenes>=3,'template_calibration_scope')
     return m
 
 def predict(feature,model,binding):
@@ -88,7 +104,7 @@ def predict(feature,model,binding):
     if ref['imageSha256']==feature['imageSha256']:return unknown('reference_image_is_not_independent')
     if not policy or margin is None or margin<MIN_MARGIN or d>policy['radius']:return unknown('template_ambiguous_or_outside_radius')
     if ref['size']=='not_cup':return unknown('matches_owner_non_serving_reference')
-    return {'size':ref['size'],'status':'classified','reason':'matched_owner_labeled_local_references','basis':'local_reference_estimate','modelSha256':model['modelSha256'],'classifierVersion':VERSION,'imageSha256':feature['imageSha256'],'referenceImageHashes':[ref['imageSha256']],'distance':round(d,7),'margin':round(margin,7),'externalAiUsed':False,'notACertifiedVolume':True,'provisional':True,'generalizationValidated':False,'referenceImages':policy['referenceImages'],'referenceScenes':policy['referenceScenes'],'validationLevel':policy['validationLevel'],'annotationSha256':m['annotationSha256'],'extractor':'bottom_body_hog_070'}
+    return {'size':ref['size'],'status':'classified','reason':'matched_owner_labeled_local_references','basis':'local_reference_estimate','modelSha256':model['modelSha256'],'classifierVersion':VERSION,'imageSha256':feature['imageSha256'],'referenceImageHashes':[ref['imageSha256']],'distance':round(d,7),'margin':round(margin,7),'externalAiUsed':False,'notACertifiedVolume':True,'provisional':True,'generalizationValidated':False,'referenceImages':policy['referenceImages'],'referenceScenes':policy['referenceScenes'],'validationLevel':policy['validationLevel'],'annotationSha256':m['annotationSha256'],'extractor':'bottom_body_hog_070','referenceObservationId':ref['observationId'],'referenceSourceEventId':ref['sourceEventId'],'referenceBusinessDate':ref['businessDate'],'referenceOwnerLabel':ref['size'],'referenceAnnotationSha256':m['annotationSha256']}
 
 class TemplateRuntime:
     def __init__(self,path):self.path=Path(path);self.model=None;self.stamp=None;self.status='not_configured'
@@ -121,5 +137,5 @@ def build_from_manifest(annotations,annotation_sha,output_root,ledger_root):
         need(binding==original['binding'],'template_mixed_bindings')
         raw=safe_file(Path(ledger_root),original['imageRelativePath'],original['imageSha256'])
         feature=body_descriptor(raw,original['targetBox'],original['imageSha256'])
-        refs.append({'size':label['size'],'sourceEventId':original['sourceEventId'],'startedAt':original['startedAt'],'imageSha256':original['imageSha256'],'feature':feature,'ownerConfirmed':True,'labelSource':'owner_confirmed_capacity'})
+        refs.append({'size':label['size'],'observationId':original['observationId'],'sourceEventId':original['sourceEventId'],'businessDate':original['businessDate'],'startedAt':original['startedAt'],'imageSha256':original['imageSha256'],'feature':feature,'ownerConfirmed':True,'labelSource':'owner_confirmed_capacity'})
     return fit(refs,binding,annotation_sha)

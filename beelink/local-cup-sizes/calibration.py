@@ -53,7 +53,7 @@ def load_samples(ledger_root,output):
                 with Image.open(io.BytesIO(raw)) as im:
                     iw,ih=im.size;x,y,w,h=ev['targetBox'];crop=im.convert('RGB').crop((int(x*iw),int(y*ih),int((x+w)*iw),int((y+h)*ih)))
                     crop.thumbnail((180,180),Image.Resampling.LANCZOS);b=io.BytesIO();crop.save(b,format='JPEG',quality=92);atomic(crop_path,b.getvalue())
-            samples.append({'sampleId':key,'sourceEventId':row['sourceEventId'],'observationId':row['observationId'],'startedAt':row['startedAt'],
+            samples.append({'sampleId':key,'sourceEventId':row['sourceEventId'],'observationId':row['observationId'],'businessDate':row['businessDate'],'startedAt':row['startedAt'],
                 'imageSha256':ev['imageSha256'],'imageRelativePath':ev['storedImageRelativePath'],'targetBox':ev['targetBox'],
                 'binding':bind,'feature':f,'cropPath':'crops/'+key+'.jpg','size':None,'labelSource':None})
         except (ValueError,OSError,KeyError) as exc:errors.append({'sourceEventId':row.get('sourceEventId'),'reason':str(exc) if isinstance(exc,CalibrationError) else type(exc).__name__})
@@ -93,7 +93,7 @@ def train_from_annotations(annotations,output,ledger_root):
         if binding is None:binding=s['binding']
         if binding!=s['binding']:raise CalibrationError('mixed_camera_calibration')
         references.append({'feature':f,'imageSha256':s['imageSha256'],'size':label['size'],'ownerConfirmed':True,
-            'labelSource':'owner_confirmed_capacity','sourceEventId':s['sourceEventId'],'startedAt':s['startedAt']})
+            'labelSource':'owner_confirmed_capacity','sourceEventId':s['sourceEventId'],'businessDate':s['businessDate'],'startedAt':s['startedAt']})
     return fit(references,binding)
 
 
