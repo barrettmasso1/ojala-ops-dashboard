@@ -343,3 +343,15 @@ describe("real recording boundary regressions",()=>{
  it("rejects a segment whose end precedes its start",async()=>{await expect(parseSegments([{...first,start:begin+3,end:begin+2}])).rejects.toThrow();});
  it("does not turn an unsupported gap into coverage",async()=>{await expect(parseSegments([{...first,end:begin+.3},{...second,start:begin+1}])).rejects.toThrow("pickup_sample_not_in_segment");});
 });
+
+describe("real recording boundary regressions",()=>{
+ const begin=Date.parse(SEED)/1000;
+ const first={path:"/media/frigate/recordings/2026-10-24/19/handoff/00.00.mp4",start:begin,end:begin+10.028711,sha256:"f".repeat(64)};
+ const second={path:"/media/frigate/recordings/2026-10-24/19/handoff/00.10.mp4",start:begin+10,end:begin+20.017513,sha256:"d".repeat(64)};
+ async function parseSegments(segments:typeof first[]){const store=new Store();installNativeLedger(store,nativeObservation());return parseCounterPickupDocument(input([record({segments})]),STORE,"America/Mazatlan",store,async()=>photo(),NOW);}
+ it("accepts unchanged source clip ranges with a fractional boundary overlap",async()=>{const r=await parseSegments([first,second]);expect(r.estimatedPickups).toBe(1);expect(r.document.records[0].segments[0].end).toBe(first.end);});
+ it("does not accept a large overlap",async()=>{await expect(parseSegments([{...first,end:begin+15},second])).rejects.toThrow("pickup_segment_order");});
+ it("rejects duplicate segment identities",async()=>{await expect(parseSegments([first,{...second,path:first.path}])).rejects.toThrow("pickup_segment_order");});
+ it("rejects reversed segment chronology",async()=>{await expect(parseSegments([second,first])).rejects.toThrow("pickup_segment_order");});
+ it("does not turn an unsupported gap into coverage",async()=>{await expect(parseSegments([{...first,end:begin+.3},{...second,start:begin+1}])).rejects.toThrow("pickup_sample_not_in_segment");});
+});
