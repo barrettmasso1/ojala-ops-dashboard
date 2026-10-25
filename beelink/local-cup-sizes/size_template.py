@@ -81,9 +81,11 @@ def predict(feature,model,binding):
     valid_feature(feature);m=validate_model(model)
     unknown=lambda reason:{'size':'unknown','status':'unclassified','reason':reason,'externalAiUsed':False}
     if m['binding']!=binding:return unknown('template_binding_changed')
+    if any(r['imageSha256']==feature['imageSha256'] for r in m['references']):return unknown('reference_image_is_not_independent')
     pick=choice(feature,m['references'])
     if not pick:return unknown('outside_reference_view')
     ref=pick['reference'];policy=m['classPolicies'].get(ref['size']);d=pick['distance'];margin=pick['margin']
+    if ref['imageSha256']==feature['imageSha256']:return unknown('reference_image_is_not_independent')
     if not policy or margin is None or margin<MIN_MARGIN or d>policy['radius']:return unknown('template_ambiguous_or_outside_radius')
     if ref['size']=='not_cup':return unknown('matches_owner_non_serving_reference')
     return {'size':ref['size'],'status':'classified','reason':'matched_owner_labeled_local_references','basis':'local_reference_estimate','modelSha256':model['modelSha256'],'classifierVersion':VERSION,'imageSha256':feature['imageSha256'],'referenceImageHashes':[ref['imageSha256']],'distance':round(d,7),'margin':round(margin,7),'externalAiUsed':False,'notACertifiedVolume':True,'provisional':True,'generalizationValidated':False,'referenceImages':policy['referenceImages'],'referenceScenes':policy['referenceScenes'],'validationLevel':policy['validationLevel'],'annotationSha256':m['annotationSha256'],'extractor':'bottom_body_hog_070'}

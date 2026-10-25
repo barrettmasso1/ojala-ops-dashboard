@@ -67,4 +67,7 @@ class CapacityTemplateTests(unittest.TestCase):
   with self.assertRaises(CalibrationError):body_descriptor(raw,[.1,.1,.8,.8],'0'*64)
  def test_body_crop_stays_inside_original_proof(self):
   im=Image.new('RGB',(128,128),'white');ImageDraw.Draw(im).rectangle((25,30,95,115),fill='brown');b=io.BytesIO();im.save(b,format='JPEG');raw=b.getvalue();f=body_descriptor(raw,[.1,.1,.8,.8],sha(raw));x,y,w,h=f['box'];self.assertGreaterEqual(y,.1);self.assertLessEqual(y+h,.900001);self.assertEqual(x,.1);self.assertEqual(w,.8)
+ def test_reference_photo_not_relabelled_as_new_inference(self):
+  m=self.model();f=m['model']['references'][0]['feature'];self.assertEqual(predict(f,m,BIND)['size'],'unknown')
+
 if __name__=='__main__':unittest.main()
