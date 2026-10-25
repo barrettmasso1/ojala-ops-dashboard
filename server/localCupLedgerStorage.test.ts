@@ -289,6 +289,27 @@ describe("PlatformDirectionalHandoffStore adapter", () => {
     await new PlatformDirectionalHandoffStore().compareAndPut(DIRECTIONAL_KEY, "directional", '"old"');
     expect(vi.mocked(fetch).mock.calls[1]?.[1]?.headers).toMatchObject({ "If-Match": '"old"' });
   });
+
+  it("delegates native-prefix reads but never permits native-prefix writes", async () => {
+    const nativeKey = `local-cup-ledger/v1/store-1/${DEVICE}/${DAY}.json`;
+    vi.mocked(fetch).mockResolvedValue(response(200, "native", { etag: '"native-v1"' }));
+    await expect(new PlatformDirectionalHandoffStore().read(nativeKey)).resolves.toEqual({ text: "native", etag: '"native-v1"' });
+    expect(String(vi.mocked(fetch).mock.calls[0]?.[0])).toBe(signedReadUrl);
+    vi.mocked(fetch).mockReset();
+    await expect(new PlatformDirectionalHandoffStore().compareAndPut(nativeKey, "must-not-write", null)).rejects.toThrow("invalid_directional_storage_write");
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it("normalizes a forge URL that already ends with a slash", async () => {
+    envMocks.forgeApiUrl = "https://forge.test/";
+    const putUrl = "https://bucket.s3.amazonaws.com/directional.json?X-Amz-Signature=fixture";
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(response(200, JSON.stringify({ url: putUrl }), { "content-type": "application/json" }))
+      .mockResolvedValueOnce(response(200));
+    await new PlatformDirectionalHandoffStore().compareAndPut(DIRECTIONAL_KEY, "directional", null);
+    expect(String(vi.mocked(fetch).mock.calls[0]?.[0])).toBe("https://forge.test/v1/storage/presign/put?path=" + encodeURIComponent(DIRECTIONAL_KEY));
+    envMocks.forgeApiUrl = "https://forge.test";
+  });
 });
 
 describe("saveLocalLedger create-only and readback protocol", () => {

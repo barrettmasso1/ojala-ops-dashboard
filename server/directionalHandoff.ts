@@ -158,6 +158,11 @@ export type DirectionalReconciliation = {
   observedUntil: string | null;
 };
 
+export type DirectionalParseOptions = {
+  /** Submit rejects an estimated row without currently valid local proof. */
+  strictEstimates?: boolean;
+};
+
 export type DirectionalReceipt = {
   protocol: typeof DIRECTIONAL_HANDOFF_RECEIPT_PROTOCOL;
   persisted: true;
@@ -262,19 +267,20 @@ function parseSample(sample: DirectionalSample, record: DirectionalHandoffRecord
   return { envelope: sample, metadata, atMs, region };
 }
 
-function parseWindows(document: DirectionalCounterDocument, policy: DirectionalPolicy) {
+function parseWindows(document: DirectionalCounterDocument, policy: DirectionalPolicy, nowMs: number) {
   let previousUntil = -Infinity;
   for (const window of document.windows) {
     const from = Date.parse(window.from);
     const until = Date.parse(window.until);
     if (until < from || from < previousUntil) throw new Error("window_order");
+    if (from > nowMs + 120_000 || until > nowMs + 120_000) throw new Error("window_not_live_at_receiver");
     if (getBusinessDate(new Date(from), policy.timezone) !== document.businessDate || getBusinessDate(new Date(until), policy.timezone) !== document.businessDate) throw new Error("window_business_date");
     previousUntil = until;
   }
   if (document.records.length > 0 && document.windows.length === 0) throw new Error("records_without_observed_window");
 }
 
-function parseRecord(record: DirectionalHandoffRecord, document: DirectionalCounterDocument, policy: DirectionalPolicy, nowMs: number): ParsedRecord {
+function parseRecord(record: DirectionalHandoffRecord, document: DirectionalCounterDocument, policy: DirectionalPolicy, windows: DirectionalObservationWindow[], nowMs: number): ParsedRecord {
   if (record.businessDate !== document.businessDate) throw new Error("record_business_date");
   const samples = record.samples.map(sample => parseSample(sample, record, policy, document.businessDate, nowMs));
   for (let index = 1; index < samples.length; index += 1) {
@@ -283,6 +289,11 @@ function parseRecord(record: DirectionalHandoffRecord, document: DirectionalCoun
   }
   if (samples[samples.length - 1]!.metadata.at !== record.completedAt) throw new Error("completed_at_mismatch");
   if (samples[samples.length - 1]!.atMs - samples[0]!.atMs > 30_000) throw new Error("route_duration_exceeds_limit");
+  const firstAt = samples[0]!.atMs;
+  const lastAt = samples[samples.length - 1]!.atMs;
+  const containingWindows = windows.filter(window => firstAt >= Date.parse(window.from) && lastAt <= Date.parse(window.until));
+  if (containingWindows.length !== 1) throw new Error("route_not_within_single_observed_window");
+  if (containingWindows[0]!.frames < samples.length) throw new Error("window_frames_less_than_samples");
   const regions = samples.map(sample => sample.region);
   const handoffCount = regions.filter(region => region === "handoff").length;
   if (regions[0] !== "origin" || regions[1] !== "origin" || regions.at(-1) !== "destination" || regions.at(-2) !== "destination" || handoffCount < 2 || regions.slice(2, -2).some(region => region !== "handoff")) throw new Error("route_not_directional");
@@ -298,6 +309,7 @@ function emptyStatusCounts(): DirectionalStatusCounts {
 async function reconcileRecord(parsed: ParsedRecord, policy: DirectionalPolicy, storeId: number, timeZone: string, store: LocalLedgerBlobStore): Promise<ReconciledRecord> {
   const { record } = parsed;
   if (record.status !== "estimated") return { record, effectiveStatus: record.status, effectiveSize: record.size, contributes: false };
+  if (record.possibleDuplicateOf !== null) return { record, effectiveStatus: "identity_ambiguous", effectiveSize: "unknown", contributes: false };
   if (!record.localEvidence) return { record, effectiveStatus: "awaiting_local_evidence", effectiveSize: "unknown", contributes: false };
   const evidence = record.localEvidence;
   const observation = await readLocalEvidenceObservation(store, storeId, policy.deviceId, record.businessDate, evidence.observationId, timeZone);
@@ -321,7 +333,7 @@ function validateLocalEvidence(observation: LocalObservation, evidence: Directio
   return null;
 }
 
-export async function parseDirectionalHandoffDocument(input: DirectionalHandoffInput, storeId: number, timeZone: string, store: LocalLedgerBlobStore, now = new Date()): Promise<DirectionalReconciliation> {
+export async function parseDirectionalHandoffDocument(input: DirectionalHandoffInput, storeId: number, timeZone: string, store: LocalLedgerBlobStore, now = new Date(), options: DirectionalParseOptions = {}): Promise<DirectionalReconciliation> {
   directionalHandoffInputSchema.parse(input);
   if (Buffer.byteLength(input.documentJson, "utf8") > DIRECTIONAL_MAX_DOCUMENT_BYTES || hashText(input.documentJson) !== input.documentSha256) throw new Error("document_checksum_or_size");
   let raw: unknown;
@@ -330,17 +342,17 @@ export async function parseDirectionalHandoffDocument(input: DirectionalHandoffI
   const policy = parsePolicy(document, storeId);
   if (document.businessDate > getBusinessDate(now, policy.timezone) || policy.timezone !== timeZone) throw new Error("document_business_date");
   if (document.deviceId !== policy.deviceId) throw new Error("document_device_scope");
-  parseWindows(document, policy);
+  parseWindows(document, policy, now.getTime());
   const seenSource = new Set<string>();
   const seenEvent = new Set<string>();
   const parsedRecords = document.records.map(record => {
     if (seenSource.has(record.sourceEventId) || seenEvent.has(record.eventId)) throw new Error("duplicate_directional_identity");
     seenSource.add(record.sourceEventId); seenEvent.add(record.eventId);
-    return parseRecord(record, document, policy, now.getTime());
+    return parseRecord(record, document, policy, document.windows, now.getTime());
   });
   const records: ReconciledRecord[] = [];
   for (const parsed of parsedRecords) records.push(await reconcileRecord(parsed, policy, storeId, timeZone, store));
-  if (records.some(row => row.record.status === "estimated" && !row.contributes)) throw new Error("native_evidence_invalid_for_estimate");
+  if (options.strictEstimates !== false && records.some(row => row.record.status === "estimated" && !row.contributes)) throw new Error("native_evidence_invalid_for_estimate");
   const statusCounts = emptyStatusCounts();
   for (const row of records) statusCounts[row.effectiveStatus] += 1;
   const observedFrom = document.windows[0]?.from ?? null;
@@ -455,7 +467,7 @@ export async function readDirectionalHandoffs(store: LocalLedgerBlobStore, store
   const actual = await store.read(directionalHandoffStorageKey(storeId, deviceId, businessDate));
   if (!actual) return null;
   const persisted = checkStoredDirectional(JSON.parse(actual.text), storeId, deviceId, businessDate);
-  const reconciled = await parseDirectionalHandoffDocument({ sequence: persisted.sequence, documentJson: persisted.documentJson, documentSha256: persisted.documentSha256 }, storeId, timeZone, store, now);
+  const reconciled = await parseDirectionalHandoffDocument({ sequence: persisted.sequence, documentJson: persisted.documentJson, documentSha256: persisted.documentSha256 }, storeId, timeZone, store, now, { strictEstimates: false });
   const receipt = receiptFor(reconciled, persisted);
   return {
     ...receipt,

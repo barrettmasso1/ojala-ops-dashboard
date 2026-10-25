@@ -1819,7 +1819,13 @@ export default function ManagerDashboard() {
 
         {isOverviewRoute ? (
           <>
-            {!dailyQuery.isLoading && !dailyQuery.error && dailyOperations && <DailyOperationsPanel view={dailyOperations} timeZone={timeZone} directional={directionalPanel} />}
+            {(dailyOperations || (isAdmin && isOverviewRoute && directionalPanel)) && <DailyOperationsPanel
+              view={dailyOperations ?? undefined}
+              timeZone={timeZone}
+              businessDate={selectedDate}
+              directional={isAdmin && isOverviewRoute ? directionalPanel : undefined}
+              closingUnavailable={isAdmin && isOverviewRoute && Boolean(dailyQuery.error)}
+            />}
             {isAdmin && <ManualCameraComparisonPanel businessDate={selectedDate} />}
 
             {isAdmin && <details className="rounded-2xl border border-[#d8e2da] bg-white p-5" aria-label="Archivo independiente de etiquetas de fotografías">

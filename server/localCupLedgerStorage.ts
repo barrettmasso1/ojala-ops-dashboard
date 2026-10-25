@@ -66,6 +66,7 @@ export class PlatformLocalLedgerStore implements LocalLedgerBlobStore {
 /** Same private platform adapter and conditional-write policy, in a separate namespace. */
 export class PlatformDirectionalHandoffStore implements LocalLedgerBlobStore {
   async read(key:string) {
+    if(safeKey(key))return new PlatformLocalLedgerStore().read(key);
     if(!safeDirectionalKey(key))throw Error("invalid_directional_storage_key");
     const signed=await storageGetSignedUrl(key);
     const r=await fetch(safeReadUrl(signed),{method:"GET",headers:{"Accept-Encoding":"identity","Cache-Control":"no-cache, no-store, max-age=0"},redirect:"error",cache:"no-store",signal:AbortSignal.timeout(15000)});
@@ -79,7 +80,7 @@ export class PlatformDirectionalHandoffStore implements LocalLedgerBlobStore {
   async compareAndPut(key:string,text:string,expectedEtag:string|null) {
     if(!safeDirectionalKey(key)||Buffer.byteLength(text)>4*1024*1024*3)throw Error("invalid_directional_storage_write");
     if(!ENV.forgeApiUrl||!ENV.forgeApiKey)throw Error("directional_storage_not_configured");
-    const presign=new URL("v1/storage/presign/put",ENV.forgeApiUrl.replace(/\/+$/,"/")+"/");presign.searchParams.set("path",key);
+    const presign=new URL("v1/storage/presign/put",ENV.forgeApiUrl.replace(/\/+$/,"")+"/");presign.searchParams.set("path",key);
     const p=await fetch(presign,{headers:{Authorization:`Bearer ${ENV.forgeApiKey}`},redirect:"error",cache:"no-store",signal:AbortSignal.timeout(15000)});
     if(!p.ok)throw new LedgerStorageError(`directional_storage_presign_failed_${p.status}`,"presign_put",p.status);
     const data=await p.json() as {url?:string};if(!data.url)throw Error("directional_storage_presign_missing");

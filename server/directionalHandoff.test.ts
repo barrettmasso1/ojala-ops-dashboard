@@ -5,6 +5,7 @@ import {
   directionalHandoffStorageKey,
   hashText,
   parseDirectionalHandoffDocument,
+  readDirectionalHandoffs,
   saveDirectionalHandoffs,
   type DirectionalCounterDocument,
 } from "./directionalHandoff";
@@ -260,6 +261,33 @@ describe("directional handoff server contract", () => {
     await expect(parseDirectionalHandoffDocument(input(duplicate), 1, TIME_ZONE, store, new Date(BASE + 3_000))).rejects.toThrow("duplicate_directional_identity");
   });
 
+  it("requires the entire route to fit one observed window with enough frames", async () => {
+    const store = new FakeStore();
+    const split = directionalDocument();
+    split.windows = [
+      { from: new Date(BASE).toISOString(), until: new Date(BASE + 500).toISOString(), frames: 6, droppedFrames: 0 },
+      { from: new Date(BASE + 500).toISOString(), until: new Date(BASE + 1_000).toISOString(), frames: 6, droppedFrames: 0 },
+    ];
+    await expect(parseDirectionalHandoffDocument(input(split), 1, TIME_ZONE, store, new Date(BASE + 3_000))).rejects.toThrow("route_not_within_single_observed_window");
+
+    const tooFewFrames = directionalDocument();
+    tooFewFrames.windows[0]!.frames = 5;
+    await expect(parseDirectionalHandoffDocument(input(tooFewFrames), 1, TIME_ZONE, store, new Date(BASE + 3_000))).rejects.toThrow("window_frames_less_than_samples");
+  });
+
+  it("does not count a possible duplicate and strict submit rejects it", async () => {
+    const store = new FakeStore();
+    const observation = installNativeLedger(store, "test-object-0001");
+    const document = directionalDocument("test-object-0001", {
+      possibleDuplicateOf: hashText("another-event"),
+      localEvidence: { observationId: observation.observationId, imageSha256: IMAGE, capturedAt: observation.capturedAt, size: "unknown", sizeBasis: "local_model_has_no_size_classes" },
+    });
+    await expect(parseDirectionalHandoffDocument(input(document), 1, TIME_ZONE, store, new Date(BASE + 3_000))).rejects.toThrow("native_evidence_invalid_for_estimate");
+    const read = await parseDirectionalHandoffDocument(input(document), 1, TIME_ZONE, store, new Date(BASE + 3_000), { strictEstimates: false });
+    expect(read.estimatedHandoffs).toBe(0);
+    expect(read.records[0]).toMatchObject({ effectiveStatus: "identity_ambiguous", contributes: false });
+  });
+
   it("enforces store/device/day and persisted readback CAS for submissions", async () => {
     const store = new FakeStore();
     const document = directionalDocument();
@@ -272,5 +300,47 @@ describe("directional handoff server contract", () => {
     expect(store.objects.has(key)).toBe(true);
     await expect(saveDirectionalHandoffs(store, input(document), 1, TIME_ZONE, new Date(BASE + 3_000))).resolves.toMatchObject({ disposition: "already_persisted" });
     await expect(parseDirectionalHandoffDocument(input(document), 2, TIME_ZONE, store, new Date(BASE + 3_000))).rejects.toThrow("policy_scope");
+  });
+
+  it("reads a persisted estimate as retained when its native source becomes rejected, then accepts a corrected revision", async () => {
+    const store = new FakeStore();
+    const observation = installNativeLedger(store, "test-object-0001");
+    const document = directionalDocument("test-object-0001", {
+      localEvidence: { observationId: observation.observationId, imageSha256: IMAGE, capturedAt: observation.capturedAt, size: "unknown", sizeBasis: "local_model_has_no_size_classes" },
+    });
+    const first = await saveDirectionalHandoffs(store, input(document, 1), 1, TIME_ZONE, new Date(BASE + 3_000));
+    const originalReceivedAt = first.receipt.receivedAt;
+    const originalSha = first.receipt.documentSha256;
+
+    const nativeKey = `local-cup-ledger/v1/store-1/${DEVICE}/${DAY}.json`;
+    const native = JSON.parse(store.objects.get(nativeKey)!.text) as { documentJson: string; documentSha256: string };
+    const nativeDocument = JSON.parse(native.documentJson) as { records: Array<{ payloadJson: string; payloadSha256: string }> };
+    const nativePayload = JSON.parse(nativeDocument.records[0]!.payloadJson) as Record<string, unknown>;
+    nativePayload.sourceFalsePositive = true;
+    nativePayload.verification = "detector_rejected";
+    nativeDocument.records[0]!.payloadJson = JSON.stringify(nativePayload);
+    nativeDocument.records[0]!.payloadSha256 = hashText(nativeDocument.records[0]!.payloadJson);
+    native.documentJson = JSON.stringify(nativeDocument);
+    native.documentSha256 = hashText(native.documentJson);
+    store.objects.set(nativeKey, { text: JSON.stringify({ ...JSON.parse(store.objects.get(nativeKey)!.text), documentJson: native.documentJson, documentSha256: native.documentSha256 }), etag: '"native-rejected"' });
+
+    const retained = await parseDirectionalHandoffDocument(input(document, 1), 1, TIME_ZONE, store, new Date(BASE + 3_000), { strictEstimates: false });
+    expect(retained.estimatedHandoffs).toBe(0);
+    expect(retained.records[0]).toMatchObject({ effectiveStatus: "source_rejected", contributes: false });
+    const view = await readDirectionalHandoffs(store, 1, DEVICE, DAY, TIME_ZONE, new Date(BASE + 3_000));
+    expect(view).toMatchObject({ sequence: 1, documentSha256: originalSha, receivedAt: originalReceivedAt, estimatedHandoffs: 0 });
+
+    nativePayload.sourceFalsePositive = false;
+    nativePayload.verification = "same_frame_local_cv";
+    nativeDocument.records[0]!.payloadJson = JSON.stringify(nativePayload);
+    nativeDocument.records[0]!.payloadSha256 = hashText(nativeDocument.records[0]!.payloadJson);
+    native.documentJson = JSON.stringify(nativeDocument);
+    native.documentSha256 = hashText(native.documentJson);
+    store.objects.set(nativeKey, { text: JSON.stringify({ ...JSON.parse(store.objects.get(nativeKey)!.text), documentJson: native.documentJson, documentSha256: native.documentSha256 }), etag: '"native-corrected"' });
+
+    const corrected = await saveDirectionalHandoffs(store, input(document, 2), 1, TIME_ZONE, new Date(BASE + 3_000));
+    expect(corrected.disposition).toBe("update");
+    expect(corrected.receipt.sequence).toBe(2);
+    expect(corrected.receipt.estimatedHandoffs).toBe(1);
   });
 });
