@@ -21,6 +21,7 @@ def read_json(path):
 
 def guard_source(c,policy):
     config=read_json('http://127.0.0.1:5000/api/config');camera=config.get('cameras',{}).get('handoff',{})
+    require(config.get('model',{}).get('path')=='/config/model_cache/ojala_cups_v4_640.onnx','active_model_configuration_changed')
     coords=camera.get('zones',{}).get('handoff_zone',{}).get('coordinates')
     require(isinstance(coords,str),'active_geometry_not_available')
     flat=list(map(float,coords.split(',')));polygon=[flat[i:i+2] for i in range(0,len(flat),2)]
