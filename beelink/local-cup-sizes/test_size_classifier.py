@@ -14,9 +14,11 @@ def references(categories=('chico','mediano'),n=3):
     for index,category in enumerate(categories):
         for j in range(n):
             f=feature(index,j)
+            source_event=f'fixture-{index}-{j}'
             rows.append({'feature':f,'imageSha256':f['imageSha256'],'size':category,'ownerConfirmed':True,
-                         'labelSource':'owner_confirmed_capacity','sourceEventId':f'fixture-{index}-{j}',
-                         'startedAt':f'2026-10-23T20:{j*3:02}:00+00:00'})
+                         'labelSource':'owner_confirmed_capacity','observationId':sha(BIND['deviceId']+'/handoff/'+source_event),
+                         'sourceEventId':source_event,'businessDate':'2026-10-23',
+                         'startedAt':f'2026-10-24T02:{j*3:02}:00+00:00'})
     return rows
 
 class ClassifierTests(unittest.TestCase):

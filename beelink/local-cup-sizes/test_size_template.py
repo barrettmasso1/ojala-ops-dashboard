@@ -20,6 +20,10 @@ class CapacityTemplateTests(unittest.TestCase):
  def test_single_pint_is_explicitly_unvalidated_and_tight(self):
   rows=[r for r in self.training() if r['size']!='pint'];rows+=references(('pint',),1);rows[-1]['feature']=feature(6,21);rows[-1]['imageSha256']=rows[-1]['feature']['imageSha256'];rows[-1]['sourceEventId']='pint-independent-fixture'
   m=fit(rows,BIND,'e'*64);p=m['model']['classPolicies']['pint'];self.assertEqual(p['validationLevel'],'single_reference_only');self.assertLessEqual(p['radius'],.12);self.assertEqual(p['referenceScenes'],1)
+ def test_rehashed_low_data_model_cannot_expand_radius(self):
+  rows=[r for r in self.training() if r['size']!='pint'];rows+=references(('pint',),1);rows[-1]['feature']=feature(6,22);rows[-1]['imageSha256']=rows[-1]['feature']['imageSha256'];rows[-1]['sourceEventId']='pint-independent-fixture'
+  m=fit(rows,BIND,'e'*64);m['model']['classPolicies']['pint']['radius']=.2;m['modelSha256']=sha(canonical(m['model']))
+  with self.assertRaisesRegex(CalibrationError,'template_low_data_radius'):validate_model(m)
  def test_unknown_shape_abstains(self):self.assertEqual(predict(feature(8,999),self.model(),BIND)['size'],'unknown')
  def test_negative_reference_never_a_size(self):self.assertEqual(predict(feature(4,999),self.model(),BIND)['size'],'unknown')
  def test_source_binding_change_abstains(self):self.assertEqual(predict(feature(),self.model(),{**BIND,'zoneSha256':'f'*64})['size'],'unknown')

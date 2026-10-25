@@ -11,7 +11,7 @@ class CalibrationInputTests(unittest.TestCase):
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name);self.ledger=self.root/'ledger';self.ledger.mkdir();self.output=self.root/'calibration';self.output.mkdir()
   im=Image.new('RGB',(128,128),'gray');d=ImageDraw.Draw(im);d.rectangle((20,20,100,110),fill='brown');d.ellipse((20,15,100,40),fill='white');buf=io.BytesIO();im.save(buf,format='JPEG');self.raw=buf.getvalue();self.h=sha(self.raw);(self.ledger/'example.jpg').write_bytes(self.raw)
-  self.sample={'sampleId':'sample1','sourceEventId':'fixture-event-1','observationId':'1'*64,'startedAt':'2026-10-23T20:00:00+00:00','imageSha256':self.h,'imageRelativePath':'example.jpg','targetBox':[.1,.1,.8,.8],'binding':BIND,'feature':feature(),'cropPath':'crops/example.jpg','size':None,'labelSource':None}
+  self.sample={'sampleId':'sample1','sourceEventId':'fixture-event-1','observationId':'1'*64,'businessDate':'2026-10-23','startedAt':'2026-10-24T02:00:00+00:00','imageSha256':self.h,'imageRelativePath':'example.jpg','targetBox':[.1,.1,.8,.8],'binding':BIND,'feature':feature(),'cropPath':'crops/example.jpg','size':None,'labelSource':None}
   self.mh=build_form(self.output,[self.sample]);self.labels={'schemaVersion':1,'manifestSha256':self.mh,'ownerConfirmed':True,'labelSource':'owner_confirmed_capacity','labels':[{'sampleId':'sample1','size':'chico'}]}
  def tearDown(self):self.tmp.cleanup()
  def test_real_label_not_enough_examples_stays_calibration_required(self):self.assertEqual(train_from_annotations(self.labels,self.output,self.ledger)['model']['status'],'calibration_required')

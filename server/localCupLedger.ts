@@ -36,8 +36,11 @@ const provisionalSizeAssessmentSchema = z.object({
   referenceImages:z.number().int().min(1).max(200),referenceScenes:z.number().int().min(1).max(200),
   validationLevel:z.enum(["calibration_examples_only","single_reference_only","near_reference_only"]),
   annotationSha256:sha,extractor:z.literal("bottom_body_hog_070"),
+  referenceObservationId:sha,referenceSourceEventId:eventId,referenceBusinessDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  referenceOwnerLabel:z.enum(["chico","mediano","pint","litro"]),referenceAnnotationSha256:sha,
 }).strict().superRefine((v,ctx)=>{
   if(v.referenceScenes>v.referenceImages)ctx.addIssue({code:z.ZodIssueCode.custom,message:"reference_scene_count"});
+  if(v.referenceOwnerLabel!==v.size)ctx.addIssue({code:z.ZodIssueCode.custom,message:"reference_label_scope"});
   if(v.validationLevel==="single_reference_only"&&(v.referenceImages!==1||v.referenceScenes!==1||v.distance>.12))ctx.addIssue({code:z.ZodIssueCode.custom,message:"single_reference_scope"});
   if(v.validationLevel==="near_reference_only"&&v.distance>.12)ctx.addIssue({code:z.ZodIssueCode.custom,message:"near_reference_radius"});
   if(v.validationLevel==="calibration_examples_only"&&v.referenceScenes<3)ctx.addIssue({code:z.ZodIssueCode.custom,message:"insufficient_calibration_scenes"});

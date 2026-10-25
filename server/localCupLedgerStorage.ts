@@ -1,6 +1,6 @@
 import { ENV } from "./_core/env";
 import { storageGetSignedUrl } from "./storage";
-import { checkStored, compareRevision, ledgerStorageKey, localLedgerReceipt, parseLocalLedger, storedLedger, summarizeLocalLedger, MAX_LOCAL_LEDGER_BYTES, type ParsedLocalLedger } from "./localCupLedger";
+import { checkStored, compareRevision, ledgerStorageKey, localLedgerReceipt, parseLocalLedger, storedLedger, summarizeLocalLedger, MAX_LOCAL_LEDGER_BYTES, type LocalObservation, type ParsedLocalLedger } from "./localCupLedger";
 
 export type BlobRead={text:string;etag:string};
 export interface LocalLedgerBlobStore {
@@ -125,6 +125,7 @@ export class PlatformCounterPickupStore implements LocalLedgerBlobStore {
 export async function saveLocalLedger(store:LocalLedgerBlobStore,p:ParsedLocalLedger,storeId:number,timeZone:string) {
   const key=ledgerStorageKey(storeId,p.document.deviceId,p.document.businessDate);
   const next=storedLedger(p,storeId);
+  await validateProvisionalReferences(store,p,storeId,timeZone);
   let action:"create"|"update"|"already_persisted";
   try{
     // Creation is attempted first; an existing object must reject this write conditionally.
@@ -164,4 +165,26 @@ export async function readLocalEvidenceObservation(store:LocalLedgerBlobStore,st
  const actual=await store.read(ledgerStorageKey(storeId,deviceId,day));if(!actual)return null;
  const checked=checkStored(JSON.parse(actual.text),storeId,deviceId,day,timeZone);
  return checked.parsed.observations.find(o=>o.observationId===observationId)??null;
+}
+
+async function validateProvisionalReference(store:LocalLedgerBlobStore,storeId:number,observation:LocalObservation,timeZone:string) {
+  const assessment=observation.sizeAssessment;
+  if(!assessment || assessment.classifierVersion!=="ojala_body_templates_v1")return;
+  const reference=await readLocalEvidenceObservation(store,storeId,observation.deviceId,assessment.referenceBusinessDate,assessment.referenceObservationId,timeZone);
+  const review=reference?.ownerSizeReview;
+  const sourceEvidence=reference?.sameFrameEvidence;
+  if(assessment.referenceObservationId===observation.observationId || assessment.referenceImageHashes[0]===observation.sameFrameEvidence?.imageSha256
+    || !reference || reference.sourceFalsePositive || reference.verification!=="same_frame_local_cv" || !review || review.label!==assessment.referenceOwnerLabel
+    || review.sourceEventId!==assessment.referenceSourceEventId || review.imageSha256!==assessment.referenceImageHashes[0]
+    || review.annotationSha256!==assessment.referenceAnnotationSha256 || reference.detectorModelSha256!==observation.detectorModelSha256
+    || review.binding.deviceId!==observation.deviceId || review.binding.cameraName!==observation.cameraName
+    || review.binding.detectorModelSha256!==observation.detectorModelSha256
+    || !observation.sameFrameEvidence || review.binding.zoneSha256!==observation.sameFrameEvidence.sourceZoneSha256
+    || !sourceEvidence || sourceEvidence.imageSha256!==review.imageSha256 || sourceEvidence.sourceZoneSha256!==review.binding.zoneSha256) {
+    throw Error("provisional_reference_not_owner_confirmed");
+  }
+}
+
+async function validateProvisionalReferences(store:LocalLedgerBlobStore,p:ParsedLocalLedger,storeId:number,timeZone:string) {
+  for(const observation of p.observations)await validateProvisionalReference(store,storeId,observation,timeZone);
 }
