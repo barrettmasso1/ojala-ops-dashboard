@@ -168,15 +168,18 @@ class Store implements LocalLedgerBlobStore {
   }
 }
 
-function installNativeLedger(store: Store, observation: LocalObservation) {
-  const payloadJson = JSON.stringify(observation);
+function installNativeLedger(store: Store, input: LocalObservation | LocalObservation[]) {
+  const observations = Array.isArray(input) ? input : [input];
   const documentJson = JSON.stringify({
     schemaVersion: 1,
     protocol: LOCAL_LEDGER_PROTOCOL,
     deviceId: DEVICE,
     cameraName: "handoff",
     businessDate: DAY,
-    records: [{ revision: 1, payloadJson, payloadSha256: hashText(payloadJson) }],
+    records: observations.map((observation, index) => {
+      const payloadJson = JSON.stringify(observation);
+      return { revision: index + 1, payloadJson, payloadSha256: hashText(payloadJson) };
+    }),
   });
   const stored = JSON.stringify({ schemaVersion: 1, storeId: STORE, sequence: 1, documentJson, documentSha256: hashText(documentJson), receivedAt: "2026-10-24T19:01:00.000Z" });
   store.values.set(ledgerStorageKey(STORE, DEVICE, DAY), { text: stored, etag: "\"native\"" });
@@ -286,4 +289,57 @@ describe("counter-to-customer optical pickup contract", () => {
     expect(result.receipt).toMatchObject({ persisted: true, partial: true, countsAreSales: false, physicalUniqueCountCertified: false, externalAiInvoked: false, requiredHumanAction: false });
     expect(store.calls.filter(call => call.operation === "put")).toEqual([expect.objectContaining({ key: counterPickupStorageKey(STORE, DEVICE, DAY), etag: null })]);
   });
+
+  it("skips a prior duplicate retained with completedAt null while evaluating a later independent trajectory", async () => {
+    const fixture = (index: number, x: number) => {
+      const sourceEventId = `1792868400.000-fixture-${index}`;
+      const observationId = hashText(`${DEVICE}/handoff/${sourceEventId}`);
+      const imageSha256 = hashText(`fixture-image-${index}`);
+      const seedCapturedAt = new Date(Date.parse(SEED) + index * 200).toISOString();
+      const baseSamples = record().samples as Array<{ at: string; box: [number, number, number, number]; features: number; retainedFraction: number; forwardBackwardError: number; motionResidual: number; frameSha256: string }>;
+      const samples = baseSamples.map((sample, sampleIndex) => ({ ...sample, at: new Date(Date.parse(seedCapturedAt) + sampleIndex * 200).toISOString(), box: [x, sample.box[1], 0.05, 0.08] as [number, number, number, number], frameSha256: hashText(`fixture-frame-${index}-${sampleIndex}`) }));
+      const evidence = nativeObservation().sameFrameEvidence!;
+      const observation = nativeObservation({
+        sourceEventId,
+        observationId,
+        startedAt: seedCapturedAt,
+        targetBox: [x, 0.55, 0.05, 0.08],
+        sameFrameEvidence: { ...evidence, imageSha256, capturedAt: seedCapturedAt, targetBox: [x, 0.55, 0.05, 0.08] },
+      });
+      return {
+        observation,
+        pickup: record({ sourceEventId, observationId, imageSha256, seedCapturedAt, samples, segments: [{ path: "/media/frigate/recordings/2026-10-24/19/handoff/00.00.mp4", start: Date.parse(seedCapturedAt) / 1_000, end: Date.parse(seedCapturedAt) / 1_000 + 120, sha256: "f".repeat(64) }] }),
+        visual: photo({ cupEventId: sourceEventId, imageSha256, sourceDetail: `native_local_cv_only_v1:${observationId}`, captureMetadataJson: JSON.stringify({ captured_at_utc: seedCapturedAt }) }),
+      };
+    };
+    const first = fixture(0, 0.47);
+    const duplicate = fixture(1, 0.49);
+    const later = fixture(2, 0.51);
+    const store = new Store();
+    installNativeLedger(store, [first.observation, duplicate.observation, later.observation]);
+    const visualBySource = new Map([first, duplicate, later].map(item => [item.visual.cupEventId, item.visual]));
+    const parsed = await parseCounterPickupDocument(input([first.pickup, duplicate.pickup, later.pickup]), STORE, "America/Mazatlan", store, async ({ sourceEventId }) => visualBySource.get(sourceEventId)!, NOW);
+    expect(parsed.estimatedPickups).toBe(2);
+    expect(parsed.records).toEqual(expect.arrayContaining([
+      expect.objectContaining({ record: expect.objectContaining({ sourceEventId: duplicate.pickup.sourceEventId }), effectiveStatus: "identity_uncertain", completedAt: null, contributes: false }),
+      expect.objectContaining({ record: expect.objectContaining({ sourceEventId: later.pickup.sourceEventId }), effectiveStatus: "pickup_estimate", contributes: true }),
+    ]));
+  });
+});
+
+describe("real recording boundary regressions",()=>{
+ const begin=Date.parse(SEED)/1000;
+ const first={path:"/media/frigate/recordings/2026-10-24/19/handoff/00.00.mp4",start:begin,end:begin+10.028711,sha256:"f".repeat(64)};
+ const second={path:"/media/frigate/recordings/2026-10-24/19/handoff/00.10.mp4",start:begin+10,end:begin+20.017513,sha256:"d".repeat(64)};
+ async function parseSegments(segments:typeof first[]){const store=new Store();installNativeLedger(store,nativeObservation());return parseCounterPickupDocument(input([record({segments})]),STORE,"America/Mazatlan",store,async()=>photo(),NOW);}
+ it("accepts unchanged source clip ranges with a fractional boundary overlap",async()=>{const r=await parseSegments([first,second]);expect(r.estimatedPickups).toBe(1);expect(r.document.records[0].segments[0].end).toBe(first.end);});
+ it("accepts exactly 0.5 seconds of indexed boundary overlap but rejects any larger overlap",async()=>{
+   await expect(parseSegments([{...first,end:begin+10.5},second])).resolves.toMatchObject({estimatedPickups:1});
+   await expect(parseSegments([{...first,end:begin+10.500001},second])).rejects.toThrow("pickup_segment_order");
+ });
+ it("does not accept a large overlap",async()=>{await expect(parseSegments([{...first,end:begin+15},second])).rejects.toThrow("pickup_segment_order");});
+ it("rejects duplicate segment identities",async()=>{await expect(parseSegments([first,{...second,path:first.path}])).rejects.toThrow("pickup_segment_order");});
+ it("rejects reversed segment chronology",async()=>{await expect(parseSegments([second,first])).rejects.toThrow("pickup_segment_order");});
+ it("rejects a segment whose end precedes its start",async()=>{await expect(parseSegments([{...first,start:begin+3,end:begin+2}])).rejects.toThrow();});
+ it("does not turn an unsupported gap into coverage",async()=>{await expect(parseSegments([{...first,end:begin+.3},{...second,start:begin+1}])).rejects.toThrow("pickup_sample_not_in_segment");});
 });
