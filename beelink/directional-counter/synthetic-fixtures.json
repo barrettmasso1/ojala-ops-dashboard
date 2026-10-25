@@ -1,0 +1,103 @@
+{
+  "onlySyntheticTestData": true,
+  "notForProductionUpload": true,
+  "noObservation": {
+    "protocol": "ojala_directional_handoffs_v1",
+    "deviceId": "38395f07-90c9-4ab4-a47e-a8881a3498fb",
+    "cameraName": "handoff",
+    "businessDate": "2026-10-24",
+    "policyJson": "{\"cameraName\":\"handoff\",\"commercialAccuracyValidated\":false,\"detectorModelSha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"deviceId\":\"38395f07-90c9-4ab4-a47e-a8881a3498fb\",\"geometryCalibration\":\"provisional_visual_orientation\",\"height\":1296,\"maxSampleGapSeconds\":1.5,\"minimumSamplesPerZone\":2,\"minimumScore\":0.45,\"referenceImageSha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"schema\":\"ojala_directional_policy_v1\",\"sourceZoneSha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"storeId\":1,\"timezone\":\"America/Mazatlan\",\"width\":2304,\"zones\":{\"destination\":[[0.3,0.1],[0.7,0.1],[0.7,0.4],[0.3,0.4]],\"handoff\":[[0.3,0.45],[0.7,0.45],[0.7,0.65],[0.3,0.65]],\"origin\":[[0.3,0.7],[0.7,0.7],[0.7,0.9],[0.3,0.9]]}}",
+    "policySha256": "c583551f2a49ad623b0ec35beeb67daeefa8b9bacc84c856b8107da59056af5b",
+    "windows": [],
+    "records": [],
+    "scope": "directional_handoff_estimates_not_sales",
+    "requiresPerImageApproval": false,
+    "generativeAiUsed": false,
+    "commercialAccuracyValidated": false,
+    "coversWholeBusinessDay": false,
+    "physicalUniqueCountCertified": false
+  },
+  "estimated": {
+    "protocol": "ojala_directional_handoffs_v1",
+    "deviceId": "38395f07-90c9-4ab4-a47e-a8881a3498fb",
+    "cameraName": "handoff",
+    "businessDate": "2026-10-24",
+    "policyJson": "{\"cameraName\":\"handoff\",\"commercialAccuracyValidated\":false,\"detectorModelSha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"deviceId\":\"38395f07-90c9-4ab4-a47e-a8881a3498fb\",\"geometryCalibration\":\"provisional_visual_orientation\",\"height\":1296,\"maxSampleGapSeconds\":1.5,\"minimumSamplesPerZone\":2,\"minimumScore\":0.45,\"referenceImageSha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"schema\":\"ojala_directional_policy_v1\",\"sourceZoneSha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"storeId\":1,\"timezone\":\"America/Mazatlan\",\"width\":2304,\"zones\":{\"destination\":[[0.3,0.1],[0.7,0.1],[0.7,0.4],[0.3,0.4]],\"handoff\":[[0.3,0.45],[0.7,0.45],[0.7,0.65],[0.3,0.65]],\"origin\":[[0.3,0.7],[0.7,0.7],[0.7,0.9],[0.3,0.9]]}}",
+    "policySha256": "c583551f2a49ad623b0ec35beeb67daeefa8b9bacc84c856b8107da59056af5b",
+    "windows": [
+      {
+        "from": "2026-10-25T01:30:00+00:00",
+        "until": "2026-10-25T01:30:01+00:00",
+        "frames": 6,
+        "droppedFrames": 0
+      }
+    ],
+    "records": [
+      {
+        "eventId": "c54e78ca8245f4721695bc23215ac6b60cea2d205e842d820befa5e42ca89d6f",
+        "sourceEventId": "test-object-0001",
+        "businessDate": "2026-10-24",
+        "completedAt": "2026-10-25T01:30:01+00:00",
+        "status": "estimated",
+        "size": "mediano",
+        "samples": [
+          {
+            "metadataJson": "{\"at\":\"2026-10-25T01:30:00+00:00\",\"box\":[0.47,0.75,0.0600000000000001,0.04999999999999997],\"cameraName\":\"handoff\",\"deviceId\":\"38395f07-90c9-4ab4-a47e-a8881a3498fb\",\"falsePositive\":false,\"schema\":\"ojala_directional_sample_v1\",\"score\":0.8,\"sourceEventId\":\"test-object-0001\"}",
+            "metadataSha256": "f39196a4f2c18186e2cb1df3037e0c170d124b45840ac918141f6680c121611a"
+          },
+          {
+            "metadataJson": "{\"at\":\"2026-10-25T01:30:00.200000+00:00\",\"box\":[0.47,0.75,0.0600000000000001,0.04999999999999997],\"cameraName\":\"handoff\",\"deviceId\":\"38395f07-90c9-4ab4-a47e-a8881a3498fb\",\"falsePositive\":false,\"schema\":\"ojala_directional_sample_v1\",\"score\":0.8,\"sourceEventId\":\"test-object-0001\"}",
+            "metadataSha256": "592e6c7591de2b471435aaf0b4a41a5fd121666ee02a3aebab3b85178dd6f4bc"
+          },
+          {
+            "metadataJson": "{\"at\":\"2026-10-25T01:30:00.400000+00:00\",\"box\":[0.47,0.5,0.0600000000000001,0.05000000000000005],\"cameraName\":\"handoff\",\"deviceId\":\"38395f07-90c9-4ab4-a47e-a8881a3498fb\",\"falsePositive\":false,\"schema\":\"ojala_directional_sample_v1\",\"score\":0.8,\"sourceEventId\":\"test-object-0001\"}",
+            "metadataSha256": "8b71c32a45726fcb00e51cc226e3e24730281ed5b299b0e3349a2d516c461a0d"
+          },
+          {
+            "metadataJson": "{\"at\":\"2026-10-25T01:30:00.600000+00:00\",\"box\":[0.47,0.5,0.0600000000000001,0.05000000000000005],\"cameraName\":\"handoff\",\"deviceId\":\"38395f07-90c9-4ab4-a47e-a8881a3498fb\",\"falsePositive\":false,\"schema\":\"ojala_directional_sample_v1\",\"score\":0.8,\"sourceEventId\":\"test-object-0001\"}",
+            "metadataSha256": "9952ffa654aad5057df91a0b497387acb5e9fe046868e51bb544372fdd53e430"
+          },
+          {
+            "metadataJson": "{\"at\":\"2026-10-25T01:30:00.800000+00:00\",\"box\":[0.47,0.25,0.0600000000000001,0.05000000000000001],\"cameraName\":\"handoff\",\"deviceId\":\"38395f07-90c9-4ab4-a47e-a8881a3498fb\",\"falsePositive\":false,\"schema\":\"ojala_directional_sample_v1\",\"score\":0.8,\"sourceEventId\":\"test-object-0001\"}",
+            "metadataSha256": "6e29a0f785d3cb04c90339520d077bbd5fa338a253e1b99ffc5b0be852fd50bc"
+          },
+          {
+            "metadataJson": "{\"at\":\"2026-10-25T01:30:01+00:00\",\"box\":[0.47,0.25,0.0600000000000001,0.05000000000000001],\"cameraName\":\"handoff\",\"deviceId\":\"38395f07-90c9-4ab4-a47e-a8881a3498fb\",\"falsePositive\":false,\"schema\":\"ojala_directional_sample_v1\",\"score\":0.8,\"sourceEventId\":\"test-object-0001\"}",
+            "metadataSha256": "828535e6ba1345b3c62aa3f7c7982e1b910f875c37ab87c0d4a74ad90c4e2619"
+          }
+        ],
+        "localEvidence": {
+          "capturedAt": "2026-10-25T01:30:00.500000+00:00",
+          "imageSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "observationId": "fbf298381afb858649fc407cdaca69a846bf4a8f0340d28bb0924652b4ccadfb",
+          "size": "mediano",
+          "sizeBasis": "local_reference_estimate"
+        },
+        "possibleDuplicateOf": null
+      }
+    ],
+    "scope": "directional_handoff_estimates_not_sales",
+    "requiresPerImageApproval": false,
+    "generativeAiUsed": false,
+    "commercialAccuracyValidated": false,
+    "coversWholeBusinessDay": false,
+    "physicalUniqueCountCertified": false
+  },
+  "sourceObservationFixture": {
+    "sourceEventId": "test-object-0001",
+    "deviceId": "38395f07-90c9-4ab4-a47e-a8881a3498fb",
+    "cameraName": "handoff",
+    "businessDate": "2026-10-24",
+    "detectorModelSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "verification": "same_frame_local_cv",
+    "sourceFalsePositive": false,
+    "observationId": "fbf298381afb858649fc407cdaca69a846bf4a8f0340d28bb0924652b4ccadfb",
+    "size": "mediano",
+    "sizeBasis": "local_reference_estimate",
+    "sameFrameEvidence": {
+      "sourceZoneSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "imageSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "capturedAt": "2026-10-25T01:30:00.500000+00:00"
+    }
+  }
+}
