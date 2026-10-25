@@ -11,9 +11,10 @@ function fixture(){return {businessDate:day,detectedTracks:28,locallyVerifiedTar
  ownerExcludedTargets:8,ownerConfirmedSizeTargets:6,automaticallyEstimatedSizeTargets:0,
  sizeBreakdown:{chico:2,mediano:4,pint:0,litro:0,unknown:3},receivedAt:"2026-10-24T03:11:58Z",sequence:19,potentialRepeatedTracks:2,records:[]};}
 function render(){return renderToStaticMarkup(React.createElement(LocalCupLedgerPanel,{businessDate:day}));}
-beforeEach(()=>{state.query={data:fixture(),isLoading:false,error:null};});
+ beforeEach(()=>{state.query={data:fixture(),dataUpdatedAt:Date.parse("2026-10-24T03:12:00Z"),isLoading:false,error:null};});
 describe("one authoritative camera size view",()=>{
  it("renders stored values without a manual closing or cloud photo",()=>{const html=render();expect(html).toContain("Registro recibido");expect(html).toContain("6 observaciones con tama");expect(html).toContain("2</td>");expect(html).toContain("4</td>");});
+ it("shows successful query time separately from the last received event",()=>{const html=render();expect(html).toContain("Última consulta exitosa");expect(html).toContain("Último evento recibido");expect(html).toContain("Actualización automática cada 5 segundos");});
  it("does not claim missing categories are waiting for transport",()=>{const html=render();expect(html).toContain("Sin asignaci");expect(html).not.toContain("Pint</td><td class=\"p-2\">Pendiente");});
  it("separates exclusions and missing same-scene evidence",()=>{const html=render();expect(html).toContain("Excluidos por tu revisi");expect(html).toContain("Sin evidencia de la misma escena");});
  it("never turns missing data into a zero",()=>{state.query.data=null;const html=render();expect(html).toContain("Sin registro de detecciones recibido");expect(html).not.toContain("Registro recibido</span>");});

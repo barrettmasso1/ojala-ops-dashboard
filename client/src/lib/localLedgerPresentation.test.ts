@@ -22,5 +22,5 @@ describe("native evidence controls initial date without overriding explicit sele
  it("missing native data is not invented",()=>expect(nativeEvidenceDate(undefined,"2026-10-23")).toBeNull());
  it("invalid data cannot claim current evidence",()=>expect(nativeEvidenceDate({businessDate:"2026-10-23",detectedTracks:NaN},"2026-10-23")).toBeNull());
  it("keeps a received empty ledger distinct from missing",()=>expect(nativeEvidenceDate({businessDate:"2026-10-23",detectedTracks:0},"2026-10-23")).toBe("2026-10-23"));
- it("waits for native query before automatic fallback",()=>{const s=readFileSync(new URL("../pages/ManagerDashboard.tsx",import.meta.url),"utf8");expect(s).toContain("todayNativeLedgerQuery.isLoading");expect(s).toContain("nativeEvidenceDate(todayNativeLedgerQuery.data, maxBusinessDate)");expect(s).toContain("hasExplicitDateSelection,");});
+ it("does not auto-fallback from Today to an older sales date",()=>{const s=readFileSync(new URL("../pages/ManagerDashboard.tsx",import.meta.url),"utf8");expect(s).not.toContain("todayNativeLedgerQuery");expect(s).not.toContain("shouldAutoFallbackToLatestOperationalDate");expect(s).toContain("resolveDashboardDate");});
 });

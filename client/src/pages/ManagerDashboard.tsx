@@ -1,4 +1,4 @@
-import { hasClosingRecord, closingValue, nativeEvidenceDate, LOCAL_CAMERA_DEVICE_ID } from "@/lib/localLedgerPresentation";
+import { hasClosingRecord, closingValue } from "@/lib/localLedgerPresentation";
 import { LocalCupLedgerPanel } from "@/components/LocalCupLedgerPanel";
 import { ManualCameraComparisonPanel } from "@/components/ManualCameraComparisonPanel";
 import { CameraSizeBreakdown } from "@/components/CameraSizeBreakdown";
@@ -8,7 +8,8 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import DailyOperationsPanel from "@/components/DailyOperationsPanel";
 import ReviewedCountImport from "@/components/ReviewedCountImport";
-import { buildDailyOperations, selectLatestAvailableOperationalDate, shouldAutoFallbackToLatestOperationalDate } from "@/lib/dailyOperations";
+import { buildDailyOperations } from "@/lib/dailyOperations";
+import { LIVE_CAMERA_REFRESH_MS, dashboardDateHref, latestSuccessfulQueryAt, liveQueryState, resolveDashboardDate, responseMatchesBusinessDate } from "@/lib/dashboardLiveState";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getLoginUrl } from "@/const";
 import { normalizeGelatoFlavorName } from "@/lib/gelatoFlavorAliases";
@@ -78,7 +79,7 @@ function formatWholeOunces(value: number | null | undefined) {
   return `${formatCount(value)} oz`;
 }
 
-function formatDateTime(value: string | Date | null | undefined, timeZone = PACIFIC_TIME_ZONE) {
+function formatDateTime(value: string | number | Date | null | undefined, timeZone = PACIFIC_TIME_ZONE) {
   if (!value) return "—";
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
@@ -588,10 +589,12 @@ function HandoffVisualEvidenceOverviewPanel({
   presentation,
   businessDate,
   timeZone,
+  lastSuccessfulQueryAt,
 }: {
   presentation: ReturnType<typeof buildHandoffVisualEvidencePresentation>;
   businessDate: string;
   timeZone: string;
+  lastSuccessfulQueryAt: number | null;
 }) {
   if (presentation.state === "loading") {
     return (
@@ -613,6 +616,7 @@ function HandoffVisualEvidenceOverviewPanel({
   }
 
   const { summary } = presentation;
+  const stale = presentation.state === "stale";
   const legacyPendingReview = Math.max(0, summary.statusCounts.pendingReview - (summary.statusCounts.nativeLocalPending ?? 0));
   const statuses = [
     { label: "Locally verified", value: summary.statusCounts.nativeLocalVerified ?? summary.statusCounts.approvedByAi },
@@ -655,7 +659,8 @@ function HandoffVisualEvidenceOverviewPanel({
               </div>
             ))}
           </div>
-          <p className="mt-5 text-sm leading-6 text-[#65716b]">Última recepción de imágenes: {formatDateTime(summary.latestReceivedAt, timeZone)} · {timeZone}. This uses the persisted receipt timestamp, not the capture timestamp. La vista se actualiza automáticamente cada 30 segundos.</p>
+          {stale ? <p role="alert" className="mt-5 rounded-xl border border-[#ead4d4] bg-[#fff5f5] px-4 py-3 text-sm leading-6 text-[#8a4343]">La consulta de fotos falló; se conservan las últimas miniaturas del mismo día y no se presentan como cero.</p> : null}
+          <p className="mt-5 text-sm leading-6 text-[#65716b]">Última consulta exitosa: {formatDateTime(lastSuccessfulQueryAt, timeZone)} · Última recepción de imágenes: {formatDateTime(summary.latestReceivedAt, timeZone)} · {timeZone}. La consulta se actualiza automáticamente cada 5 segundos. La recepción del dispositivo se muestra por separado del estado de consulta.</p>
           {summary.thumbnails.length > 0 ? (
             <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               {summary.thumbnails.map(thumbnail => (
@@ -701,7 +706,6 @@ function classifyDifference(value: number) {
 
 const AWAITING_CLOSING_FORM_LABEL = "Awaiting closing form";
 const AWAITING_CLOSING_TEXT = "Awaiting closing";
-const LIVE_CAMERA_REFRESH_MS = 30_000;
 const FLAVOR_PREVIEW_VIEWPORT_MARGIN_PX = 16;
 const FLAVOR_PREVIEW_OFFSET_PX = 12;
 const FLAVOR_PREVIEW_MAX_WIDTH_PX = 352;
@@ -822,13 +826,13 @@ export default function ManagerDashboard() {
   const timeZone = storeContext.data?.timezone ?? PACIFIC_TIME_ZONE;
   const utils = trpc.useUtils();
   const [liveNow, setLiveNow] = useState(() => new Date());
-  const [selectedDate, setSelectedDate] = useState(() => requestedBusinessDate ?? todayValue());
+  const [selectedDate, setSelectedDate] = useState(() => resolveDashboardDate(requestedBusinessDate, todayValue()).date);
   const [hoursRangeStart, setHoursRangeStart] = useState(() => getPacificSundayWeekStart(todayValue()));
   const [hoursRangeEnd, setHoursRangeEnd] = useState(todayValue());
   const currentPacificDateLabel = useMemo(() => formatBusinessCalendarDate(liveNow, "en-US", timeZone), [liveNow, timeZone]);
   const currentPacificTimeLabel = useMemo(() => formatBusinessTime(liveNow, "en-US", timeZone), [liveNow, timeZone]);
   const currentPacificDateTimeLabel = useMemo(() => `${currentPacificDateLabel} · ${currentPacificTimeLabel}`, [currentPacificDateLabel, currentPacificTimeLabel]);
-  const [hasExplicitDateSelection, setHasExplicitDateSelection] = useState(() => requestedBusinessDate !== null);
+  const [hasExplicitDateSelection, setHasExplicitDateSelection] = useState(() => resolveDashboardDate(requestedBusinessDate, todayValue()).explicit);
   const [inventoryDashboardView, setInventoryDashboardView] = useState<ManagerInventoryView>("product");
   const [inventoryForm, setInventoryForm] = useState({
     id: undefined as number | undefined,
@@ -881,9 +885,9 @@ export default function ManagerDashboard() {
     if (!storeContext.data) return;
     const today = getBusinessDate(new Date(), storeContext.data.timezone);
     const requestedDate = requestedDashboardBusinessDate(search);
-    const requestedDateIsUsable = requestedDate !== null && requestedDate <= today;
-    setSelectedDate(requestedDateIsUsable ? requestedDate : today);
-    setHasExplicitDateSelection(requestedDateIsUsable);
+    const resolution = resolveDashboardDate(requestedDate, today);
+    setSelectedDate(resolution.date);
+    setHasExplicitDateSelection(resolution.explicit);
     setHoursRangeEnd(today);
     setHoursRangeStart(getPacificSundayWeekStart(today));
   }, [search, storeContext.data?.timezone]);
@@ -895,7 +899,9 @@ export default function ManagerDashboard() {
   }, [isAdmin, loading, setLocation, user]);
 
   useEffect(() => {
-    if (selectedDate > maxBusinessDate) {
+    if (!hasExplicitDateSelection && selectedDate !== maxBusinessDate) {
+      setSelectedDate(maxBusinessDate);
+    } else if (selectedDate > maxBusinessDate) {
       setSelectedDate(maxBusinessDate);
     }
 
@@ -910,10 +916,10 @@ export default function ManagerDashboard() {
     if (inventoryForm.lastCountDate && inventoryForm.lastCountDate > maxBusinessDate) {
       setInventoryForm(current => ({ ...current, lastCountDate: maxBusinessDate }));
     }
-  }, [hoursRangeEnd, hoursRangeStart, inventoryForm.lastCountDate, maxBusinessDate, selectedDate]);
+  }, [hasExplicitDateSelection, hoursRangeEnd, hoursRangeStart, inventoryForm.lastCountDate, maxBusinessDate, selectedDate]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => setLiveNow(new Date()), 30000);
+    const interval = window.setInterval(() => setLiveNow(new Date()), LIVE_CAMERA_REFRESH_MS);
     return () => window.clearInterval(interval);
   }, []);
 
@@ -936,63 +942,12 @@ export default function ManagerDashboard() {
     {
       enabled: isAdmin,
       refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
       refetchInterval: isAdmin && isOverviewRoute ? LIVE_CAMERA_REFRESH_MS : false,
       refetchIntervalInBackground: true,
     }
   );
-  // Native detections can arrive before any sale, closing, or cloud photograph.
-  // Resolve today's native evidence before choosing an older automatic landing date.
-  const todayNativeLedgerQuery = trpc.dashboard.localCupLedger.useQuery(
-    { businessDate: maxBusinessDate, deviceId: LOCAL_CAMERA_DEVICE_ID },
-    { enabled: isAdmin && isOverviewRoute, refetchInterval: 5000, refetchOnWindowFocus: true, refetchIntervalInBackground: true, retry: false },
-  );
   const trendQuery = trpc.dashboard.salesTrend.useQuery({ days: 28 }, { enabled: isAdmin, refetchOnWindowFocus: false });
-  const latestHandoffCameraEvidenceDateQuery = trpc.dashboard.latestHandoffCameraEvidenceDate.useQuery(undefined, {
-    enabled: isAdmin,
-    refetchOnWindowFocus: true,
-    refetchInterval: isAdmin && isOverviewRoute ? LIVE_CAMERA_REFRESH_MS : false,
-    refetchIntervalInBackground: true,
-  });
-
-  useEffect(() => {
-    if (!isAdmin || dailyQuery.isLoading || trendQuery.isLoading || latestHandoffCameraEvidenceDateQuery.isLoading || (isOverviewRoute && todayNativeLedgerQuery.isLoading)) return;
-    // Handoff Review must remain available for a recovery date even when no
-    // sales/closing report exists for it. The overview's automatic landing
-    // date prioritizes the latest real operational evidence (camera or sales)
-    // instead of silently landing on an older sales-only day with no camera row.
-    // It must never override a date the administrator intentionally selected.
-
-    const latestDateWithSales = trendQuery.data?.at(-1)?.businessDate;
-    const latestAvailableDate = selectLatestAvailableOperationalDate(maxBusinessDate, [
-      latestDateWithSales,
-      latestHandoffCameraEvidenceDateQuery.data,
-      nativeEvidenceDate(todayNativeLedgerQuery.data, maxBusinessDate),
-    ]);
-    if (latestAvailableDate && shouldAutoFallbackToLatestOperationalDate({
-      isOverviewRoute,
-      hasExplicitDateSelection,
-      selectedDate,
-      maxBusinessDate,
-      reportCount: dailyQuery.data?.reportCount ?? 0,
-      latestAvailableDate,
-    })) {
-      setSelectedDate(latestAvailableDate);
-    }
-  }, [
-    dailyQuery.data?.reportCount,
-    dailyQuery.isLoading,
-    hasExplicitDateSelection,
-    isAdmin,
-    isOverviewRoute,
-    latestHandoffCameraEvidenceDateQuery.data,
-    latestHandoffCameraEvidenceDateQuery.isLoading,
-    todayNativeLedgerQuery.data,
-    todayNativeLedgerQuery.isLoading,
-    maxBusinessDate,
-    selectedDate,
-    trendQuery.data,
-    trendQuery.isLoading,
-  ]);
 
   const wowQuery = trpc.dashboard.weekOverWeek.useQuery(undefined, { enabled: isAdmin, refetchOnWindowFocus: false });
   const alertsQuery = trpc.dashboard.inventoryAlerts.useQuery(undefined, { enabled: isAdmin, refetchOnWindowFocus: false });
@@ -1007,6 +962,7 @@ export default function ManagerDashboard() {
     {
       enabled: isAdmin && isHandoffReviewRoute,
       refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
       refetchInterval: isAdmin && isHandoffReviewRoute ? LIVE_CAMERA_REFRESH_MS : false,
       refetchIntervalInBackground: true,
     }
@@ -1016,6 +972,7 @@ export default function ManagerDashboard() {
     {
       enabled: isAdmin && isOverviewRoute,
       refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
       refetchInterval: isAdmin && isOverviewRoute ? LIVE_CAMERA_REFRESH_MS : false,
       refetchIntervalInBackground: true,
     }
@@ -1493,12 +1450,22 @@ export default function ManagerDashboard() {
     }
   }
 
-  const daily = dailyQuery.data;
+  const daily = responseMatchesBusinessDate(dailyQuery.data?.businessDate, selectedDate) ? dailyQuery.data : undefined;
   const dailyOperations = daily ? buildDailyOperations(daily, selectedDate) : null;
   const handoffVisualEvidencePresentation = buildHandoffVisualEvidencePresentation({
     isLoading: handoffVisualEvidenceOverviewQuery.isLoading,
     hasError: Boolean(handoffVisualEvidenceOverviewQuery.error),
     summary: handoffVisualEvidenceOverviewQuery.data,
+  });
+  const lastSuccessfulDashboardQueryAt = latestSuccessfulQueryAt([
+    daily ? dailyQuery.dataUpdatedAt : null,
+    handoffVisualEvidenceOverviewQuery.dataUpdatedAt,
+    handoffVisualEventsQuery.dataUpdatedAt,
+  ]);
+  const dashboardLiveState = liveQueryState({
+    isLoading: dailyQuery.isLoading || handoffVisualEvidenceOverviewQuery.isLoading,
+    hasData: Boolean(daily || handoffVisualEvidenceOverviewQuery.data),
+    hasError: Boolean(dailyQuery.error || handoffVisualEvidenceOverviewQuery.error),
   });
   const reconciliationSnapshot = buildManagerReconciliationSnapshot(daily);
   const shopifyVarianceSnapshot = useMemo(() => {
@@ -1575,7 +1542,7 @@ export default function ManagerDashboard() {
   const recipes = recipesQuery.data ?? [];
   const openingChecklistQuestions = openingChecklistQuery.data ?? [];
   const closingChecklistQuestions = closingChecklistQuery.data ?? [];
-  const handoffVisualEvents = handoffVisualEventsQuery.data ?? [];
+  const handoffVisualEvents = (handoffVisualEventsQuery.data ?? []).filter(event => event.businessDate === selectedDate);
   const nativeHandoffEvents = handoffVisualEvents.filter(event => event.sourceDetail?.startsWith("native_local_cv_only_v1:"));
   const handoffLocalVerifiedCount = nativeHandoffEvents.filter(event => event.automaticValidation?.status === "verified").length;
   const handoffLocalPendingCount = nativeHandoffEvents.filter(event => event.analysisStatus === "pending_review" && event.automaticValidation?.status !== "verified").length;
@@ -1750,6 +1717,7 @@ export default function ManagerDashboard() {
                           : event.target.value > maxBusinessDate ? maxBusinessDate : event.target.value;
                         setHasExplicitDateSelection(true);
                         setSelectedDate(nextDate);
+                        setLocation(dashboardDateHref(location, nextDate, maxBusinessDate));
                       }}
                       className="h-12 w-full rounded-full border border-[#ddd4c7] bg-[#fcfaf6] pl-11 pr-4 text-sm text-[#24332f] shadow-sm outline-none transition focus:border-[#52665f] focus:ring-4 focus:ring-[#52665f]/10"
                     />
@@ -1760,24 +1728,42 @@ export default function ManagerDashboard() {
                   <span className="min-w-0 break-words md:overflow-hidden md:text-ellipsis">
                     {isTimeBookRoute
                       ? `Payroll period ${hoursRangeStart} through ${hoursRangeEnd}.`
-                      : isOverviewRoute
-                        ? `Quick day view active for ${selectedDate}.`
-                        : `Manager workspace filtered by ${selectedDate}.`}
+                        : isOverviewRoute
+                          ? hasExplicitDateSelection && selectedDate !== maxBusinessDate
+                            ? `Historical day view: ${selectedDate}.`
+                            : `Today view: ${selectedDate}.`
+                          : `Manager workspace filtered by ${selectedDate}.`}
                   </span>
                 </div>
+                {hasExplicitDateSelection && selectedDate !== maxBusinessDate ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHasExplicitDateSelection(false);
+                      setSelectedDate(maxBusinessDate);
+                      setLocation(dashboardDateHref(location, maxBusinessDate, maxBusinessDate));
+                    }}
+                    className="inline-flex w-max items-center rounded-full border border-[#52665f] bg-white/80 px-4 py-3 text-sm font-medium text-[#43554f] shadow-sm transition hover:bg-[#f4f8f3]"
+                  >
+                    Volver a Hoy
+                  </button>
+                ) : null}
                 <div className="inline-flex w-max max-w-full shrink-0 flex-col rounded-[1.75rem] border border-[#ded5c8] bg-white/80 px-6 py-3 text-sm text-[#4f5b55] shadow-sm">
                   <p className="text-[10px] uppercase tracking-[0.24em] text-[#8b9088]">Live Pacific time</p>
                   <p className="mt-1 whitespace-nowrap font-medium text-[#24332f]">{currentPacificDateTimeLabel}</p>
+                  {isOverviewRoute && isAdmin ? <p className="mt-2 text-xs leading-5 text-[#65716b]">Consulta: {dashboardLiveState === "live" ? "recibiendo" : dashboardLiveState === "stale" ? "último dato conservado" : dashboardLiveState === "offline" ? "sin conexión" : "consultando"} · Última consulta exitosa: {formatDateTime(lastSuccessfulDashboardQueryAt, timeZone)}. Esto no confirma que el dispositivo esté conectado.</p> : null}
                 </div>
               </div>
             </div>
             {isOverviewRoute && isAdmin && <div className="px-5 pt-5 lg:px-10 lg:pt-8"><LocalCupLedgerPanel businessDate={selectedDate} /></div>}
+            {isOverviewRoute && isAdmin && <div className="px-5 pt-5 lg:px-10 lg:pt-8"><HandoffVisualEvidenceOverviewPanel presentation={handoffVisualEvidencePresentation} businessDate={selectedDate} timeZone={timeZone} lastSuccessfulQueryAt={handoffVisualEvidenceOverviewQuery.dataUpdatedAt > 0 ? handoffVisualEvidenceOverviewQuery.dataUpdatedAt : null} /></div>}
             <div className="p-8 lg:p-10">
               <div className="rounded-[1.75rem] border border-[#e5ddd0] bg-[#f9f4ec] p-6">
                 <p className="text-[11px] uppercase tracking-[0.18em] text-[#8b9088] md:text-xs md:tracking-[0.24em]">
                   {isOverviewRoute ? `Daily snapshot for ${selectedDate}` : isTimeBookRoute ? "Time Book summary" : "Workspace snapshot"}
                 </p>
                 {isOverviewRoute && !dailyQuery.isLoading && !dailyQuery.error && !closingRecorded && <p role="status" className="mt-4 rounded-xl border border-[#e5d3a8] bg-[#fff7e5] p-4 text-sm text-[#735825]">Cierre manual de {selectedDate} sin registrar. Ventas y pesos de cierre se muestran como no registrados; no se rellenan con datos de la cámara. Las detecciones y los tamaños recibidos siguen visibles arriba.</p>}
+                {isOverviewRoute && dailyQuery.error && daily ? <p role="alert" className="mt-4 rounded-xl border border-[#ead4d4] bg-[#fff5f5] p-4 text-sm text-[#8a4343]">La consulta del snapshot falló; se conserva el último dato confirmado de {selectedDate} y no se mezcla otra fecha.</p> : null}
                 {dailyQuery.isLoading && isOverviewRoute ? (
                   <div className="mt-5 grid gap-4 sm:grid-cols-2">
                     {Array.from({ length: 4 }).map((_, index) => (
@@ -1808,7 +1794,6 @@ export default function ManagerDashboard() {
           <>
             {!dailyQuery.isLoading && !dailyQuery.error && dailyOperations && <DailyOperationsPanel view={dailyOperations} timeZone={timeZone} />}
             {isAdmin && <ManualCameraComparisonPanel businessDate={selectedDate} />}
-            {isAdmin && <HandoffVisualEvidenceOverviewPanel presentation={handoffVisualEvidencePresentation} businessDate={selectedDate} timeZone={timeZone} />}
 
             {isAdmin && <details className="rounded-2xl border border-[#d8e2da] bg-white p-5" aria-label="Archivo independiente de etiquetas de fotografías">
               <summary className="cursor-pointer text-sm font-medium">Ver etiquetas de fotografías de la ruta anterior</summary>

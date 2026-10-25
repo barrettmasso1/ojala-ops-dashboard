@@ -33,8 +33,13 @@ describe("handoff visual evidence overview", () => {
   });
 
   it("does not turn loading or an error into zero visual evidence", () => {
-    expect(buildHandoffVisualEvidencePresentation({ isLoading: true, hasError: false, summary })).toEqual({ state: "loading" });
-    expect(buildHandoffVisualEvidencePresentation({ isLoading: false, hasError: true, summary })).toEqual({ state: "error" });
+    expect(buildHandoffVisualEvidencePresentation({ isLoading: true, hasError: false, summary: null })).toEqual({ state: "loading" });
+    expect(buildHandoffVisualEvidencePresentation({ isLoading: false, hasError: true, summary: null })).toEqual({ state: "error" });
+  });
+
+  it("keeps the last same-day photo summary visible as stale when refetch fails", () => {
+    const view = buildHandoffVisualEvidencePresentation({ isLoading: false, hasError: true, summary });
+    expect(view).toMatchObject({ state: "stale", summary: { total: 12, thumbnails: [{ cupEventId: "fixture-event" }] } });
   });
 
   it("renders an empty result only after a successful empty summary", () => {

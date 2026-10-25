@@ -43,6 +43,7 @@ export type HandoffVisualEvidencePresentation =
   | { state: "loading" }
   | { state: "error" }
   | { state: "empty"; summary: HandoffVisualEvidenceOverview }
+  | { state: "stale"; summary: HandoffVisualEvidenceOverview }
   | { state: "ready"; summary: HandoffVisualEvidenceOverview };
 
 const emptyStatusCounts: HandoffVisualEvidenceStatusCounts = {
@@ -67,9 +68,6 @@ export function buildHandoffVisualEvidencePresentation(input: {
   hasError: boolean;
   summary?: HandoffVisualEvidenceOverview | null;
 }): HandoffVisualEvidencePresentation {
-  if (input.isLoading) return { state: "loading" };
-  if (input.hasError) return { state: "error" };
-
   const source = input.summary;
   const summary: HandoffVisualEvidenceOverview = {
     total: safeCount(source?.total),
@@ -86,6 +84,9 @@ export function buildHandoffVisualEvidencePresentation(input: {
     thumbnails: (source?.thumbnails ?? []).filter(thumbnail => Boolean(thumbnail.imageUrl)).slice(0, 4),
   };
 
+  if (input.isLoading && !source) return { state: "loading" };
+  if (input.hasError && source) return { state: "stale", summary };
+  if (input.hasError) return { state: "error" };
   return summary.total > 0 ? { state: "ready", summary } : { state: "empty", summary };
 }
 

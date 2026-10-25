@@ -253,4 +253,17 @@ describe("manager dashboard layout helpers", () => {
     expect(nativeCorrections).not.toMatch(/<details[^>]*\bopen\b/);
     expect(nativeCorrections).toContain("Optional size-description corrections");
   });
+
+  it("keeps the live overview on today, persists historical dates, and refreshes private data every five seconds", () => {
+    const source = readFileSync(new URL("./ManagerDashboard.tsx", import.meta.url), "utf8");
+    const liveState = readFileSync(new URL("../lib/dashboardLiveState.ts", import.meta.url), "utf8");
+
+    expect(liveState).toContain("export const LIVE_CAMERA_REFRESH_MS = 5_000");
+    expect(source).toContain("refetchOnReconnect: true");
+    expect(source).toContain("dashboardDateHref(location, nextDate, maxBusinessDate)");
+    expect(source).toContain("Volver a Hoy");
+    expect(source).toContain("Última consulta exitosa");
+    expect(source).not.toContain("shouldAutoFallbackToLatestOperationalDate");
+    expect(source.indexOf("<LocalCupLedgerPanel")).toBeLessThan(source.indexOf("Daily snapshot for"));
+  });
 });

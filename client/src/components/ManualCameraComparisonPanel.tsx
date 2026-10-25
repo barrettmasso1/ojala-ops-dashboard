@@ -16,7 +16,7 @@ function signed(value: number | null) {
 export function ManualCameraComparisonPanel({ businessDate }: { businessDate: string }) {
   const query = trpc.dashboard.manualCameraComparison.useQuery(
     { businessDate, deviceId: LOCAL_CAMERA_DEVICE_ID },
-    { refetchInterval: 5000, refetchOnWindowFocus: true, refetchIntervalInBackground: true, retry: false },
+    { refetchInterval: 5000, refetchOnWindowFocus: true, refetchOnReconnect: true, refetchIntervalInBackground: true, retry: false },
   );
   const data = query.data ? buildManualCameraComparison(query.data) : null;
   const preserved = Boolean(query.error && data);
