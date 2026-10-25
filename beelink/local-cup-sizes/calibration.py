@@ -5,6 +5,7 @@ The optional dashboard handoff is separate and must validate model provenance.
 from __future__ import annotations
 import argparse,html,io,json,os,re,signal,sqlite3,sys,time
 from pathlib import Path
+from contextlib import closing
 from datetime import datetime,timezone
 from PIL import Image
 from size_classifier import descriptor,fit,predict,canonical,sha,CalibrationError,CLASSES
@@ -31,7 +32,7 @@ def safe_file(root,relative,expected_hash):
 def load_samples(ledger_root,output):
     p=ledger_root/'ledger.sqlite3'
     if not p.is_file():raise CalibrationError('ledger_missing')
-    with sqlite3.connect(p.as_uri()+'?mode=ro',uri=True,timeout=5) as db:
+    with closing(sqlite3.connect(p.as_uri()+'?mode=ro',uri=True,timeout=5)) as db:
         db.execute('PRAGMA query_only=ON')
         rows=[json.loads(r[0]) for r in db.execute('SELECT payload FROM observations ORDER BY day DESC,first_seen DESC LIMIT ?', (MAX_CANDIDATES,))]
     samples=[];errors=[]
