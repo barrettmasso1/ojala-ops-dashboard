@@ -80,4 +80,13 @@ class SyncTests(unittest.TestCase):
   with patch('directional_sync.time.time',return_value=time.time()+121):
    for _ in range(6):r=self.sync.cycle(self.doc)
   self.assertEqual(r['status'],'blocked');self.assertEqual(self.api.posts,1)
+ def test_outage_before_dispatch_recovers_without_manual_release(self):
+  with patch.object(self.api,'capabilities',side_effect=ValueError('network_or_response_uncertain')):self.assertEqual(self.sync.cycle(self.doc)['status'],'pending')
+  self.assertEqual(self.api.posts,0);self.assertEqual(self.sync.cycle(self.doc)['status'],'acknowledged');self.assertEqual(self.api.posts,1)
+ def test_rate_limit_before_dispatch_is_not_approval_failure(self):
+  with patch.object(self.api,'receipt',side_effect=ValueError('http_429')):self.assertEqual(self.sync.cycle(self.doc)['status'],'pending')
+  self.assertEqual(self.api.posts,0);self.assertEqual(self.sync.cycle(self.doc)['status'],'acknowledged')
+ def test_receipt_read_503_before_new_write_recovers(self):
+  with patch.object(self.api,'receipt',side_effect=ValueError('http_503')):self.assertEqual(self.sync.cycle(self.doc)['status'],'pending')
+  self.assertEqual(self.sync.cycle(self.doc)['status'],'acknowledged');self.assertEqual(self.api.posts,1)
 if __name__=='__main__':unittest.main()

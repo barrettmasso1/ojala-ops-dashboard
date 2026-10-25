@@ -69,6 +69,7 @@ class Sync:
             if len(reason)>120 or any(t in reason.lower() for t in ['://','password','api_key','apikey','token']):reason=type(exc).__name__
             current=self.db.execute('SELECT status FROM outbox WHERE day=?',(day,)).fetchone()[0]
             uncertain=current=='delivery_unknown' and reason in ('http_409','http_500','http_502','http_503','http_504','network_or_response_uncertain','directional_write_not_acknowledged')
-            state='delivery_unknown' if uncertain else 'pending' if reason=='directional_contract_not_published' else 'blocked'
+            transient_before_dispatch=current=='pending' and reason in ('http_429','http_500','http_502','http_503','http_504','network_or_response_uncertain')
+            state='delivery_unknown' if uncertain else 'pending' if reason=='directional_contract_not_published' or transient_before_dispatch else 'blocked'
             with self.db:self.db.execute('UPDATE outbox SET status=?,last_error=? WHERE day=?',(state,reason,day))
             return {'status':state,'reason':reason,'networkAttempted':True,'uploaded':False}
