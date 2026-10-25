@@ -9,7 +9,7 @@ import {LocalCupLedgerPanel} from "../components/LocalCupLedgerPanel";
 const day="2026-10-23";
 function fixture(){return {businessDate:day,detectedTracks:28,locallyVerifiedTargets:9,withoutSameFrameEvidence:11,
  ownerExcludedTargets:8,ownerConfirmedSizeTargets:6,automaticallyEstimatedSizeTargets:0,
- sizeBreakdown:{chico:2,mediano:4,pint:0,litro:0,unknown:3},receivedAt:"2026-10-24T03:11:58Z",sequence:19,potentialRepeatedTracks:2,records:[]};}
+ sizeBreakdown:{chico:2,mediano:4,pint:0,litro:0,unknown:3},provisionalSizeTargets:0,receivedAt:"2026-10-24T03:11:58Z",sequence:19,potentialRepeatedTracks:2,records:[]};}
 function render(){return renderToStaticMarkup(React.createElement(LocalCupLedgerPanel,{businessDate:day}));}
  beforeEach(()=>{state.query={data:fixture(),dataUpdatedAt:Date.parse("2026-10-24T03:12:00Z"),isLoading:false,error:null};});
 describe("one authoritative camera size view",()=>{
@@ -30,6 +30,10 @@ describe("one authoritative camera size view",()=>{
  it("rejects inconsistent owner versus automatic assignments",()=>{state.query.data.ownerConfirmedSizeTargets=5;expect(receptionView(state.query.data,day).state).toBe("invalid");});
  it("never creates certified unique deliveries",()=>{expect(receptionView(fixture(),day)).toMatchObject({uniqueDeliveryCount:null,manualValuesUsed:false});});
  it("all five categories remain visible",()=>{const html=render();for(const x of ["Chico (4 oz)","Mediano (8 oz)","Pint","Litro","Sin clasificar"])expect(html).toContain(x);});
+ it("renders a provisional count and a provisional observation row without relabeling it as a generic local estimate",()=>{
+  Object.assign(state.query.data,{provisionalSizeTargets:1,records:[{id:"r1",sourceEventId:"fixture-provisional",startedAt:"2026-10-23T23:00:00Z",verification:"same_frame_local_cv",ownerExcluded:false,possibleRepeatOf:[],size:"pint",ownerConfirmedSize:false,sizeProvisional:true}]});
+  const html=render(),start=html.indexOf("fixture-provisional"),row=html.slice(start,html.indexOf("</tr>",start));expect(html).toContain("De ellas, provisionales: 1");expect(row).toContain("estimación provisional");expect(row).not.toContain("estimación local");
+ });
  it("old photo sizes are labelled as archive and stay separate",()=>{const s=readFileSync(new URL("../components/CameraSizeBreakdown.tsx",import.meta.url),"utf8");expect(s).toContain("Archivo de etiquetas");expect(s).not.toContain("Cámara: desglose automático por tamaño");});
  it("legacy photo table cannot replace the native table on overview",()=>{const s=readFileSync(new URL("../pages/ManagerDashboard.tsx",import.meta.url),"utf8");const start=s.indexOf('aria-label="Archivo independiente');const legacy=s.indexOf('<CameraSizeBreakdown');expect(start).toBeGreaterThan(0);expect(legacy).toBeGreaterThan(start);expect(s.slice(start,legacy)).toContain('<summary');expect(s.match(/<LocalCupLedgerPanel /g)).toHaveLength(1);});
 });
