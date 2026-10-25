@@ -9,11 +9,11 @@ export const COUNTER_PICKUP_SIZE_LABELS: Record<CounterPickupSize, string> = {
   unknown: "Sin clasificar",
 };
 
-export type CounterPickupQueryState = "loading" | "live" | "stale" | "offline" | "empty";
+export type CounterPickupQueryState = "loading" | "live" | "stale" | "offline" | "unavailable" | "empty";
 export type CounterPickupPanelModel = {
   title: "Retiradas ópticas provisionales";
   value: string;
-  label: "Ventanas de video parciales" | "No observado" | "Fecha histórica";
+  label: "Ventanas de video parciales" | "No observado" | "Registro no disponible" | "Fecha histórica";
   message: string;
   warning: string;
   sizeRows: Array<{ key: CounterPickupSize; label: string; value: string }>;
@@ -35,6 +35,7 @@ function labelDate(value: string | null | undefined, timeZone: string) {
 
 function queryLabel(state: CounterPickupQueryState, dataUpdatedAt: number) {
   if (state === "loading") return "Recibiendo consulta";
+  if (state === "unavailable") return "Registro temporalmente no disponible";
   if (state === "offline") return "Sin conexión; último dato conservado";
   if (state === "stale") return "Consulta fallida; último dato conservado";
   if (state === "empty") return "Sin respuesta para esta fecha";
@@ -62,6 +63,23 @@ export function buildCounterPickupPanelModel(
     label: COUNTER_PICKUP_SIZE_LABELS[key],
     value: data?.sizeBreakdown ? String(data.sizeBreakdown[key]) : "—",
   }));
+  if (queryState === "unavailable") {
+    return {
+      title: "Retiradas ópticas provisionales",
+      value: "—",
+      label: "Registro no disponible",
+      message: "El registro privado de retiradas ópticas no está disponible temporalmente. No se presenta cero ni se reconstruye el día.",
+      warning: "La ausencia temporal del registro no equivale a cero ventas, cero retiradas ni un conteo físico único.",
+      sizeRows: rows.map(row => ({ ...row, value: "—" })),
+      interval: "—",
+      windowCount: "—",
+      unresolved: "—",
+      records: "—",
+      receipt: "—",
+      connection: queryLabel(queryState, dataUpdatedAt),
+      observed: false,
+    };
+  }
   if (!data || data.businessDate !== businessDate || !observed) {
     return {
       title: "Retiradas ópticas provisionales",

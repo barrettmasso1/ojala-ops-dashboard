@@ -1015,7 +1015,10 @@ export default function ManagerDashboard() {
       refetchIntervalInBackground: true,
     }
   );
-  const counterPickupQueryState = counterPickupsQuery.isLoading && !counterPickupsQuery.data
+  const counterPickupRegistryUnavailable = counterPickupsQuery.data?.availability === "unavailable";
+  const counterPickupQueryState = counterPickupRegistryUnavailable
+    ? "unavailable"
+    : counterPickupsQuery.isLoading && !counterPickupsQuery.data
     ? "loading"
     : counterPickupsQuery.error && counterPickupsQuery.data
       ? "stale"
@@ -1025,7 +1028,7 @@ export default function ManagerDashboard() {
           ? "live"
           : "empty";
   const counterPickupPanel = buildCounterPickupPanelModel(
-    counterPickupsQuery.data,
+    counterPickupsQuery.data?.registry,
     selectedDate,
     timeZone,
     counterPickupQueryState,

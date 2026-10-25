@@ -41,6 +41,13 @@ describe("counter pickup presentation", () => {
     expect(model.sizeRows.every(row => row.value === "—")).toBe(true);
   });
 
+  it("labels a private-registry failure explicitly without presenting an empty or zero observation", () => {
+    const model = buildCounterPickupPanelModel(undefined, "2026-10-24", "America/Mazatlan", "unavailable", 0, new Date("2026-10-24T21:00:00.000Z"));
+    expect(model).toMatchObject({ value: "—", label: "Registro no disponible", observed: false, connection: "Registro temporalmente no disponible" });
+    expect(model.message).toContain("No se presenta cero");
+    expect(model.records).toBe("—");
+  });
+
   it("preserves unknown capacity separately and marks historical reads without pretending live coverage", () => {
     const model = buildCounterPickupPanelModel({ ...base, estimatedPickups: 1, sizeBreakdown: { ...base.sizeBreakdown, unknown: 1 } }, "2026-10-24", "America/Mazatlan", "live", 1, new Date("2026-10-25T21:00:00.000Z"));
     expect(model).toMatchObject({ label: "Fecha histórica", value: "1" });

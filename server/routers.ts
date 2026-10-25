@@ -1523,9 +1523,15 @@ export const appRouter = router({
         const store = await getActiveStoreById(ctx.user.storeId);
         if (!store) throw new TRPCError({ code: "FORBIDDEN", message: "Store unavailable" });
         try {
-          return await readCounterPickups(new PlatformCounterPickupStore(), store.id, input.deviceId, input.businessDate, store.timezone, counterPickupPhotoReader);
+          return {
+            availability: "available" as const,
+            registry: await readCounterPickups(new PlatformCounterPickupStore(), store.id, input.deviceId, input.businessDate, store.timezone, counterPickupPhotoReader),
+          };
         } catch {
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Counter pickup registry is temporarily unavailable" });
+          // The private registry is optional dashboard evidence. Preserve the
+          // explicit unavailable state instead of failing the entire overview
+          // or misrepresenting unavailable storage as an empty/zero result.
+          return { availability: "unavailable" as const, registry: null };
         }
       }),
     manualCameraComparison: adminProcedure
