@@ -117,7 +117,7 @@ def main():
     local=summarize(document['records'],[o for o in rows if o['businessDate']==day],policy)
     transport={'status':'authorization_hold','networkAttempted':False} if (root/'authorization-hold.json').exists() else sync.cycle(document)
     if transport.get('reason') in ('http_401','http_403'):atomic(root/'authorization-hold.json',{'reason':transport['reason'],'createdAt':datetime.now(timezone.utc).isoformat()})
-    report={'checkedAt':datetime.now(timezone.utc).isoformat(),'businessDate':day,'status':pause or 'running','latestJob':result,'jobs':dict(jobs.db.execute('SELECT status,count(*) FROM jobs GROUP BY status')),'estimatedPickups':local['estimatedPickups'],'sizeBreakdown':local['sizeBreakdown'],'unresolved':local['unresolved'],'transport':transport,'browserRequired':False,'generativeAiRequired':False,'createsSales':False,'coversWholeBusinessDay':False,'requiresPerImageApproval':False,'physicalUniqueCountCertified':False}
+    report={'checkedAt':datetime.now(timezone.utc).isoformat(),'businessDate':day,'status':pause or 'running','latestJob':result,'jobs':dict(jobs.db.execute('SELECT status,count(*) FROM jobs GROUP BY status')),'estimatedPickups':local['estimatedPickups'] if document['records'] else None,'sizeBreakdown':local['sizeBreakdown'] if document['records'] else None,'unresolved':local['unresolved'],'transport':transport,'browserRequired':False,'generativeAiRequired':False,'createsSales':False,'coversWholeBusinessDay':False,'requiresPerImageApproval':False,'physicalUniqueCountCertified':False}
     atomic(root/'health.json',report)
     if a.once:print(canonical(report),flush=True);break
     for _ in range(20):
