@@ -5,7 +5,8 @@ The original validated matcher remains primary; this model may abstain.
 from pathlib import Path
 from datetime import datetime
 from PIL import Image
-import io,json,math,re
+import io,json,math,re,sqlite3
+from contextlib import closing
 from size_classifier import descriptor,distance,scene_group,canonical,sha,CalibrationError,valid_feature,need
 PROTOCOL='ojala_local_capacity_templates_v1'
 VERSION='ojala_body_templates_v1'
@@ -122,6 +123,21 @@ class TemplateRuntime:
         return result if result['status']=='classified' else None
 
 
+def source_business_date(original,ledger_root):
+    db_path=Path(ledger_root)/'ledger.sqlite3'
+    need(db_path.is_file() and not db_path.is_symlink(),'template_native_ledger_missing')
+    with closing(sqlite3.connect(db_path.as_uri()+'?mode=ro',uri=True,timeout=3)) as db:
+        db.execute('PRAGMA query_only=ON')
+        found=db.execute('SELECT payload FROM observations WHERE id=?',(original['observationId'],)).fetchone()
+    need(found is not None,'template_native_reference_missing')
+    value=json.loads(found[0]);proof=value.get('sameFrameEvidence') or {}
+    need(value.get('observationId')==original['observationId'] and value.get('sourceEventId')==original['sourceEventId'] and value.get('startedAt')==original['startedAt'],'template_native_reference_identity')
+    need(value.get('deviceId')==original['binding']['deviceId'] and value.get('cameraName')=='handoff' and value.get('detectorModelSha256')==original['binding']['detectorModelSha256'],'template_native_reference_scope')
+    need(proof.get('imageSha256')==original['imageSha256'] and proof.get('targetBox')==original['targetBox'] and proof.get('sourceZoneSha256')==original['binding']['zoneSha256'],'template_native_reference_proof')
+    date=value.get('businessDate');need(isinstance(date,str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}',date),'template_native_business_date')
+    if original.get('businessDate') is not None:need(original['businessDate']==date,'template_manifest_business_date_conflict')
+    return date
+
 def build_from_manifest(annotations,annotation_sha,output_root,ledger_root):
     from calibration import safe_file
     need(annotations.get('ownerConfirmed') is True and annotations.get('labelSource')=='owner_confirmed_capacity','template_label_source')
@@ -137,5 +153,5 @@ def build_from_manifest(annotations,annotation_sha,output_root,ledger_root):
         need(binding==original['binding'],'template_mixed_bindings')
         raw=safe_file(Path(ledger_root),original['imageRelativePath'],original['imageSha256'])
         feature=body_descriptor(raw,original['targetBox'],original['imageSha256'])
-        refs.append({'size':label['size'],'observationId':original['observationId'],'sourceEventId':original['sourceEventId'],'businessDate':original['businessDate'],'startedAt':original['startedAt'],'imageSha256':original['imageSha256'],'feature':feature,'ownerConfirmed':True,'labelSource':'owner_confirmed_capacity'})
+        refs.append({'size':label['size'],'observationId':original['observationId'],'sourceEventId':original['sourceEventId'],'businessDate':source_business_date(original,ledger_root),'startedAt':original['startedAt'],'imageSha256':original['imageSha256'],'feature':feature,'ownerConfirmed':True,'labelSource':'owner_confirmed_capacity'})
     return fit(refs,binding,annotation_sha)

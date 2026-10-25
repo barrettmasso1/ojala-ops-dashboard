@@ -93,7 +93,7 @@ def train_from_annotations(annotations,output,ledger_root):
         if binding is None:binding=s['binding']
         if binding!=s['binding']:raise CalibrationError('mixed_camera_calibration')
         references.append({'feature':f,'imageSha256':s['imageSha256'],'size':label['size'],'ownerConfirmed':True,
-            'labelSource':'owner_confirmed_capacity','sourceEventId':s['sourceEventId'],'businessDate':s['businessDate'],'startedAt':s['startedAt']})
+            'labelSource':'owner_confirmed_capacity','sourceEventId':s['sourceEventId'],'startedAt':s['startedAt']})
     return fit(references,binding)
 
 
