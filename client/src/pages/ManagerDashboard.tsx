@@ -124,20 +124,32 @@ function handoffEvidenceOriginLabel(origin: string | null | undefined) {
     : "Automatic verified snapshot";
 }
 
-function nativePhotoEvidenceLabel(sourceDetail: string | null | undefined, status: HandoffVisualStatus, automaticValidation?: { status?: string } | null) {
+export function nativePhotoEvidenceLabel(sourceDetail: string | null | undefined, status: HandoffVisualStatus, automaticValidation?: { status?: string } | null) {
   const prefix = "native_local_cv_only_v1:";
   if (!sourceDetail?.startsWith(prefix)) return null;
   const observationId = sourceDetail.slice(prefix.length);
   const verifiedLocally = automaticValidation?.status === "verified";
+  const hasHumanDecision = status === "approved_by_manager" || status === "discarded_by_manager";
+  const proofSignal = verifiedLocally
+    ? "Validated by strict local proof"
+    : hasHumanDecision
+      ? "Not recorded by local proof"
+      : "Awaiting local proof";
   return {
     observationId,
-    status: verifiedLocally
-      ? status === "approved_by_manager" || status === "discarded_by_manager"
-        ? "Foto recibida · verificada automáticamente por CV local · decisión humana conservada"
-        : "Foto recibida · verificada automáticamente por CV local · no requiere aprobación humana"
-      : status === "pending_review"
-        ? "Foto recibida · pendiente de verificación automática local · sin IA cloud ni aprobación humana"
-        : "Foto recibida · validación local no emitida · decisión humana registrada",
+    verifiedLocally,
+    hasHumanDecision,
+    badge: hasHumanDecision
+      ? handoffVisualStatusLabel(status)
+      : verifiedLocally
+        ? "Locally verified"
+        : "Local validation pending",
+    status: hasHumanDecision
+      ? `Foto recibida · ${handoffVisualStatusLabel(status)} · decisión humana conservada`
+      : verifiedLocally
+        ? "Foto recibida · verificada automáticamente por CV local · no requiere aprobación humana"
+        : "Foto recibida · validación local pendiente · no requiere aprobación humana",
+    proofSignal,
   };
 }
 
@@ -3615,21 +3627,37 @@ export default function ManagerDashboard() {
                               <p className="mt-2 text-sm text-[#66706a]">Record #{event.id} · Local capture {formatDateTime(event.capturedAt, timeZone)} · Event {event.cupEventId}</p>
                               <p className="mt-1 text-xs font-medium uppercase tracking-[0.12em] text-[#68716c]">{handoffEvidenceOriginLabel(event.evidenceOrigin)}</p>
                             </div>
-                            <span className={`w-max rounded-full border px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] ${handoffVisualStatusClass(status)}`}>{nativeLabel ? (event.automaticValidation?.status === "verified" ? "Locally verified" : "Local validation pending") : handoffVisualStatusLabel(status)}</span>
+                            <span className={`w-max rounded-full border px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] ${handoffVisualStatusClass(status)}`}>{nativeLabel ? nativeLabel.badge : handoffVisualStatusLabel(status)}</span>
                           </div>
 
-                          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                            <div className="rounded-2xl border border-[#e5ddd0] bg-white/85 p-3"><p className="text-[10px] uppercase tracking-[0.18em] text-[#8a9089]">Person</p><p className="mt-1 font-medium text-[#24332f]">{event.personPresent ? "Visible" : "Not confirmed"}</p></div>
-                            <div className="rounded-2xl border border-[#e5ddd0] bg-white/85 p-3"><p className="text-[10px] uppercase tracking-[0.18em] text-[#8a9089]">Gelato cup</p><p className="mt-1 font-medium text-[#24332f]">{event.gelatoCupPresent ? "Visible" : "Not confirmed"}</p></div>
-                            <div className="rounded-2xl border border-[#e5ddd0] bg-white/85 p-3"><p className="text-[10px] uppercase tracking-[0.18em] text-[#8a9089]">Handoff zone</p><p className="mt-1 font-medium text-[#24332f]">{event.cupInHandoffZone ? "Confirmed" : "Not confirmed"}</p></div>
-                            <div className="rounded-2xl border border-[#e5ddd0] bg-white/85 p-3"><p className="text-[10px] uppercase tracking-[0.18em] text-[#8a9089]">Visible cups</p><p className="mt-1 font-medium text-[#24332f]">{event.visibleCupCount}</p></div>
-                          </div>
+                          {nativeLabel ? (
+                            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label={`Local proof signals for record ${event.id}`}>
+                              <div className="rounded-2xl border border-[#d8e2da] bg-[#f4f8f3] p-3"><p className="text-[10px] uppercase tracking-[0.18em] text-[#52665f]">Person signal</p><p className="mt-1 font-medium text-[#24332f]">{nativeLabel.proofSignal}</p></div>
+                              <div className="rounded-2xl border border-[#d8e2da] bg-[#f4f8f3] p-3"><p className="text-[10px] uppercase tracking-[0.18em] text-[#52665f]">Cup signal</p><p className="mt-1 font-medium text-[#24332f]">{nativeLabel.proofSignal}</p></div>
+                              <div className="rounded-2xl border border-[#d8e2da] bg-[#f4f8f3] p-3"><p className="text-[10px] uppercase tracking-[0.18em] text-[#52665f]">Zone signal</p><p className="mt-1 font-medium text-[#24332f]">{nativeLabel.proofSignal}</p></div>
+                              <div className="rounded-2xl border border-[#d8e2da] bg-[#f4f8f3] p-3"><p className="text-[10px] uppercase tracking-[0.18em] text-[#52665f]">Tracked target validation</p><p className="mt-1 font-medium text-[#24332f]">{nativeLabel.verifiedLocally ? "Verified local target" : "Pending local target proof"}</p><p className="mt-1 text-xs text-[#65716b]">Total visible quantity: Not computed</p></div>
+                            </div>
+                          ) : (
+                            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                              <div className="rounded-2xl border border-[#e5ddd0] bg-white/85 p-3"><p className="text-[10px] uppercase tracking-[0.18em] text-[#8a9089]">Person</p><p className="mt-1 font-medium text-[#24332f]">{event.personPresent ? "Visible" : "Not confirmed"}</p></div>
+                              <div className="rounded-2xl border border-[#e5ddd0] bg-white/85 p-3"><p className="text-[10px] uppercase tracking-[0.18em] text-[#8a9089]">Gelato cup</p><p className="mt-1 font-medium text-[#24332f]">{event.gelatoCupPresent ? "Visible" : "Not confirmed"}</p></div>
+                              <div className="rounded-2xl border border-[#e5ddd0] bg-white/85 p-3"><p className="text-[10px] uppercase tracking-[0.18em] text-[#8a9089]">Handoff zone</p><p className="mt-1 font-medium text-[#24332f]">{event.cupInHandoffZone ? "Confirmed" : "Not confirmed"}</p></div>
+                              <div className="rounded-2xl border border-[#e5ddd0] bg-white/85 p-3"><p className="text-[10px] uppercase tracking-[0.18em] text-[#8a9089]">Visible cups</p><p className="mt-1 font-medium text-[#24332f]">{event.visibleCupCount}</p></div>
+                            </div>
+                          )}
 
                           <p className="mt-4 rounded-2xl border border-[#e5ddd0] bg-white/75 px-4 py-3 text-sm leading-6 text-[#56635d]">{nativeLabel ? nativeLabel.status : event.analysisReason || "Awaiting analysis."}</p>
                           {nativeLabel ? <p className="mt-3 rounded-2xl border border-[#d8e2da] bg-[#f4f8f3] px-4 py-3 text-sm leading-6 text-[#43554f]">This photo is linked to the authenticated local ledger observation. Automatic validation never creates sales, deliveries, physical counts, or a manager decision.</p> : null}
                           <CupDescriptionSummary items={event.cupDescriptions} />
-                          <CupDescriptionsEditor eventId={event.id} businessDate={event.businessDate}
-                            items={event.cupDescriptions} revision={event.cupDescriptionRevision} malformed={event.cupDescriptionsMalformed} />
+                          {nativeLabel ? (
+                            <details className="mt-4 rounded-2xl border border-[#d8e2da] bg-[#f4f8f3] p-4">
+                              <summary className="cursor-pointer text-sm font-medium text-[#24332f]">Optional size-description corrections</summary>
+                              <p className="mt-2 text-xs leading-5 text-[#65716b]">Closed by default. This never confirms a delivery, changes the local proof, or requires a manager action.</p>
+                              <CupDescriptionsEditor eventId={event.id} businessDate={event.businessDate}
+                                items={event.cupDescriptions} revision={event.cupDescriptionRevision} malformed={event.cupDescriptionsMalformed} />
+                            </details>
+                          ) : <CupDescriptionsEditor eventId={event.id} businessDate={event.businessDate}
+                            items={event.cupDescriptions} revision={event.cupDescriptionRevision} malformed={event.cupDescriptionsMalformed} />}
                           {humanReview ? (
                             <section className="mt-3 rounded-2xl border border-[#d8e2da] bg-[#f4f8f3] px-4 py-3 text-sm leading-6 text-[#43554f]" aria-label={`Human review guidance for record ${event.id}`}>
                               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium uppercase tracking-[0.12em] text-[#52665f]">

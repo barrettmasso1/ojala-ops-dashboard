@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -9,6 +10,7 @@ import {
   getCompactSnapshotName,
   getFlavorPreviewPosition,
   getSnapshotValueClassName,
+  nativePhotoEvidenceLabel,
   rebuildSubmissionFormFromEditor,
 } from "./ManagerDashboard";
 
@@ -202,5 +204,53 @@ describe("manager dashboard layout helpers", () => {
     }];
     expect(buildSelectedDayStaffActivityRows(staff, "America/Mazatlan")[0].checkInLabel).toContain("9:00");
     expect(buildSelectedDayStaffActivityRows(staff, "America/Los_Angeles")[0].checkInLabel).toContain("8:00");
+  });
+
+  it("presents strict native proof as local signals without claiming a computed visible quantity", () => {
+    const native = nativePhotoEvidenceLabel("native_local_cv_only_v1:proof-observation", "approved_by_ai", { status: "verified" });
+
+    expect(native).toMatchObject({
+      observationId: "proof-observation",
+      badge: "Locally verified",
+      verifiedLocally: true,
+      hasHumanDecision: false,
+      proofSignal: "Validated by strict local proof",
+    });
+    expect(native?.status).toContain("no requiere aprobación humana");
+  });
+
+  it.each(["approved_by_manager", "discarded_by_manager"] as const)("prioritizes the actual human override %s over native pending or proof labels", status => {
+    const native = nativePhotoEvidenceLabel("native_local_cv_only_v1:friday-reviewed", status, { status: "verified" });
+
+    expect(native?.badge).toBe(status === "approved_by_manager" ? "Approved by manager" : "Discarded by manager");
+    expect(native?.status).toContain("decisión humana conservada");
+    expect(native?.badge).not.toContain("Local validation pending");
+  });
+
+  it("keeps a marker-linked native photo in native presentation while local proof is pending", () => {
+    const native = nativePhotoEvidenceLabel("native_local_cv_only_v1:queued-observation", "pending_review", null);
+
+    expect(native).toMatchObject({ badge: "Local validation pending", proofSignal: "Awaiting local proof", verifiedLocally: false });
+    expect(native?.status).toContain("no requiere aprobación humana");
+    expect(nativePhotoEvidenceLabel("verified_snapshot", "pending_review", { status: "verified" })).toBeNull();
+  });
+
+  it("gates native corrections inside closed details and never renders legacy cloud zero fields in the native signal branch", () => {
+    const source = readFileSync(new URL("./ManagerDashboard.tsx", import.meta.url), "utf8");
+    const signalsStart = source.indexOf('{nativeLabel ? (\n                            <div className="mt-5 grid');
+    const signalsEnd = source.indexOf('\n                          ) : (\n                            <div className="mt-5 grid', signalsStart);
+    const nativeSignals = source.slice(signalsStart, signalsEnd);
+    const correctionsStart = source.indexOf('{nativeLabel ? (\n                            <details', signalsEnd);
+    const correctionsEnd = source.indexOf('\n                          ) : <CupDescriptionsEditor', correctionsStart);
+    const nativeCorrections = source.slice(correctionsStart, correctionsEnd);
+
+    expect(nativeSignals).toContain("Total visible quantity: Not computed");
+    for (const legacyField of ["event.personPresent", "event.gelatoCupPresent", "event.cupInHandoffZone", "event.visibleCupCount"]) {
+      expect(nativeSignals).not.toContain(legacyField);
+    }
+    expect(source).toContain('const canReview = !nativeLabel');
+    expect(nativeCorrections).toContain("<details");
+    expect(nativeCorrections).not.toMatch(/<details[^>]*\bopen\b/);
+    expect(nativeCorrections).toContain("Optional size-description corrections");
   });
 });
