@@ -349,8 +349,12 @@ function parseRecord(record: CounterPickupRecord, document: CounterPickupDocumen
   if (seedMs > nowMs + 120_000 || getBusinessDate(new Date(seedMs), policy.timezone) !== document.businessDate) throw new Error("pickup_seed_business_date");
   if (record.samples.length > 0 && record.segments.length === 0) throw new Error("pickup_samples_without_segments");
   let previousSegmentEnd = -Infinity;
+  let previousSegmentStart = -Infinity;
+  const segmentPaths = new Set<string>();
   for (const segment of record.segments) {
-    if (segment.start < previousSegmentEnd) throw new Error("pickup_segment_order");
+    if (segment.start <= previousSegmentStart || segment.start < previousSegmentEnd - 0.5 || segmentPaths.has(segment.path)) throw new Error("pickup_segment_order");
+    previousSegmentStart = segment.start;
+    segmentPaths.add(segment.path);
     if (segment.start * 1_000 > nowMs + 120_000 || segment.end * 1_000 > nowMs + 120_000
         || getBusinessDate(new Date(segment.start * 1_000), policy.timezone) !== document.businessDate
         || getBusinessDate(new Date(segment.end * 1_000), policy.timezone) !== document.businessDate) {
@@ -468,6 +472,7 @@ export async function parseCounterPickupDocument(input: CounterPickupInput, stor
     const currentSample = current.record.samples.find(sample => sample.at === current.completedAt)!;
     const point = boxPoint(currentSample.box);
     for (const prior of accepted.slice(0, index)) {
+      if (!prior.contributes || prior.completedAt === null) continue;
       const priorSample = prior.record.samples.find(sample => sample.at === prior.completedAt)!;
       const priorPoint = boxPoint(priorSample.box);
       if (Math.abs(Date.parse(current.completedAt!) - Date.parse(prior.completedAt!)) <= 2_000 && Math.hypot(point[0] - priorPoint[0], point[1] - priorPoint[1]) < 0.025) {
