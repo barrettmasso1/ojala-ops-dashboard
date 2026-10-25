@@ -37,4 +37,9 @@ class JobTests(unittest.TestCase):
  def test_stale_thermal_data_pauses(self):self.assertEqual(thermal_state(self.health(72,5,181),T),'paused_health_unavailable')
  def test_no_records_have_partial_not_whole_day_scope(self):
   d=self.jobs.document('2026-10-24',P);self.assertEqual(d['records'],[]);self.assertFalse(d['coversWholeBusinessDay']);self.assertFalse(d['physicalUniqueCountCertified'])
+ def test_empty_worker_does_not_report_zero_estimate(self):
+  import inspect,run_pickups
+  source=inspect.getsource(run_pickups.main)
+  self.assertIn("local['estimatedPickups'] if document['records'] else None",source)
+
 if __name__=='__main__':unittest.main()

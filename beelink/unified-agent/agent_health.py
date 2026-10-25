@@ -55,6 +55,17 @@ def summarize(records,services,now,day,store,device):
     backlog=sum(v for k,v in counts.items() if k in ('queued','delivery_unknown') and type(v) is int and v>=0)
     for unit in UNITS:
         if services.get(unit)!='active':issues.append('service_not_active:'+unit)
+    optical=records.get('opticalPickup')
+    if 'opticalPickup' in records:
+        valid=fresh(optical,now,150)
+        components['opticalPickup']={'available':isinstance(optical,dict),'fresh':valid,'reportedStatus':optical.get('status') if isinstance(optical,dict) else None,'checkedAt':optical.get('checkedAt') if isinstance(optical,dict) else None}
+        if not valid:issues.append('optical_pickup_missing_or_stale')
+        if services.get('ojala-optical-pickup.service')!='active':issues.append('service_not_active:ojala-optical-pickup.service')
+        if isinstance(optical,dict):
+            if optical.get('status')!='running':issues.append('optical_pickup_'+str(optical.get('status','unknown')))
+            if (optical.get('transport') or {}).get('status')!='acknowledged':issues.append('optical_pickup_not_received')
+            if optical.get('businessDate')!=day:issues.append('optical_pickup_wrong_day')
+            if (optical.get('jobs') or {}).get('blocked',0):issues.append('optical_pickup_candidates_blocked')
     calibration=records.get('calibration') or {};supported=[s for s in calibration.get('supportedCategories',[]) if s in ('chico','mediano','pint','litro')]
     missing=[s for s in ('chico','mediano','pint','litro') if s not in supported]
     return {'protocol':VERSION,'checkedAt':datetime.fromtimestamp(now,timezone.utc).isoformat(),'businessDate':day,'storeId':store,'deviceId':device,
@@ -62,6 +73,7 @@ def summarize(records,services,now,day,store,device):
         'cameraScheduledActive':operating,'processFps':camera.get('process_fps'),'temperatureC':temp,
         'todayLedgerAcknowledged':bool(today) and all(r.get('status')=='acknowledged' for r in today),'photoQueue':counts,'photoBacklog':backlog,'photoAutomaticValidation':validation_counts,
         'locallySupportedSizes':supported,'sizesNotYetValidated':missing,'uniquePhysicalCountValidated':False,'commercialAcceptanceComplete':False,
+        'opticalPickup':{k:optical.get(k) for k in ['status','businessDate','jobs','estimatedPickups','sizeBreakdown','unresolved','transport','coversWholeBusinessDay']} if isinstance(optical,dict) else None,
         'cameraObservationsAreSales':False,'generativeAiRequired':False,'browserRequired':False,'externalMessagesSent':False,
         'note':'Technical reception health is separate from counting accuracy, manual tally, POS and billing activation.'}
 
@@ -82,11 +94,12 @@ def cycle(config):
     from package_storage import verify_external
     verify_external(base,root,writable=True,required_bytes=8*1024*1024)
     records={k:read_json(Path(v)) for k,v in config['healthSources'].items()}
-    result=subprocess.run(['systemctl','--user','show',*UNITS,'-p','Id','-p','ActiveState'],capture_output=True,text=True,timeout=8)
+    units=UNITS+(('ojala-optical-pickup.service',) if 'opticalPickup' in config['healthSources'] else ())
+    result=subprocess.run(['systemctl','--user','show',*units,'-p','Id','-p','ActiveState'],capture_output=True,text=True,timeout=8)
     services={}
     for part in result.stdout.split('\n\n'):
         fields=dict(line.split('=',1) for line in part.splitlines() if '=' in line)
-        if fields.get('Id') in UNITS:services[fields['Id']]=fields.get('ActiveState','unknown')
+        if fields.get('Id') in units:services[fields['Id']]=fields.get('ActiveState','unknown')
     now=time.time();day=datetime.fromtimestamp(now,ZoneInfo(config['timezone'])).date().isoformat()
     report=summarize(records,services,now,day,config['storeId'],config['deviceId']);atomic(root/'health.json',report);return report
 
