@@ -9,6 +9,7 @@ def baseline():
  r['capture'].update(operating_hours=True,process_fps=5,max_temperature_c=65)
  r['ledgerSync']['results']=[{'businessDate':DAY,'status':'acknowledged'}]
  r['photoSync']['photoStateCounts']={'acknowledged':8}
+ r['photoSync']['automaticValidation']={'status':'checked','states':{'verified':8}}
  r['calibration']['supportedCategories']=['mediano','not_cup']
  return r,{u:'active' for u in UNITS}
 class HealthTests(unittest.TestCase):
@@ -53,4 +54,15 @@ class HealthTests(unittest.TestCase):
   r,s=baseline();r['archive']['archive_bytes']=96;self.assertIn('recording_archive_quota_nearly_full',self.report(r,s)['issues'])
  def test_archive_timestamp_format_is_supported(self):
   r,s=baseline();r['archive'].pop('checkedAt');r['archive']['checked_at_utc']=at();self.assertNotIn('archive_missing_or_stale',self.report(r,s)['issues'])
+ def test_receiving_photo_without_automatic_validation_is_not_green(self):
+  r,s=baseline();r['photoSync'].pop('automaticValidation');self.assertIn('photo_automatic_validation_missing',self.report(r,s)['issues'])
+ def test_automatic_approval_block_is_visible(self):
+  r,s=baseline();r['photoSync']['automaticValidation']['states']={'blocked':1};self.assertIn('photo_automatic_validation_blocked',self.report(r,s)['issues'])
+ def test_disabled_auto_validation_is_visible(self):
+  r,s=baseline();r['photoSync']['automaticValidation']['status']='disabled';self.assertIn('photo_automatic_validation_disabled',self.report(r,s)['issues'])
+ def test_unknown_auto_receipt_is_not_success(self):
+  r,s=baseline();r['photoSync']['automaticValidation']['states']={'unknown':1};self.assertIn('photo_automatic_validation_readback_pending',self.report(r,s)['issues'])
+ def test_human_decisions_are_not_counted_as_machine_validations(self):
+  r,s=baseline();r['photoSync']['automaticValidation']['states']={'verified':2,'preserved_manual':3};self.assertEqual(self.report(r,s)['photoAutomaticValidation'],{'verified':2,'preserved_manual':3})
+
 if __name__=='__main__':unittest.main()

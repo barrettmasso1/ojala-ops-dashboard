@@ -126,6 +126,8 @@ def main():
  verify_external(base,root,writable=True,required_bytes=32*1024*1024);root.mkdir(mode=0o700,parents=True,exist_ok=True);require(1<=a.limit<=2,'photo_batch_limit')
  with (root/'worker.lock').open('a') as lock:
   fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);q=PhotoQueue(root/'photos.sqlite3');transport=PhotoHttp(c['apiOrigin'],c['machineCredentialFile'],c['storeId']);stop=[False]
+  from native_photo_validation import AutomaticPhotoValidation
+  validation=AutomaticPhotoValidation(q.db)
   def finish(*_):stop[0]=True
   signal.signal(signal.SIGTERM,finish);signal.signal(signal.SIGINT,finish)
   try:
@@ -135,6 +137,11 @@ def main():
     if (root/'authorization-hold.json').exists():result={'status':'authorization_hold','networkAttempted':False}
     else:result=q.cycle(transport,c,lambda o:photo_payload(o,ledger_root,base,c['timezone']),limit=a.limit)
     if result.get('status')=='authorization_hold' and result.get('holdReason'):atomic(root/'authorization-hold.json',{'createdAt':datetime.now(timezone.utc).isoformat(),'reason':result['holdReason'],'requiresSupportedCorrection':True})
+    if (root/'authorization-hold.json').exists():auto_result={'status':'authorization_hold','networkAttempted':False}
+    else:auto_result=validation.cycle(transport,c,limit=a.limit)
+    if auto_result.get('status')=='authorization_hold' and auto_result.get('holdReason'):atomic(root/'authorization-hold.json',{'createdAt':datetime.now(timezone.utc).isoformat(),'reason':auto_result['holdReason'],'requiresSupportedCorrection':True})
+    result['automaticValidation']=auto_result
+    if result.get('status')=='checked' and (auto_result.get('status') not in ('checked','disabled') or auto_result.get('states',{}).get('blocked',0)>0):result['status']='attention_required'
     report={'checkedAt':datetime.now(timezone.utc).isoformat(),'browserRequired':False,'externalAiRequired':False,'physicalCountCreated':False,'photoStateCounts':dict(q.db.execute('SELECT status,count(*) FROM photos GROUP BY status').fetchall()),**result};atomic(root/'health.json',report)
     if not a.daemon:print(canonical(report),flush=True);break
     for _ in range(20):
