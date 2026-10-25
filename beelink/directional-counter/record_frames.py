@@ -42,6 +42,7 @@ def main():
                 if sum(x.stat().st_size for x in root.glob('frames.sqlite3*'))>=int(c.get('maxDatabaseBytes',256*1024*1024)):
                     atomic(root/'frame-health.json',{'checkedAt':stamp(time.time()),'status':'paused_metadata_quota','originalsDeleted':False});return 2
                 source=Path(c['sourceFile']).read_text()
+                child_started=time.monotonic()
                 child=subprocess.Popen(['docker','exec','-i','frigate','python3','-B','-u','-'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,bufsize=0)
                 child.stdin.write(source.encode());child.stdin.close();os.set_blocking(child.stdout.fileno(),False)
                 selector=selectors.DefaultSelector();selector.register(child.stdout,selectors.EVENT_READ);buffer=b''
@@ -73,7 +74,7 @@ def main():
                     except subprocess.TimeoutExpired:child.kill()
                 db.execute('UPDATE sessions SET ended_at=? WHERE id=?',(time.time(),session));db.commit()
                 if not stop[0]:
-                    for _ in range(120):
+                    for _ in range(4 if time.monotonic()-child_started>=3000 else 120):
                         if stop[0]:break
                         time.sleep(.25)
         finally:
