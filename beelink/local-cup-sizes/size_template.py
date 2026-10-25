@@ -65,7 +65,7 @@ def fit(references,binding,annotation_sha):
             radius=min(.12,min(negatives)*.5) if negatives else 0.0
             level='single_reference_only' if len(own)==1 else 'near_reference_only'
         if wrong:radius=min(radius,min(r['distance'] for r in wrong)*.8)
-        policies[size]={'radius':max(0,round(radius,7)),'minimumMargin':MIN_MARGIN,'referenceImages':len(own),'referenceScenes':scenes,'validationLevel':level,'calibrationCorrectAccepted':len(good),'calibrationWrongAccepted':len(wrong)}
+        policies[size]={'radius':max(0,round(radius,7)),'minimumMargin':MIN_MARGIN,'referenceImages':len(own),'referenceScenes':scenes,'validationLevel':level,'initialCalibrationCorrectAccepted':len(good),'initialCalibrationWrongAccepted':len(wrong)}
     model={'protocol':PROTOCOL,'classifierVersion':VERSION,'extractor':'bottom_body_hog_070','bodyRatio':BODY_RATIO,'binding':binding,'annotationSha256':annotation_sha,'references':refs,'classPolicies':policies,'calibrationDiagnostics':diagnostics,'labelSource':'owner_confirmed_capacity','generalizationValidated':False,'similarityIsProbability':False,'runtimeGenerativeAi':False}
     return {'model':model,'modelSha256':sha(canonical(model))}
 

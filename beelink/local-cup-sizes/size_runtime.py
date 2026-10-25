@@ -1,7 +1,8 @@
-"""Optional local size inference for the detection collector.
+"""Primary local size inference with an optional explicitly provisional fallback.
 
-Without a validated owner-labeled model it returns no assignment. It never adds
-an image, source event, physical delivery, POS record or unconfirmed size.
+Owner reviews and the primary matcher take precedence. No image, source event,
+physical delivery or POS record is created. Low-data fallback estimates are
+marked provisional; ambiguity remains unknown and is never a measured volume.
 """
 from pathlib import Path
 import json
