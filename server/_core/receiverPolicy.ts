@@ -4,6 +4,7 @@ const receiverProcedureMethods = {
   "/frigate.ingestionCapabilities": ["GET"],
   "/frigate.localEvidenceCapabilities": ["GET"],
   "/frigate.submitLocalCupEvidence": ["POST"],
+  "/frigate.finalizeLocalCupEvidence": ["POST"],
   "/frigate.localCupEvidenceReceipt": ["POST"],
 } as const;
 

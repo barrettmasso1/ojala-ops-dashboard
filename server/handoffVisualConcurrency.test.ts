@@ -36,6 +36,12 @@ describe("handoff visual concurrency guards (source-level database contract)", (
     expect(dbSource).toContain('LEFT(${frigateHandoffVisualEvents.sourceDetail}, ${NATIVE_LOCAL_EVIDENCE_SOURCE_PREFIX.length}) <> ${NATIVE_LOCAL_EVIDENCE_SOURCE_PREFIX}');
     expect(routerSource).toContain('Native local evidence cannot enter visual analysis');
     expect(analysisSource).toContain('disposition: "native_local_only" as const');
+    expect(dbSource).toContain("export async function finalizeLocalCupEvidence");
+    expect(dbSource).toContain('analysisStatus: "approved_by_ai"');
+    expect(dbSource).toContain("NATIVE_LOCAL_PROOF_MODEL");
+    expect(dbSource).toContain("isNull(frigateHandoffVisualEvents.reviewedAt)");
+    expect(dbSource).toContain("isNull(frigateHandoffVisualEvents.reviewedByUserId)");
+    expect(routerSource).toContain('finalizeEndpoint:"frigate.finalizeLocalCupEvidence"');
   });
 });
 

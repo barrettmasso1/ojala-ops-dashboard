@@ -1,6 +1,8 @@
 import type { CupDescriptionView } from "@shared/cupDescriptions";
 export type HandoffVisualEvidenceStatusCounts = {
   pendingReview: number;
+  nativeLocalPending?: number;
+  nativeLocalVerified?: number;
   approvedByAi: number;
   approvedByManager: number;
   discardedByAi: number;
@@ -17,6 +19,17 @@ export type HandoffVisualEvidenceThumbnail = {
   receivedAt: string | Date | null;
   imageUrl: string | null;
   cupDescriptions?: CupDescriptionView[];
+  automaticValidation?: {
+    protocol: "ojala_local_automatic_validation_v1";
+    status: "verified";
+    requiredHumanAction: false;
+    observationId: string;
+    imageSha256: string;
+    externalAiInvoked: false;
+    method: "persisted_local_cv_proof";
+    analysisModel: "ojala_local_cv_proof_v1";
+    validatedAt: string;
+  } | null;
 };
 
 export type HandoffVisualEvidenceOverview = {
@@ -62,6 +75,8 @@ export function buildHandoffVisualEvidencePresentation(input: {
     total: safeCount(source?.total),
     statusCounts: {
       pendingReview: safeCount(source?.statusCounts?.pendingReview),
+      nativeLocalPending: safeCount(source?.statusCounts?.nativeLocalPending),
+      nativeLocalVerified: safeCount(source?.statusCounts?.nativeLocalVerified),
       approvedByAi: safeCount(source?.statusCounts?.approvedByAi),
       approvedByManager: safeCount(source?.statusCounts?.approvedByManager),
       discardedByAi: safeCount(source?.statusCounts?.discardedByAi),

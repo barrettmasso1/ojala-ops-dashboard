@@ -124,13 +124,20 @@ function handoffEvidenceOriginLabel(origin: string | null | undefined) {
     : "Automatic verified snapshot";
 }
 
-function nativePhotoEvidenceLabel(sourceDetail: string | null | undefined, status: HandoffVisualStatus) {
+function nativePhotoEvidenceLabel(sourceDetail: string | null | undefined, status: HandoffVisualStatus, automaticValidation?: { status?: string } | null) {
   const prefix = "native_local_cv_only_v1:";
   if (!sourceDetail?.startsWith(prefix)) return null;
   const observationId = sourceDetail.slice(prefix.length);
+  const verifiedLocally = automaticValidation?.status === "verified";
   return {
     observationId,
-    status: status === "pending_review" ? "Foto recibida · validación local · revisión humana pendiente" : "Foto recibida · validación local · decisión humana registrada",
+    status: verifiedLocally
+      ? status === "approved_by_manager" || status === "discarded_by_manager"
+        ? "Foto recibida · verificada automáticamente por CV local · decisión humana conservada"
+        : "Foto recibida · verificada automáticamente por CV local · no requiere aprobación humana"
+      : status === "pending_review"
+        ? "Foto recibida · pendiente de verificación automática local · sin IA cloud ni aprobación humana"
+        : "Foto recibida · validación local no emitida · decisión humana registrada",
   };
 }
 
@@ -594,11 +601,13 @@ function HandoffVisualEvidenceOverviewPanel({
   }
 
   const { summary } = presentation;
+  const legacyPendingReview = Math.max(0, summary.statusCounts.pendingReview - (summary.statusCounts.nativeLocalPending ?? 0));
   const statuses = [
-    { label: "AI approved", value: summary.statusCounts.approvedByAi },
+    { label: "Locally verified", value: summary.statusCounts.nativeLocalVerified ?? summary.statusCounts.approvedByAi },
+    { label: "Local validation pending", value: summary.statusCounts.nativeLocalPending ?? 0 },
     { label: "Manager approved", value: summary.statusCounts.approvedByManager },
     { label: "Discarded", value: summary.statusCounts.discardedByAi + summary.statusCounts.discardedByManager },
-    { label: "Pending review", value: summary.statusCounts.pendingReview },
+    { label: "Pending review", value: legacyPendingReview },
   ];
 
   return (
@@ -642,10 +651,10 @@ function HandoffVisualEvidenceOverviewPanel({
                   {thumbnail.imageUrl ? <img src={thumbnail.imageUrl} alt={`Handoff evidence ${thumbnail.cupEventId}`} loading="lazy" decoding="async" className="aspect-[4/3] w-full bg-[#f4ede2] object-cover" /> : null}
                   <div className="p-4">
                     <p className="truncate text-sm font-medium text-[#24332f]" title={thumbnail.cupEventId}>{thumbnail.cupEventId}</p>
-                    {nativePhotoEvidenceLabel(thumbnail.sourceDetail, thumbnail.analysisStatus) ? (
+                    {nativePhotoEvidenceLabel(thumbnail.sourceDetail, thumbnail.analysisStatus, thumbnail.automaticValidation) ? (
                       <>
-                        <p className="mt-2 text-xs leading-5 text-[#3f6747]">{nativePhotoEvidenceLabel(thumbnail.sourceDetail, thumbnail.analysisStatus)!.status}</p>
-                        <p className="mt-1 break-all text-[11px] leading-5 text-[#68716b]">Ledger observationId: {nativePhotoEvidenceLabel(thumbnail.sourceDetail, thumbnail.analysisStatus)!.observationId} · sourceEventId: {thumbnail.cupEventId} · imageSha256: {thumbnail.imageSha256 ?? "No disponible"}</p>
+                        <p className="mt-2 text-xs leading-5 text-[#3f6747]">{nativePhotoEvidenceLabel(thumbnail.sourceDetail, thumbnail.analysisStatus, thumbnail.automaticValidation)!.status}</p>
+                        <p className="mt-1 break-all text-[11px] leading-5 text-[#68716b]">Ledger observationId: {nativePhotoEvidenceLabel(thumbnail.sourceDetail, thumbnail.analysisStatus, thumbnail.automaticValidation)!.observationId} · sourceEventId: {thumbnail.cupEventId} · imageSha256: {thumbnail.imageSha256 ?? "No disponible"}</p>
                       </>
                     ) : <p className="mt-2 text-xs leading-5 text-[#68716b]">{handoffVisualStatusLabel(thumbnail.analysisStatus)} · {handoffEvidenceOriginLabel(thumbnail.evidenceOrigin)}</p>}
                     <CupDescriptionSummary items={thumbnail.cupDescriptions} />
@@ -1555,8 +1564,11 @@ export default function ManagerDashboard() {
   const openingChecklistQuestions = openingChecklistQuery.data ?? [];
   const closingChecklistQuestions = closingChecklistQuery.data ?? [];
   const handoffVisualEvents = handoffVisualEventsQuery.data ?? [];
-  const handoffPendingCount = handoffVisualEvents.filter(event => event.analysisStatus === "pending_review").length;
-  const handoffApprovedCount = handoffVisualEvents.filter(event => event.analysisStatus === "approved_by_ai" || event.analysisStatus === "approved_by_manager").length;
+  const nativeHandoffEvents = handoffVisualEvents.filter(event => event.sourceDetail?.startsWith("native_local_cv_only_v1:"));
+  const handoffLocalVerifiedCount = nativeHandoffEvents.filter(event => event.automaticValidation?.status === "verified").length;
+  const handoffLocalPendingCount = nativeHandoffEvents.filter(event => event.analysisStatus === "pending_review" && event.automaticValidation?.status !== "verified").length;
+  const handoffPendingCount = handoffVisualEvents.filter(event => !event.sourceDetail?.startsWith("native_local_cv_only_v1:") && event.analysisStatus === "pending_review").length;
+  const handoffApprovedCount = handoffVisualEvents.filter(event => !event.sourceDetail?.startsWith("native_local_cv_only_v1:") && (event.analysisStatus === "approved_by_ai" || event.analysisStatus === "approved_by_manager")).length;
   const handoffDiscardedCount = handoffVisualEvents.filter(event => event.analysisStatus === "discarded" || event.analysisStatus === "discarded_by_manager").length;
   const filteredManagerInventoryItems = inventoryItems
     .filter(item =>
@@ -1634,8 +1646,10 @@ export default function ManagerDashboard() {
             ]
           : isHandoffReviewRoute
             ? [
-                { label: "Pending review", value: handoffPendingCount.toString(), helper: "Ambiguous or temporarily unavailable AI cases." },
-                { label: "Approved visual evidence", value: handoffApprovedCount.toString(), helper: "AI- or manager-approved images only; not delivery counts." },
+                { label: "Pending review", value: handoffPendingCount.toString(), helper: "Cloud/manual evidence only; native photos use local validation." },
+                { label: "Locally verified photos", value: handoffLocalVerifiedCount.toString(), helper: "Native local proof; no human approval, sales, deliveries, or physical counts." },
+                { label: "Local validation pending", value: handoffLocalPendingCount.toString(), helper: "Native photos received; no cloud analysis or manager action is requested." },
+                { label: "Approved visual evidence", value: handoffApprovedCount.toString(), helper: "Legacy AI- or manager-approved images only; not delivery counts." },
                 { label: "Discarded evidence", value: handoffDiscardedCount.toString(), helper: "Rejected lamps, arms, and non-cup observations." },
                 { label: "Verified snapshots", value: handoffVisualEvents.length.toString(), helper: `Received for ${selectedDate} from the handoff sender.` },
               ]
@@ -3581,7 +3595,8 @@ export default function ManagerDashboard() {
               ) : (
                 handoffVisualEvents.map(event => {
                   const status = event.analysisStatus as HandoffVisualStatus;
-                  const canReview = status === "pending_review" || status === "approved_by_ai" || status === "discarded";
+                  const nativeLabel = nativePhotoEvidenceLabel(event.sourceDetail, status, event.automaticValidation);
+                  const canReview = !nativeLabel && (status === "pending_review" || status === "approved_by_ai" || status === "discarded");
                   const humanReview = event.humanReviewContext;
                   return (
                     <article key={event.id} className="overflow-hidden rounded-[1.6rem] border border-[#e4dccf] bg-[#fcfaf6] shadow-sm">
@@ -3600,7 +3615,7 @@ export default function ManagerDashboard() {
                               <p className="mt-2 text-sm text-[#66706a]">Record #{event.id} · Local capture {formatDateTime(event.capturedAt, timeZone)} · Event {event.cupEventId}</p>
                               <p className="mt-1 text-xs font-medium uppercase tracking-[0.12em] text-[#68716c]">{handoffEvidenceOriginLabel(event.evidenceOrigin)}</p>
                             </div>
-                            <span className={`w-max rounded-full border px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] ${handoffVisualStatusClass(status)}`}>{handoffVisualStatusLabel(status)}</span>
+                            <span className={`w-max rounded-full border px-3 py-1 text-[11px] font-medium uppercase tracking-[0.16em] ${handoffVisualStatusClass(status)}`}>{nativeLabel ? (event.automaticValidation?.status === "verified" ? "Locally verified" : "Local validation pending") : handoffVisualStatusLabel(status)}</span>
                           </div>
 
                           <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -3610,7 +3625,8 @@ export default function ManagerDashboard() {
                             <div className="rounded-2xl border border-[#e5ddd0] bg-white/85 p-3"><p className="text-[10px] uppercase tracking-[0.18em] text-[#8a9089]">Visible cups</p><p className="mt-1 font-medium text-[#24332f]">{event.visibleCupCount}</p></div>
                           </div>
 
-                          <p className="mt-4 rounded-2xl border border-[#e5ddd0] bg-white/75 px-4 py-3 text-sm leading-6 text-[#56635d]">{event.analysisReason || "Awaiting analysis."}</p>
+                          <p className="mt-4 rounded-2xl border border-[#e5ddd0] bg-white/75 px-4 py-3 text-sm leading-6 text-[#56635d]">{nativeLabel ? nativeLabel.status : event.analysisReason || "Awaiting analysis."}</p>
+                          {nativeLabel ? <p className="mt-3 rounded-2xl border border-[#d8e2da] bg-[#f4f8f3] px-4 py-3 text-sm leading-6 text-[#43554f]">This photo is linked to the authenticated local ledger observation. Automatic validation never creates sales, deliveries, physical counts, or a manager decision.</p> : null}
                           <CupDescriptionSummary items={event.cupDescriptions} />
                           <CupDescriptionsEditor eventId={event.id} businessDate={event.businessDate}
                             items={event.cupDescriptions} revision={event.cupDescriptionRevision} malformed={event.cupDescriptionsMalformed} />

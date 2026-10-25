@@ -2,6 +2,7 @@ import { parseAutoCupSizes, automaticDescriptionView, summarizeCameraSizes } fro
 import { describeCameraCups, encodeCupReviewNotes, parseCupReviewNotes, preserveDescriptionsWithNote, validateCupDescriptions, type CupDescription } from "../shared/cupDescriptions";
 import { DEFERRED_SOURCE_PREFIX, MAX_DEFERRED_ANALYSIS_ATTEMPTS } from "./handoffDurableReceipt";
 import { NATIVE_LOCAL_EVIDENCE_SOURCE_PREFIX, isNativeLocalEvidenceSource } from "./nativeLocalEvidence";
+import { NATIVE_LOCAL_PROOF_MODEL, nativeAutomaticValidationView, parseNativeAutomaticValidationProof, type NativeAutomaticValidationProof } from "./nativeLocalEvidence";
 import { and, count, desc, eq, gte, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { createHash, randomUUID } from "node:crypto";
 import { drizzle } from "drizzle-orm/mysql2";
@@ -2610,6 +2611,7 @@ function handoffVisualPublicRow(row: typeof frigateHandoffVisualEvents.$inferSel
     cupDescriptionsUpdatedAt: parsed.annotation?.updatedAt ?? null,
     cupDescriptionsMalformed: parsed.malformed,
     imageUrl: row.imageKey ? `/manus-storage/${row.imageKey}` : null,
+    automaticValidation: nativeAutomaticValidationView(row),
   };
 }
 
@@ -2712,6 +2714,65 @@ export async function reserveHandoffVisualEvent(input: {
   const created = await db.select().from(frigateHandoffVisualEvents).where(where).limit(1);
   if (!created[0]) throw new Error("Unable to reserve handoff visual event");
   return { event: created[0], created: true };
+}
+
+/**
+ * Persists only a server-built local proof. This is deliberately separate from
+ * the generic visual-analysis finalizer: no caller can manufacture an
+ * native approved_by_ai row, and manager review fields are never part of this
+ * CAS. Legacy cloud finalization remains on its existing path unchanged.
+ */
+export async function finalizeLocalCupEvidence(input: {
+  id: number;
+  storeId: number;
+  sourceDetail: string;
+  imageSha256: string;
+  proof: NativeAutomaticValidationProof;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const storeId = requireStoreId(input.storeId);
+  if (!isNativeLocalEvidenceSource(input.sourceDetail)) throw new Error("native_evidence_source_conflict");
+  const proof = parseNativeAutomaticValidationProof(input.proof);
+  if (proof.sourceDetail !== input.sourceDetail || proof.imageSha256 !== input.imageSha256 || proof.analysisModel !== NATIVE_LOCAL_PROOF_MODEL) {
+    throw new Error("native_evidence_proof_binding_mismatch");
+  }
+  const proofJson = JSON.stringify(proof);
+  const result = await db.update(frigateHandoffVisualEvents).set({
+    analysisStatus: "approved_by_ai",
+    analysisModel: NATIVE_LOCAL_PROOF_MODEL,
+    analysisEvidenceJson: proofJson,
+    analysisAttempts: 1,
+    nextRetryAt: null,
+    analysisLeaseUntil: null,
+    analysisLeaseToken: null,
+    lastAnalysisError: null,
+  }).where(and(
+    eq(frigateHandoffVisualEvents.id, input.id),
+    eq(frigateHandoffVisualEvents.storeId, storeId),
+    eq(frigateHandoffVisualEvents.sourceDetail, input.sourceDetail),
+    eq(frigateHandoffVisualEvents.imageSha256, input.imageSha256),
+    eq(frigateHandoffVisualEvents.analysisStatus, "pending_review"),
+    eq(frigateHandoffVisualEvents.analysisAttempts, 0),
+    isNull(frigateHandoffVisualEvents.reviewedAt),
+    isNull(frigateHandoffVisualEvents.reviewedByUserId),
+    isNotNull(frigateHandoffVisualEvents.imageKey),
+  ));
+  const header = Array.isArray(result) ? result[0] : result;
+  const saved = await getHandoffVisualEventById({ id: input.id, storeId });
+  if (!saved) throw new Error("Handoff visual event was not found in this store");
+  const sameProof = saved.sourceDetail === input.sourceDetail
+    && saved.imageSha256 === input.imageSha256
+    && saved.analysisModel === NATIVE_LOCAL_PROOF_MODEL
+    && saved.analysisEvidenceJson === proofJson
+    && saved.analysisAttempts === 1;
+  if (Number((header as { affectedRows?: number } | undefined)?.affectedRows ?? 0) === 1 || sameProof) return saved;
+  // A manager may have made a terminal decision between the CAS and readback.
+  // Never overwrite it; the caller can still build the preserved receipt.
+  if (saved.sourceDetail === input.sourceDetail && saved.imageSha256 === input.imageSha256
+      && saved.analysisModel === NATIVE_LOCAL_PROOF_MODEL && saved.analysisEvidenceJson === proofJson
+      && saved.analysisAttempts === 1) return saved;
+  return null;
 }
 
 /** Binds an unconfigured pending event to a real zone exactly once. */
@@ -2998,6 +3059,8 @@ export async function getHandoffVisualEvidenceOverview(input: {
     .select({
       total: count(),
       pendingReview: sql<number>`SUM(CASE WHEN ${frigateHandoffVisualEvents.analysisStatus} = 'pending_review' THEN 1 ELSE 0 END)`,
+      nativeLocalPending: sql<number>`SUM(CASE WHEN ${frigateHandoffVisualEvents.analysisStatus} = 'pending_review' AND LEFT(${frigateHandoffVisualEvents.sourceDetail}, ${NATIVE_LOCAL_EVIDENCE_SOURCE_PREFIX.length}) = ${NATIVE_LOCAL_EVIDENCE_SOURCE_PREFIX} THEN 1 ELSE 0 END)`,
+      nativeLocalVerified: sql<number>`SUM(CASE WHEN ${frigateHandoffVisualEvents.analysisAttempts} = 1 AND ${frigateHandoffVisualEvents.analysisModel} = ${NATIVE_LOCAL_PROOF_MODEL} AND LEFT(${frigateHandoffVisualEvents.sourceDetail}, ${NATIVE_LOCAL_EVIDENCE_SOURCE_PREFIX.length}) = ${NATIVE_LOCAL_EVIDENCE_SOURCE_PREFIX} THEN 1 ELSE 0 END)`,
       approvedByAi: sql<number>`SUM(CASE WHEN ${frigateHandoffVisualEvents.analysisStatus} = 'approved_by_ai' THEN 1 ELSE 0 END)`,
       approvedByManager: sql<number>`SUM(CASE WHEN ${frigateHandoffVisualEvents.analysisStatus} = 'approved_by_manager' THEN 1 ELSE 0 END)`,
       discardedByAi: sql<number>`SUM(CASE WHEN ${frigateHandoffVisualEvents.analysisStatus} = 'discarded' THEN 1 ELSE 0 END)`,
@@ -3020,6 +3083,8 @@ export async function getHandoffVisualEvidenceOverview(input: {
     total: Number(aggregate?.total ?? 0),
     statusCounts: {
       pendingReview: Number(aggregate?.pendingReview ?? 0),
+      nativeLocalPending: Number(aggregate?.nativeLocalPending ?? 0),
+      nativeLocalVerified: Number(aggregate?.nativeLocalVerified ?? 0),
       approvedByAi: Number(aggregate?.approvedByAi ?? 0),
       approvedByManager: Number(aggregate?.approvedByManager ?? 0),
       discardedByAi: Number(aggregate?.discardedByAi ?? 0),
@@ -3040,6 +3105,7 @@ export async function getHandoffVisualEvidenceOverview(input: {
         receivedAt: row.receivedAt,
         imageUrl: row.imageUrl,
         cupDescriptions: row.cupDescriptions,
+        automaticValidation: row.automaticValidation,
       };
     }),
   };

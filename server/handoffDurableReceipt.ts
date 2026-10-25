@@ -22,6 +22,9 @@ export type PersistedHandoffRow = {
   cupEventId: string; imageSha256: string | null; imageKey: string | null;
   capturedAt: Date; receivedAt: Date; captureMetadataJson?: string | null;
   evidenceOrigin: string; analysisStatus: string; sourceDetail?: string | null;
+  analysisModel?: string | null; analysisEvidenceJson?: string | null; analysisAttempts?: number;
+  reviewedAt?: Date | null; reviewedByUserId?: number | null; reviewNotes?: string | null;
+  zoneId?: number | null; zoneGeometryVersion?: number | null; zoneGeometryJson?: string | null;
 };
 
 /** A positive receipt is built from a freshly read persisted row, never input alone. */
