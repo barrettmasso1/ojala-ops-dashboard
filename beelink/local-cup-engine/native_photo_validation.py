@@ -23,12 +23,15 @@ def validation_state(receipt,observation,store_id):
     if assessment.get('status')!='verified':return None
     require(assessment.get('protocol')==PROTOCOL,'auto_validation_protocol')
     require(assessment.get('requiredHumanAction') is False,'auto_validation_human_gate')
+    require(assessment.get('method')=='persisted_local_cv_proof' and assessment.get('analysisModel')=='ojala_local_cv_proof_v1','auto_validation_method')
     require(receipt.get('analysisStatus')=='approved_by_ai','auto_validation_status_mismatch')
+    require(receipt.get('unreviewed') is True and receipt.get('reviewedAt') is None and receipt.get('reviewedByUserId') is None,'auto_validation_not_machine_only')
+    require(parse_aware(assessment.get('validatedAt')).timestamp()<=time.time()+120,'auto_validation_future')
     # NativeHttp's parent receipt validator already binds tenant, day, device,
     # event, observation and original image bytes. The server binds the proof.
     for key,expected in [('observationId',observation['observationId']),('imageSha256',observation['sameFrameEvidence']['imageSha256'])]:
-        if key in assessment:require(assessment[key]==expected,'auto_validation_binding_'+key)
-    if 'externalAiInvoked' in assessment:require(assessment['externalAiInvoked'] is False,'auto_validation_external_ai')
+        require(assessment.get(key)==expected,'auto_validation_binding_'+key)
+    require(assessment.get('externalAiInvoked') is False,'auto_validation_external_ai')
     return 'verified'
 
 def finalize_request(transport,observation):

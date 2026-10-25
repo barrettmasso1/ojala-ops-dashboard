@@ -17,8 +17,8 @@ class Fake:
   self.posts+=1;self.payload=payload
   if self.fail in ('http_401','http_403','http_429'):raise SyncError(self.fail)
   if self.fail=='timeout_before_persist':raise SyncError('network_or_response_uncertain')
-  self.saved['analysisStatus']='approved_by_ai'
-  self.saved['automaticValidation']={'protocol':PROTOCOL,'status':'verified','requiredHumanAction':False,'externalAiInvoked':False,'observationId':self.o['observationId'],'imageSha256':self.o['sameFrameEvidence']['imageSha256']}
+  self.saved['analysisStatus']='approved_by_ai';self.saved.update(unreviewed=True,reviewedAt=None,reviewedByUserId=None)
+  self.saved['automaticValidation']={'protocol':PROTOCOL,'status':'verified','requiredHumanAction':False,'method':'persisted_local_cv_proof','analysisModel':'ojala_local_cv_proof_v1','validatedAt':self.saved['receivedAt'],'externalAiInvoked':False,'observationId':self.o['observationId'],'imageSha256':self.o['sameFrameEvidence']['imageSha256']}
   if self.fail in ('http_409','network_or_response_uncertain'):raise SyncError(self.fail)
   return {'success':True,'receipt':copy.deepcopy(self.saved)}
 
