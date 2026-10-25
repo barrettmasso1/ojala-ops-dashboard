@@ -3,6 +3,7 @@
 Original detector and ledger databases remain read-only. Heavy files stay external.
 """
 from pathlib import Path
+from contextlib import closing
 from datetime import datetime,timezone
 from zoneinfo import ZoneInfo
 import argparse,fcntl,hashlib,json,os,signal,sqlite3,sys,time,urllib.request
@@ -25,13 +26,14 @@ def guard_source(c,policy):
     flat=list(map(float,coords.split(',')));polygon=[flat[i:i+2] for i in range(0,len(flat),2)]
     require(polygon==policy['zones']['handoff'],'active_zone_changed')
     require(camera.get('detect',{}).get('width')==policy['width'] and camera.get('detect',{}).get('height')==policy['height'],'active_dimensions_changed')
-    require(hashlib.sha256(Path(c['modelFile']).read_bytes()).hexdigest()==policy['detectorModelSha256'],'active_model_changed')
+    with Path(c['modelFile']).open('rb') as model_file:model_sha=hashlib.file_digest(model_file,'sha256').hexdigest()
+    require(model_sha==policy['detectorModelSha256'],'active_model_changed')
     with urllib.request.urlopen('http://127.0.0.1:5000/api/version',timeout=4) as f:version=f.read(120).decode()
     require(version.startswith('0.17.2-'),'source_version_requires_adapter_review')
     return version
 
 def native_observations(path,day):
-    with sqlite3.connect(path.as_uri()+'?mode=ro',uri=True,timeout=3) as db:
+    with closing(sqlite3.connect(path.as_uri()+'?mode=ro',uri=True,timeout=3)) as db:
         db.execute('PRAGMA query_only=ON')
         return [json.loads(r[0]) for r in db.execute("SELECT o.payload FROM observations o JOIN outbox b ON o.id=b.id AND o.revision=b.revision AND o.payload_sha=b.payload_sha WHERE o.day=? AND b.status='acknowledged'",(day,))]
 
@@ -57,7 +59,7 @@ def main():
                 if time.monotonic()-last_guard>30:
                     version=guard_source(c,policy);last_guard=time.monotonic()
                 frame_path=Path(c['frameDatabase']);require(frame_path.is_file(),'frame_source_not_started')
-                with sqlite3.connect(frame_path.as_uri()+'?mode=ro',uri=True,timeout=3) as frames:
+                with closing(sqlite3.connect(frame_path.as_uri()+'?mode=ro',uri=True,timeout=3)) as frames:
                     frames.execute('PRAGMA query_only=ON')
                     rows=frames.execute('SELECT payload,sha256,received_at FROM frames WHERE frame_at>? ORDER BY frame_at LIMIT 256',(counter.cursor(),)).fetchall()
                 for text,sha,received_at in rows:
@@ -86,6 +88,9 @@ def main():
         except Exception as exc:
             reason=str(exc) if isinstance(exc,ValueError) else type(exc).__name__
             if len(reason)>120 or '://' in reason:reason=type(exc).__name__
-            atomic(root/'health.json',{'checkedAt':iso(time.time()),'status':'paused','reason':reason,'salesCreated':False,'partial':True});raise SystemExit(2)
+            failure={'checkedAt':iso(time.time()),'status':'paused','reason':reason,'salesCreated':False,'partial':True}
+            atomic(root/'health.json',failure)
+            with (root/'failures.jsonl').open('a') as log:log.write(canonical(failure)+'\n');log.flush();os.fsync(log.fileno())
+            print(canonical(failure),flush=True);raise SystemExit(2)
         finally:sync.close();counter.close()
 if __name__=='__main__':main()

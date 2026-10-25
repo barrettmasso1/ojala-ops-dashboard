@@ -27,3 +27,9 @@ sources and all earlier bootstrap/order fixes. See CONTRACT.md for exact API.
 58 local software tests pass using explicitly synthetic fixtures. They are not a
 measurement of accuracy on real handoffs. The real first run observed1569 frames,
 no tracked objects crossing; zero relates only to that partial observed interval.
+
+During deployment QA the new processor exposed a read-connection lifecycle leak.
+Each readonly SQLite handle is now explicitly closed in success/failure paths,
+with two regression tests. Verified open source handles fell from99+99 to0 and
+memory stabilized near20MiB. Streaming detector hash verification and retained
+sanitized failure reports avoid hidden restart causes. Full local suite60 PASS.

@@ -72,7 +72,10 @@ def main():
                     try:child.wait(3)
                     except subprocess.TimeoutExpired:child.kill()
                 db.execute('UPDATE sessions SET ended_at=? WHERE id=?',(time.time(),session));db.commit()
-                if not stop[0]:time.sleep(1)
+                if not stop[0]:
+                    for _ in range(120):
+                        if stop[0]:break
+                        time.sleep(.25)
         finally:
             db.commit();db.close()
             if child and child.poll() is None:
