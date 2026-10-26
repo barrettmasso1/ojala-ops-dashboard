@@ -15,7 +15,7 @@ export type DirectionalHandoffPanelModel = {
   businessDate: string;
   title: "Conteo automático provisional de entregas";
   value: string;
-  label: "Intervalo observado parcial" | "No observado" | "Fecha histórica";
+  label: "Intervalo observado parcial" | "No observado" | "Fecha histórica" | "Sin recorrido concluyente";
   message: string;
   warning: string;
   sizeRows: Array<{ key: DirectionalSize; label: string; value: string }>;
@@ -90,11 +90,21 @@ export function buildDirectionalHandoffPanelModel(
   now = new Date(),
   staleAfterMs = 15_000,
 ): DirectionalHandoffPanelModel {
-  const rows = (Object.keys(DIRECTIONAL_SIZE_LABELS) as DirectionalSize[]).map(key => ({
-    key,
-    label: DIRECTIONAL_SIZE_LABELS[key],
-    value: data?.sizeBreakdown ? String(data.sizeBreakdown[key]) : "—",
-  }));
+  const hasAcceptedEstimate = data?.businessDate === businessDate && typeof data.estimatedHandoffs === "number"
+    && Number.isSafeInteger(data.estimatedHandoffs) && data.estimatedHandoffs > 0;
+  const unresolved = data?.heldCandidateCount ?? 0;
+  const unclassified = data?.sizeBreakdown?.unknown ?? 0;
+  const rows = (Object.keys(DIRECTIONAL_SIZE_LABELS) as DirectionalSize[]).map(key => {
+    const count = data?.sizeBreakdown?.[key];
+    return {
+      key,
+      label: DIRECTIONAL_SIZE_LABELS[key],
+      value: !hasAcceptedEstimate || count == null || !Number.isSafeInteger(count) || count < 0
+        ? "No disponible"
+        : count === 0 && (unresolved > 0 || (key !== "unknown" && unclassified > 0))
+          ? "Sin asignación concluyente" : String(count),
+    };
+  });
   const observed = Boolean(data?.observedFrom && data.observedUntil && data.businessDate === businessDate);
   const records = data?.records ?? [];
   const identityHolds = data?.statusCounts.identity_ambiguous ?? 0;
@@ -118,11 +128,11 @@ export function buildDirectionalHandoffPanelModel(
       lastReceipt: "—",
       connection: queryLabel(queryState, dataUpdatedAt),
       freshness: historical ? "Fecha histórica" : "Sin observación",
-      identityHolds: String(identityHolds),
+      identityHolds: data?.businessDate === businessDate ? String(identityHolds) : "—",
       windowGaps: "—",
       gapDuration: "—",
       droppedFrames: "—",
-      records: String(records.length),
+      records: data?.businessDate === businessDate ? String(records.length) : "—",
       observed: false,
     };
   }
@@ -136,11 +146,12 @@ export function buildDirectionalHandoffPanelModel(
   return {
     businessDate,
     title: "Conteo automático provisional de entregas",
-    value: data.estimatedHandoffs == null ? "—" : String(data.estimatedHandoffs),
-    label: historical ? "Fecha histórica" : "Intervalo observado parcial",
-    message: historical
-      ? "Fecha histórica; la consulta es de lectura y no representa cámara viva. El valor solo corresponde al intervalo observado."
-      : "El valor es solo del intervalo observado. Cero aquí no significa cero entregas del día.",
+    value: hasAcceptedEstimate ? String(data.estimatedHandoffs) : "No disponible",
+    label: historical ? "Fecha histórica" : hasAcceptedEstimate ? "Intervalo observado parcial" : "Sin recorrido concluyente",
+    message: !hasAcceptedEstimate
+      ? `${historical ? "Fecha histórica. " : ""}Llegan metadatos de cámara, pero no hay un recorrido de entrega concluyente. La recepción de fotogramas no demuestra cero entregas. No se sustituyen recorridos por fotos o detecciones.`
+      : `${historical ? "Fecha histórica. " : ""}El valor solo corresponde al intervalo observado, no al total del día.${unresolved > 0 ? ` Quedan ${unresolved} candidatos sin resolver.` : ""}`,
+
     warning: "Estimación geométrica provisional; precisión comercial no validada. No modifica cierres, ventas ni conteos físicos revisados.",
     sizeRows: rows,
     interval: `${dateTimeLabel(data.observedFrom, timeZone)} → ${dateTimeLabel(data.observedUntil, timeZone)}`,

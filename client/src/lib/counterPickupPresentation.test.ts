@@ -28,10 +28,11 @@ const base = {
 };
 
 describe("counter pickup presentation", () => {
-  it("shows a real zero only inside observed candidate windows and never calls it sales", () => {
+  it("does not equate unavailable tracking and zero accepted estimates with zero delivered cups", () => {
     const model = buildCounterPickupPanelModel(base, "2026-10-24", "America/Mazatlan", "live", 1, new Date("2026-10-24T21:00:00.000Z"));
-    expect(model).toMatchObject({ value: "0", label: "Ventanas de video parciales", observed: true, unresolved: "1" });
-    expect(model.message).toContain("Cero");
+    expect(model).toMatchObject({ value: "No disponible", label: "Sin resultado concluyente", observed: true, unresolved: "1" });
+    expect(model.message).toContain("casos siguen sin resolver");
+    expect(model.sizeRows.every(row => row.value === "No disponible")).toBe(true);
     expect(model.warning).toContain("no validado comercialmente");
   });
 
@@ -53,4 +54,17 @@ describe("counter pickup presentation", () => {
     expect(model).toMatchObject({ label: "Fecha histórica", value: "1" });
     expect(model.sizeRows.find(row => row.key === "unknown")).toMatchObject({ label: "Sin clasificar", value: "1" });
   });
+});
+
+describe("incomplete optical zero regressions",()=>{
+ const day="2026-10-24",tz="America/Mazatlan",now=new Date("2026-10-24T21:00:00Z");
+ const render=(data:any,state:any="live")=>buildCounterPickupPanelModel(data,day,tz,state,1,now);
+ it("does not show zeros for 18 inconclusive analyses",()=>{const m=render({...base,unresolvedCount:18,records:Array(18).fill(base.records[0])});expect(m.value).toBe("No disponible");expect(m.unresolved).toBe("18");expect(m.records).toBe("18");});
+ it("preserves a positive partial result without filling unresolved categories",()=>{const m=render({...base,estimatedPickups:2,sizeBreakdown:{...base.sizeBreakdown,chico:2}});expect(m.value).toBe("2");expect(m.sizeRows.find(r=>r.key==="chico")?.value).toBe("2");expect(m.sizeRows.find(r=>r.key==="litro")?.value).toBe("Sin asignaci\u00f3n concluyente");});
+ it("does not call a failed initial query an empty day",()=>{const m=render(undefined,"offline");expect(m.value).toBe("\u2014");expect(m.records).toBe("\u2014");});
+ it("does not leak yesterday's zero or counters into today",()=>{const m=render({...base,businessDate:"2026-10-23"},"stale");expect(m.records).toBe("\u2014");expect(m.observed).toBe(false);});
+ it("retains same-day partial results with an explicit query warning",()=>{const m=render({...base,estimatedPickups:2,sizeBreakdown:{...base.sizeBreakdown,chico:2}},"stale");expect(m.value).toBe("2");expect(m.connection).toContain("fallida");});
+ it("does not turn unknown-sized estimates into zeros of all four capacities",()=>{const m=render({...base,estimatedPickups:1,unresolvedCount:0,sizeBreakdown:{...base.sizeBreakdown,unknown:1}});expect(m.sizeRows.find(r=>r.key==="unknown")?.value).toBe("1");expect(m.sizeRows.find(r=>r.key==="pint")?.value).toBe("Sin asignaci\u00f3n concluyente");});
+ it("preserves real zero buckets when all recorded estimates are classified and resolved",()=>{const m=render({...base,estimatedPickups:1,unresolvedCount:0,sizeBreakdown:{...base.sizeBreakdown,chico:1}});expect(m.sizeRows.find(r=>r.key==="mediano")?.value).toBe("0");});
+ it("does not mutate source counters",()=>{const before=JSON.stringify(base);render(base);expect(JSON.stringify(base)).toBe(before);});
 });

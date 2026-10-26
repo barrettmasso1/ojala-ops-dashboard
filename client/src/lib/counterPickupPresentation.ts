@@ -13,7 +13,7 @@ export type CounterPickupQueryState = "loading" | "live" | "stale" | "offline" |
 export type CounterPickupPanelModel = {
   title: "Retiradas ópticas provisionales";
   value: string;
-  label: "Ventanas de video parciales" | "No observado" | "Registro no disponible" | "Fecha histórica";
+  label: "Ventanas de video parciales" | "No observado" | "Registro no disponible" | "Fecha histórica" | "Sin resultado concluyente";
   message: string;
   warning: string;
   sizeRows: Array<{ key: CounterPickupSize; label: string; value: string }>;
@@ -58,11 +58,21 @@ export function buildCounterPickupPanelModel(
 ): CounterPickupPanelModel {
   const historical = businessDate !== getBusinessDate(now, timeZone);
   const observed = Boolean(data && data.businessDate === businessDate && data.candidateWindows.length > 0);
-  const rows = (Object.keys(COUNTER_PICKUP_SIZE_LABELS) as CounterPickupSize[]).map(key => ({
-    key,
-    label: COUNTER_PICKUP_SIZE_LABELS[key],
-    value: data?.sizeBreakdown ? String(data.sizeBreakdown[key]) : "—",
-  }));
+  const hasAcceptedEstimate = observed && typeof data?.estimatedPickups === "number"
+    && Number.isSafeInteger(data.estimatedPickups) && data.estimatedPickups > 0;
+  const unresolved = data?.unresolvedCount ?? 0;
+  const unclassified = data?.sizeBreakdown?.unknown ?? 0;
+  const rows = (Object.keys(COUNTER_PICKUP_SIZE_LABELS) as CounterPickupSize[]).map(key => {
+    const count = data?.sizeBreakdown?.[key];
+    return {
+      key,
+      label: COUNTER_PICKUP_SIZE_LABELS[key],
+      value: !hasAcceptedEstimate || count == null || !Number.isSafeInteger(count) || count < 0
+        ? "No disponible"
+        : count === 0 && (unresolved > 0 || (key !== "unknown" && unclassified > 0))
+          ? "Sin asignación concluyente" : String(count),
+    };
+  });
   if (queryState === "unavailable") {
     return {
       title: "Retiradas ópticas provisionales",
@@ -93,7 +103,7 @@ export function buildCounterPickupPanelModel(
       interval: "—",
       windowCount: "—",
       unresolved: "—",
-      records: "0",
+      records: data?.businessDate === businessDate ? String(data.records.length) : "—",
       receipt: "—",
       connection: queryLabel(queryState, dataUpdatedAt),
       observed: false,
@@ -101,11 +111,12 @@ export function buildCounterPickupPanelModel(
   }
   return {
     title: "Retiradas ópticas provisionales",
-    value: data.estimatedPickups == null ? "—" : String(data.estimatedPickups),
-    label: historical ? "Fecha histórica" : "Ventanas de video parciales",
-    message: historical
-      ? "Fecha histórica. El valor solo corresponde a ventanas de video candidatas; no representa cámara viva ni total diario."
-      : "El valor solo corresponde a ventanas de video candidatas. Cero en esas ventanas no equivale a cero ventas ni a cero retiradas del día.",
+    value: hasAcceptedEstimate ? String(data.estimatedPickups) : "No disponible",
+    label: historical ? "Fecha histórica" : hasAcceptedEstimate ? "Ventanas de video parciales" : "Sin resultado concluyente",
+    message: !hasAcceptedEstimate
+      ? `${historical ? "Fecha histórica. " : ""}Se recibieron ${data.records.length} análisis de video, pero no hay una retirada concluyente. ${unresolved} casos siguen sin resolver. No es un conteo de cero entregas ni de cero ventas.`
+      : `${historical ? "Fecha histórica. " : ""}Estimaciones aceptadas solo dentro de ventanas candidatas, no un total del día.${unresolved > 0 ? ` Quedan ${unresolved} casos sin resolver; el valor es incompleto.` : ""}`,
+
     warning: "Movimiento óptico local provisional, no validado comercialmente. No se suma al contador direccional, cierre manual, POS ni conteo físico revisado.",
     sizeRows: rows,
     interval: intervalLabel(data, timeZone),

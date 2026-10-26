@@ -50,10 +50,10 @@ describe("directional handoff panel presentation", () => {
     expect(result.warning).toContain("no validada");
   });
 
-  it("shows a real zero only for a partial observed interval and keeps all five sizes", () => {
+  it("separates frame reception from absent accepted delivery paths", () => {
     const result = buildDirectionalHandoffPanelModel(view(), "2026-10-24", "America/Mazatlan", "live", 1000, new Date("2026-10-24T20:01:05.000Z"));
-    expect(result.label).toBe("Intervalo observado parcial");
-    expect(result.value).toBe("0");
+    expect(result.label).toBe("Sin recorrido concluyente");
+    expect(result.value).toBe("No disponible");
     expect(result.sizeRows.map(row => row.label)).toEqual(["Chico", "Mediano", "Pint", "Litro", "Sin clasificar"]);
     expect(result.freshness).toBe("Fotogramas recientes");
     expect(result.connection).toBe("Consulta HTTP recibida");
@@ -63,7 +63,7 @@ describe("directional handoff panel presentation", () => {
     const result = buildDirectionalHandoffPanelModel(view(), "2026-10-24", "America/Mazatlan", "live", 1000, new Date("2026-10-24T20:01:16.000Z"));
     expect(result.connection).toBe("Consulta HTTP recibida");
     expect(result.freshness).toBe("Sin fotogramas recientes");
-    expect(result.value).toBe("0");
+    expect(result.value).toBe("No disponible");
   });
 
   it("labels a historical date separately even when the HTTP query succeeds", () => {
@@ -101,4 +101,13 @@ describe("directional handoff panel presentation", () => {
     expect(result.gapDuration).toBe("5s");
     expect(result.droppedFrames).toBe("3");
   });
+});
+
+describe("directional unresolved and missing zero boundaries",()=>{
+ const run=(data:any,state:any="live")=>buildDirectionalHandoffPanelModel(data,"2026-10-24","America/Mazatlan",state,1,new Date("2026-10-24T20:01:05Z"));
+ it("receiving frames with no accepted paths is not a zero cup total",()=>{const r=run(view());expect(r.value).toBe("No disponible");expect(r.sizeRows.every(x=>x.value==="No disponible")).toBe(true);expect(r.message).toContain("metadatos");});
+ it("missing data does not fabricate administrative zero counts",()=>{const r=run(undefined,"offline");expect(r.records).toBe("\u2014");expect(r.identityHolds).toBe("\u2014");});
+ it("positive unclassified observations leave nominal capacities unavailable",()=>{const r=run(view({estimatedHandoffs:2,sizeBreakdown:{chico:0,mediano:0,pint:0,litro:0,unknown:2}}));expect(r.value).toBe("2");expect(r.sizeRows[0].value).toBe("Sin asignaci\u00f3n concluyente");expect(r.sizeRows[4].value).toBe("2");});
+ it("positive classified buckets remain visible while other paths are unresolved",()=>{const r=run(view({estimatedHandoffs:1,heldCandidateCount:3,sizeBreakdown:{chico:1,mediano:0,pint:0,litro:0,unknown:0}}));expect(r.sizeRows[0].value).toBe("1");expect(r.sizeRows[1].value).toBe("Sin asignaci\u00f3n concluyente");});
+ it("retains a real zero category in a resolved partial register",()=>{const r=run(view({estimatedHandoffs:1,sizeBreakdown:{chico:1,mediano:0,pint:0,litro:0,unknown:0}}));expect(r.sizeRows[1].value).toBe("0");});
 });
