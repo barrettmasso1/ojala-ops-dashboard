@@ -7,6 +7,8 @@ import {
   buildSelectedDayStaffActivityRows,
   buildSubmissionFormValueRows,
   createSubmissionFormEditorFields,
+  formatCurrency,
+  formatPercent,
   getCompactSnapshotName,
   getFlavorPreviewPosition,
   getSnapshotValueClassName,
@@ -15,6 +17,29 @@ import {
 } from "./ManagerDashboard";
 
 describe("manager dashboard layout helpers", () => {
+  it("preserves explicit zero while keeping NaN and absent metrics unavailable", () => {
+    expect(formatCurrency(0)).toBe("$0");
+    expect(formatCurrency(Number.NaN)).toBe("—");
+    expect(formatPercent(0)).toBe("0%");
+    expect(formatPercent(Number.NaN)).toBe("—");
+  });
+
+  it("does not render source-error counters or a zero average when no trend days exist", () => {
+    const source = readFileSync(new URL("./ManagerDashboard.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain('value: formatCurrency(latestTrendDay?.totalSales)');
+    expect(source).toContain('const trailingSalesAverage = trendData.length > 0 ? trailingSalesTotal / trendData.length : null;');
+    expect(source).toContain('"Report count unavailable"');
+    expect(source).toContain('"Staff count unavailable"');
+    expect(source).toContain('"Missing comparable measurements"');
+    expect(source).toContain('"Missing opening measurements"');
+    expect(source).toContain('"Missing closing measurements"');
+    expect(source).toContain('"No samples/waste report"');
+    expect(source).not.toContain('closingValue(');
+    expect(source).not.toContain('formatCurrency(latestTrendDay?.totalSales ?? 0)');
+    expect(source).not.toContain('trendData.length > 0 ? trailingSalesTotal / trendData.length : 0');
+  });
+
   it("keeps short names intact but collapses long staff names to the first name for snapshot cards", () => {
     expect(getCompactSnapshotName("Karol")).toBe("Karol");
     expect(getCompactSnapshotName("Karol Mendez")).toBe("Karol");

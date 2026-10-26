@@ -151,6 +151,7 @@ describe("resolveReadyMadeGrossWeights", () => {
       "2026-04-21"
     );
     const row = snapshot.gelato.flavors.find(item => item.flavor === "Legacy");
+    expect(row?.opening.registeredGrossWeightKg).toBeNull();
     expect(row?.opening.registeredNetWeightKg).toBe(2.21);
     expect(row?.opening.volumeAvailable).toBe(false);
     expect(row?.opening.totalVolumeOunces).toBeNull();
@@ -171,6 +172,7 @@ describe("resolveReadyMadeGrossWeights", () => {
       "2026-04-21"
     );
     const row = snapshot.gelato.flavors.find(item => item.flavor === "Combined only");
+    expect(row?.opening.registeredGrossWeightKg).toBe(2.5);
     expect(row?.opening.registeredCombinedGrossWeightKg).toBe(2.5);
     expect(row?.opening.smallGrossWeightKg).toBe(0);
     expect(row?.opening.largeGrossWeightKg).toBe(0);
@@ -191,6 +193,7 @@ describe("resolveReadyMadeGrossWeights", () => {
       "2026-04-21"
     );
     const row = snapshot.gelato.flavors.find(item => item.flavor === "Explicit zero");
+    expect(row?.opening.registeredGrossWeightKg).toBe(0);
     expect(row?.opening.available).toBe(true);
     expect(row?.opening.volumeAvailable).toBe(true);
     expect(row?.opening.totalVolumeOunces).toBe(0);

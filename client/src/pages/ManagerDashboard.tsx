@@ -1,4 +1,4 @@
-import { hasClosingRecord, closingValue, LOCAL_CAMERA_DEVICE_ID } from "@/lib/localLedgerPresentation";
+import { hasClosingRecord, LOCAL_CAMERA_DEVICE_ID } from "@/lib/localLedgerPresentation";
 import { LocalCupLedgerPanel } from "@/components/LocalCupLedgerPanel";
 import { ManualCameraComparisonPanel } from "@/components/ManualCameraComparisonPanel";
 import { CameraSizeBreakdown } from "@/components/CameraSizeBreakdown";
@@ -16,7 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getLoginUrl } from "@/const";
 import { normalizeGelatoFlavorName } from "@/lib/gelatoFlavorAliases";
 import { getHistoryGelatoRowVolumeBreakdown } from "@/lib/historyGelato";
-import { buildManagerReconciliationSnapshot, MANAGER_INVENTORY_TABS, type ManagerInventoryView } from "@/lib/managerReconciliation";
+import { buildManagerReconciliationSnapshot, formatManagerWeightLabel, MANAGER_INVENTORY_TABS, type ManagerInventoryView } from "@/lib/managerReconciliation";
 import { buildShopifyVarianceSnapshot, summarizeShopifySalesCsv, type ShopifySalesImportSummary } from "@/lib/shopifySalesCsv";
 import { parseRecoveryImportJson, type RecoveryImportBatch } from "@/lib/handoffRecoveryImport";
 import { parseVerifiedSnapshotImportJson, type VerifiedSnapshotImportBatch } from "@/lib/handoffVerifiedSnapshotImport";
@@ -59,22 +59,22 @@ function roundTo(value: number, decimals = 2) {
   return Number(value.toFixed(decimals));
 }
 
-function formatCurrency(value: number | null | undefined) {
-  if (value == null) return "—";
+export function formatCurrency(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "—";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
     maximumFractionDigits: 0,
-  }).format(value || 0);
+  }).format(value);
 }
 
-function formatPercent(value: number | null | undefined) {
-  if (value == null) return "—";
-  return `${Math.round((value || 0) * 100)}%`;
+export function formatPercent(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return `${Math.round(value * 100)}%`;
 }
 
 function formatCount(value: number | null | undefined) {
-  if (value == null) return "—";
+  if (value == null || !Number.isFinite(value)) return "—";
   return Math.round(value).toLocaleString("en-US");
 }
 
@@ -695,10 +695,42 @@ function inventoryFieldClassName() {
 }
 
 function formatSignedValue(value: number | null | undefined) {
-  if (value == null) return "—";
+  if (value == null || !Number.isFinite(value)) return "—";
   if (Math.abs(value) < 0.5) return "0";
   const rounded = Math.round(value);
   return `${rounded > 0 ? "+" : ""}${rounded}`;
+}
+
+type DashboardDataAvailability = {
+  salesReport?: "missing" | "partial" | "complete";
+  gelatoOpening?: "missing" | "partial" | "complete";
+  gelatoClosing?: "missing" | "partial" | "complete";
+  samplesWaste?: "missing" | "partial" | "complete";
+};
+
+function sourceUnavailableLabel(
+  source: "sales" | "gelato" | "samplesWaste",
+  availability: DashboardDataAvailability | undefined,
+  closingRecorded: boolean,
+) {
+  if (source === "gelato") {
+    const openingMissing = availability?.gelatoOpening !== "complete";
+    const closingMissing = availability?.gelatoClosing !== "complete";
+    if (openingMissing && closingMissing) return "Missing comparable measurements";
+    if (openingMissing) return "Missing opening measurements";
+    if (closingMissing) return "Missing closing measurements";
+    return "Missing comparable measurements";
+  }
+  if (source === "samplesWaste") {
+    if (availability?.samplesWaste === "missing") return closingRecorded ? "No samples/waste report" : "No closing form";
+    return "Samples/waste report incomplete";
+  }
+  if (availability?.salesReport === "missing") return closingRecorded ? "No sales report" : "No closing form";
+  return "Sales report incomplete";
+}
+
+function displayMetric(value: string, available: boolean, unavailableLabel: string) {
+  return available ? value : unavailableLabel;
 }
 
 function classifyDifference(value: number) {
@@ -1182,6 +1214,7 @@ export default function ManagerDashboard() {
   const payrollDateRange = useMemo(() => buildBusinessDateRange(hoursRangeStart, hoursRangeEnd), [hoursRangeStart, hoursRangeEnd]);
   const payrollSummary = payrollHoursQuery.data;
   const timeBook = timeBookQuery.data;
+  const timeBookAvailable = Boolean(timeBook) && !timeBookQuery.error && !timeBookQuery.isLoading;
 
   function startSubmissionGelatoEdit(entry: SubmissionHistoryEntryRecord) {
     const nextMode = getSubmissionEditMode(entry);
@@ -1552,14 +1585,8 @@ export default function ManagerDashboard() {
       const normalizedFlavor = normalizeFlavorPreviewKey(item.flavor);
       const openingOunces = item.opening.totalVolumeOunces == null ? null : roundTo(item.opening.totalVolumeOunces, 0);
       const closingOunces = item.closing.totalVolumeOunces == null ? null : roundTo(item.closing.totalVolumeOunces, 0);
-      const openingWeightKg = item.opening.available === false ? null : roundTo(item.opening.combinedGrossWeightKg, 3);
-      const closingWeightKg = item.closing.available === false ? null : roundTo(item.closing.combinedGrossWeightKg, 3);
-      const openingWeightLabel = openingWeightKg == null
-        ? item.opening.registeredNetWeightKg == null ? "Awaiting measurement" : `${item.opening.registeredNetWeightKg.toFixed(3)} kg registered · volume unavailable`
-        : `${openingWeightKg.toFixed(3)} kg`;
-      const closingWeightLabel = closingWeightKg == null
-        ? item.closing.registeredNetWeightKg == null ? "Awaiting measurement" : `${item.closing.registeredNetWeightKg.toFixed(3)} kg registered · volume unavailable`
-        : `${closingWeightKg.toFixed(3)} kg`;
+      const openingWeightLabel = formatManagerWeightLabel(item.opening);
+      const closingWeightLabel = formatManagerWeightLabel(item.closing);
       const distributedOunces = item.usedVolumeOunces == null ? null : roundTo(item.usedVolumeOunces, 0);
       const soldOunces = hasComparableGelato ? soldOunceAllocations[index] ?? 0 : null;
       const differenceOunces = distributedOunces != null && soldOunces != null ? roundTo(distributedOunces - soldOunces, 0) : null;
@@ -1603,7 +1630,7 @@ export default function ManagerDashboard() {
   const wowData = wowQuery.data ?? [];
   const latestTrendDay = trendData.at(-1);
   const trailingSalesTotal = trendData.reduce((sum, entry) => sum + entry.totalSales, 0);
-  const trailingSalesAverage = trendData.length > 0 ? trailingSalesTotal / trendData.length : 0;
+  const trailingSalesAverage = trendData.length > 0 ? trailingSalesTotal / trendData.length : null;
   const strongestTrendDay = trendData.reduce<{ businessDate: string; totalSales: number } | null>(
     (best, entry) => (!best || entry.totalSales > best.totalSales ? entry : best),
     null
@@ -1675,10 +1702,10 @@ export default function ManagerDashboard() {
       : isTimeBookRoute
         ? [
             { label: "Payroll period", value: `${hoursRangeStart} → ${hoursRangeEnd}`, helper: "Selected attendance window." },
-            { label: "Total hours", value: `${(timeBook?.totalHours ?? 0).toFixed(2)} hrs`, helper: "All staff hours in the selected range." },
-            { label: "Shifts logged", value: (timeBook?.totalShiftCount ?? 0).toString(), helper: "Clock-in records captured in the selected range." },
-            { label: "Open shifts", value: (timeBook?.openShiftCount ?? 0).toString(), helper: "Punches still waiting for a sign-out." },
-            { label: "Staff with hours", value: (timeBook?.staff.filter(staffMember => staffMember.totalShiftCount > 0).length ?? 0).toString(), helper: "Team members with activity in the selected range." },
+            { label: "Total hours", value: timeBookAvailable && timeBook ? `${timeBook.totalHours.toFixed(2)} hrs` : "—", helper: "All staff hours in the selected range." },
+            { label: "Shifts logged", value: timeBookAvailable && timeBook ? timeBook.totalShiftCount.toString() : "—", helper: "Clock-in records captured in the selected range." },
+            { label: "Open shifts", value: timeBookAvailable && timeBook ? timeBook.openShiftCount.toString() : "—", helper: "Punches still waiting for a sign-out." },
+            { label: "Staff with hours", value: timeBookAvailable && timeBook ? timeBook.staff.filter(staffMember => staffMember.totalShiftCount > 0).length.toString() : "—", helper: "Team members with activity in the selected range." },
           ]
       : isCookbookRoute
       ? [
@@ -1709,15 +1736,15 @@ export default function ManagerDashboard() {
                 { label: "Verified snapshots", value: handoffVisualEvents.length.toString(), helper: `Received for ${selectedDate} from the handoff sender.` },
               ]
             : [
-              { label: "Total sales", value: closingValue(formatCurrency(daily?.sales.total), salesReportRecorded), helper: "What sold today." },
-              { label: "Cash sales", value: closingValue(formatCurrency(daily?.sales.cash), salesReportRecorded), helper: "Cash collected for the selected day." },
-              { label: "Card sales", value: closingValue(formatCurrency(daily?.sales.card), salesReportRecorded), helper: "Card collected for the selected day." },
+              { label: "Total sales", value: displayMetric(formatCurrency(daily?.sales.total), salesReportRecorded, sourceUnavailableLabel("sales", dataAvailability, closingRecorded)), helper: "What sold today." },
+              { label: "Cash sales", value: displayMetric(formatCurrency(daily?.sales.cash), salesReportRecorded, sourceUnavailableLabel("sales", dataAvailability, closingRecorded)), helper: "Cash collected for the selected day." },
+              { label: "Card sales", value: displayMetric(formatCurrency(daily?.sales.card), salesReportRecorded, sourceUnavailableLabel("sales", dataAvailability, closingRecorded)), helper: "Card collected for the selected day." },
               ...(hasVenmoSales ? [{ label: "Venmo sales", value: formatCurrency(daily?.sales.venmo ?? 0), helper: "Only shown when Venmo sales were reported." }] : []),
               ...(hasZelleSales ? [{ label: "Zelle sales", value: formatCurrency(daily?.sales.zelle ?? 0), helper: "Only shown when Zelle sales were reported." }] : []),
-              { label: "Total ounces sold", value: closingValue(formatWholeOunces(reconciliationSnapshot.gelato?.soldVolumeOunces ?? (salesReportRecorded ? daily?.soldVolumeOunces : null)), salesReportRecorded), helper: "Cup sales converted into sold gelato ounces." },
-              { label: "Total ounces distributed", value: closingValue(formatWholeOunces(reconciliationSnapshot.gelato?.distributedVolumeOunces), gelatoReconciliationRecorded), helper: "Morning gelato ounces minus closing gelato ounces." },
-              { label: "Samples given (oz)", value: closingValue(formatWholeOunces(daily?.sampleOuncesTotal), samplesWasteRecorded), helper: "Reported samples given to customers, factored into variance." },
-              { label: "Waste (oz)", value: closingValue(formatWholeOunces(daily?.wasteOuncesTotal), samplesWasteRecorded), helper: "Reported waste (spills, quality pulls), factored into variance." },
+              { label: "Total ounces sold", value: displayMetric(formatWholeOunces(reconciliationSnapshot.gelato?.soldVolumeOunces ?? (salesReportRecorded ? daily?.soldVolumeOunces : null)), salesReportRecorded, sourceUnavailableLabel("sales", dataAvailability, closingRecorded)), helper: "Cup sales converted into sold gelato ounces." },
+              { label: "Total ounces distributed", value: displayMetric(formatWholeOunces(reconciliationSnapshot.gelato?.distributedVolumeOunces), gelatoReconciliationRecorded, sourceUnavailableLabel("gelato", dataAvailability, closingRecorded)), helper: "Morning gelato ounces minus closing gelato ounces." },
+              { label: "Samples given (oz)", value: displayMetric(formatWholeOunces(daily?.sampleOuncesTotal), samplesWasteRecorded, sourceUnavailableLabel("samplesWaste", dataAvailability, closingRecorded)), helper: "Reported samples given to customers, factored into variance." },
+              { label: "Waste (oz)", value: displayMetric(formatWholeOunces(daily?.wasteOuncesTotal), samplesWasteRecorded, sourceUnavailableLabel("samplesWaste", dataAvailability, closingRecorded)), helper: "Reported waste (spills, quality pulls), factored into variance." },
               {
                 label: "Conteo revisado del turno",
                 value: dailyOperations?.cameraValue ?? "—",
@@ -1725,8 +1752,8 @@ export default function ManagerDashboard() {
                   ? `${dailyOperations.cameraMessage} Cobertura del conteo: ${dailyOperations.cameraCoverage}. Revisión del conteo: ${dailyOperations.cameraReviewStatus}. Recepción del conteo: ${formatDateTime(dailyOperations.receivedAt, timeZone)} · ${timeZone}.`
                   : "Conteo diario de vasos pendiente. Cobertura del conteo: no disponible.",
               },
-              { label: "For-here cups sold", value: closingValue(formatCount(totalForHereCups), salesReportRecorded), helper: "All dine-in cups sold across sizes." },
-              { label: "To-go cups sold", value: closingValue(formatCount(totalToGoCups), salesReportRecorded), helper: "All to-go cups sold across sizes." },
+              { label: "For-here cups sold", value: displayMetric(formatCount(totalForHereCups), salesReportRecorded, sourceUnavailableLabel("sales", dataAvailability, closingRecorded)), helper: "All dine-in cups sold across sizes." },
+              { label: "To-go cups sold", value: displayMetric(formatCount(totalToGoCups), salesReportRecorded, sourceUnavailableLabel("sales", dataAvailability, closingRecorded)), helper: "All to-go cups sold across sizes." },
               { label: "Total to-go cups used", value: formatCount(totalToGoCupsUsed), helper: "Morning to-go cup count minus closing to-go cup count." },
             ];
 
@@ -1892,7 +1919,7 @@ export default function ManagerDashboard() {
                   <p className="mt-3 max-w-3xl text-sm leading-7 text-[#66706a]">Rolling sales metrics from the most recent reported business days.</p>
                 </div>
                 <div className="rounded-full bg-[#f1e8da] px-4 py-2 text-sm text-[#566863]">
-                  {trendData.length} days with sales data
+                  {trendQuery.error || wowQuery.error ? "Sales data unavailable" : `${trendData.length} days with sales data`}
                 </div>
               </div>
               {trendQuery.isLoading || wowQuery.isLoading ? (
@@ -1915,7 +1942,7 @@ export default function ManagerDashboard() {
                     },
                     {
                       label: "Latest day sales",
-                      value: formatCurrency(latestTrendDay?.totalSales ?? 0),
+                      value: formatCurrency(latestTrendDay?.totalSales),
                       helper: "Sales from the most recent reported day.",
                     },
                     {
@@ -1953,7 +1980,9 @@ export default function ManagerDashboard() {
                     <p className="text-xs uppercase tracking-[0.24em] text-[#8a9089]">Daily status</p>
                     <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Forms and service completion</h2>
                   </div>
-                  <div className="rounded-full bg-[#f1e8da] px-4 py-2 text-sm text-[#566863]">{daily?.reportCount ?? 0} report entries</div>
+                  <div className="rounded-full bg-[#f1e8da] px-4 py-2 text-sm text-[#566863]">
+                    {dailyQuery.error || dailyQuery.isLoading || !daily ? "Report count unavailable" : `${daily.reportCount} report entries`}
+                  </div>
                 </div>
                 <div className="mt-6">
                   {dailyQuery.isLoading ? (
@@ -1966,10 +1995,10 @@ export default function ManagerDashboard() {
                     <div className="space-y-4">
                       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                         {[
-                          { label: MANUAL_CUP_SIZE_LABELS["4oz"], value: closingValue(String(daily.cups["4oz"] ?? 0), salesReportRecorded) },
-                          { label: MANUAL_CUP_SIZE_LABELS["8oz"], value: closingValue(String(daily.cups["8oz"] ?? 0), salesReportRecorded) },
-                          { label: MANUAL_CUP_SIZE_LABELS["Pint"], value: closingValue(String(daily.cups.Pint ?? 0), salesReportRecorded) },
-                          { label: MANUAL_CUP_SIZE_LABELS["Liter"], value: closingValue(String(daily.cups.Liter ?? 0), salesReportRecorded) },
+                          { label: MANUAL_CUP_SIZE_LABELS["4oz"], value: displayMetric(String(daily.cups["4oz"] ?? 0), salesReportRecorded, sourceUnavailableLabel("sales", dataAvailability, closingRecorded)) },
+                          { label: MANUAL_CUP_SIZE_LABELS["8oz"], value: displayMetric(String(daily.cups["8oz"] ?? 0), salesReportRecorded, sourceUnavailableLabel("sales", dataAvailability, closingRecorded)) },
+                          { label: MANUAL_CUP_SIZE_LABELS["Pint"], value: displayMetric(String(daily.cups.Pint ?? 0), salesReportRecorded, sourceUnavailableLabel("sales", dataAvailability, closingRecorded)) },
+                          { label: MANUAL_CUP_SIZE_LABELS["Liter"], value: displayMetric(String(daily.cups.Liter ?? 0), salesReportRecorded, sourceUnavailableLabel("sales", dataAvailability, closingRecorded)) },
                         ].map(item => (
                           <div key={item.label} className="rounded-2xl border border-[#e5ddd0] bg-[#fbf7f0] p-5 shadow-sm">
                             <div className="flex items-center justify-between">
@@ -2045,7 +2074,9 @@ export default function ManagerDashboard() {
                     <h2 className="mt-3 font-serif text-3xl tracking-tight text-[#1f2b27]">Who worked on {selectedDate}</h2>
                     <p className="mt-3 text-sm leading-7 text-[#6b6258]">This section only shows the selected day’s staffing activity, including first check-in, final check-out, and total hours worked.</p>
                   </div>
-                  <div className="rounded-full bg-[#f1e8da] px-4 py-2 text-sm text-[#566863]">{selectedDayStaffRows.length} staff worked</div>
+                  <div className="rounded-full bg-[#f1e8da] px-4 py-2 text-sm text-[#566863]">
+                    {selectedDayStaffQuery.error || selectedDayStaffQuery.isLoading ? "Staff count unavailable" : `${selectedDayStaffRows.length} staff worked`}
+                  </div>
                 </div>
                 <div className="mt-6 overflow-hidden rounded-[1.5rem] border border-[#e4dccf] bg-[#fcfaf6]">
                   {selectedDayStaffQuery.isLoading ? (
@@ -2127,7 +2158,7 @@ export default function ManagerDashboard() {
                         <tr key={item.flavor}>
                           <td className="px-4 py-3 align-top break-words font-medium">{item.flavor}</td>
                           <td className="px-4 py-3 align-top break-words">{renderFlavorWeightCell(item.openingWeightLabel, item.openingPhotoPreview)}</td>
-                          <td className="px-4 py-3 align-top break-words">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : renderFlavorWeightCell(item.closingWeightLabel, item.closingPhotoPreview)}</td>
+                          <td className="px-4 py-3 align-top break-words">{renderFlavorWeightCell(item.closingWeightLabel, item.closingPhotoPreview)}</td>
                           <td className="px-4 py-3 align-top break-words">{item.openingOunces == null ? "Awaiting measurement" : item.openingOunces.toFixed(2)}</td>
                           <td className="px-4 py-3 align-top break-words">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : item.closingOunces == null ? "Awaiting measurement" : item.closingOunces.toFixed(2)}</td>
                           <td className="px-4 py-3 align-top break-words">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : item.distributedOunces == null ? "Awaiting paired measurements" : item.distributedOunces.toFixed(2)}</td>
@@ -2737,9 +2768,9 @@ export default function ManagerDashboard() {
                           <tr key={item.flavor}>
                             <td className="px-4 py-3 font-medium">{item.flavor}</td>
                             <td className="px-4 py-3">{item.opening.available ? item.opening.smallPanCount + item.opening.largePanCount : "Awaiting measurement"}</td>
-                            <td className="px-4 py-3">{item.opening.volumeAvailable ? (item.opening.smallGrossWeightKg + item.opening.largeGrossWeightKg).toFixed(2) : item.opening.registeredNetWeightKg == null ? "Volume unavailable" : `${item.opening.registeredNetWeightKg.toFixed(2)} registered`}</td>
+                            <td className="px-4 py-3">{formatManagerWeightLabel(item.opening)}</td>
                             <td className="px-4 py-3">{item.closing.available ? item.closing.smallPanCount + item.closing.largePanCount : "Awaiting measurement"}</td>
-                            <td className="px-4 py-3">{item.closing.volumeAvailable ? (item.closing.smallGrossWeightKg + item.closing.largeGrossWeightKg).toFixed(2) : item.closing.registeredNetWeightKg == null ? "Volume unavailable" : `${item.closing.registeredNetWeightKg.toFixed(2)} registered`}</td>
+                            <td className="px-4 py-3">{formatManagerWeightLabel(item.closing)}</td>
                             <td className="px-4 py-3">{item.usedVolumeOunces == null ? "Awaiting paired measurements" : item.usedVolumeOunces.toFixed(2)}</td>
                           </tr>
                         ))}

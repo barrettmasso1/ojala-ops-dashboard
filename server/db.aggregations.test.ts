@@ -265,7 +265,7 @@ describe("db aggregation helpers", () => {
     expect(snapshot.packaging.discrepancyLabel).toBe("Awaiting opening inventory count");
   });
 
-  it("keeps gelato distributed ounces at zero until closing gelato measurements exist", () => {
+  it("keeps the real opening volume visible while closing gelato measurements are absent", () => {
     const snapshot = buildDailySnapshot(
       [],
       [],
@@ -285,7 +285,7 @@ describe("db aggregation helpers", () => {
       "2026-04-21"
     );
 
-    expect(snapshot.gelato.openingVolumeOunces).toBeNull();
+    expect(snapshot.gelato.openingVolumeOunces).toBeCloseTo(51.02, 2);
     expect(snapshot.gelato.closingVolumeOunces).toBeNull();
     expect(snapshot.gelato.actualDistributedVolumeOunces).toBeNull();
     expect(snapshot.gelato.varianceVolumeOunces).toBeNull();
@@ -295,6 +295,31 @@ describe("db aggregation helpers", () => {
       usedVolumeOunces: null,
     });
     expect(snapshot.packaging.discrepancyLabel).toBe("Awaiting opening inventory count");
+  });
+
+  it("keeps a real closing-only volume visible without inventing an opening volume", () => {
+    const snapshot = buildDailySnapshot(
+      [],
+      [],
+      [],
+      [
+        {
+          businessDate: "2026-04-21",
+          flavor: "Cookies and Cream",
+          shiftType: "closing" as const,
+          smallPanCount: 1,
+          smallGrossWeightKg: "1.75",
+          largePanCount: 0,
+          largeGrossWeightKg: "0.00",
+        },
+      ],
+      [],
+      "2026-04-21"
+    );
+
+    expect(snapshot.gelato.openingVolumeOunces).toBeNull();
+    expect(snapshot.gelato.closingVolumeOunces).toBeCloseTo(51.02, 2);
+    expect(snapshot.gelato.actualDistributedVolumeOunces).toBeNull();
   });
 
   it("does not treat a closing form as gelato measurements and keeps a closing-only flavor partial", () => {
@@ -310,6 +335,28 @@ describe("db aggregation helpers", () => {
     expect(withClosingFormOnly.dataAvailability.gelatoReconciliation).toBe("missing");
     expect(withClosingFormOnly.gelato.actualDistributedVolumeOunces).toBeNull();
     expect(withClosingFormOnly.gelato.varianceVolumeOunces).toBeNull();
+
+    const packagingWithoutSales = buildDailySnapshot(
+      [{
+        staffName: "Opening",
+        responseJson: JSON.stringify({ stockCounts: { cups4oz: 10, cups8oz: 20, cupsPint: 30, cupsLiter: 40, lids8oz: 20, lidsPint: 30, lidsLiter: 40, spoons: 90 } }),
+      }],
+      [{ staffName: "Closing" }],
+      [],
+      [],
+      [{ itemName: "8oz To-Go Cups", currentQuantity: "12", lastCountDate: "2026-04-21" }],
+      "2026-04-21"
+    );
+
+    expect(packagingWithoutSales.packaging.availability.opening).toBe("complete");
+    expect(packagingWithoutSales.packaging.items.find(item => item.key === "cups8oz")).toMatchObject({
+      openingQuantity: 20,
+      closingQuantity: 12,
+      actualUsed: 8,
+      expectedUsed: null,
+      variance: null,
+      discrepancyLabel: "Awaiting same-day sales report",
+    });
 
     const closingOnly = buildDailySnapshot(
       [],

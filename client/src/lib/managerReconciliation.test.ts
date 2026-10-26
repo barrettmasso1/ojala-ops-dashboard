@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildManagerReconciliationSnapshot, MANAGER_INVENTORY_TABS } from "./managerReconciliation";
+import { buildManagerReconciliationSnapshot, formatManagerWeightLabel, MANAGER_INVENTORY_TABS } from "./managerReconciliation";
 
 describe("manager reconciliation helper", () => {
   it("exposes the dedicated reconciliation tab alongside the existing inventory views", () => {
@@ -161,5 +161,76 @@ describe("manager reconciliation helper", () => {
       differenceVolumeOunces: null,
     });
     expect(snapshot.packaging).toMatchObject({ openingCount: null, soldCount: null, closingCount: null });
+  });
+
+  it("keeps known packaging use visible when sales or another item is still missing", () => {
+    const snapshot = buildManagerReconciliationSnapshot({
+      gelato: {
+        openingVolumeOunces: null,
+        closingVolumeOunces: null,
+        actualDistributedVolumeOunces: null,
+        soldVolumeOunces: null,
+        varianceVolumeOunces: null,
+        discrepancyLabel: "Awaiting same-day sales report",
+        flavors: [],
+      },
+      packaging: {
+        varianceCount: null,
+        discrepancyLabel: "Awaiting same-day sales report",
+        items: [
+          { key: "cups4oz", label: "4oz Cups", openingQuantity: 100, closingQuantity: 90, expectedUsed: null, actualUsed: 10, variance: null, discrepancyLabel: "Awaiting same-day sales report" },
+          { key: "lids8oz", label: "8oz Lids", openingQuantity: null, closingQuantity: null, expectedUsed: null, actualUsed: null, variance: null, discrepancyLabel: "Awaiting same-day closing inventory count" },
+        ],
+      },
+      dataAvailability: {
+        salesReport: "missing",
+        gelatoOpening: "missing",
+        gelatoClosing: "missing",
+        gelatoReconciliation: "missing",
+        packagingOpening: "complete",
+        packagingClosing: "partial",
+        packagingReconciliation: "partial",
+      },
+    });
+
+    expect(snapshot.packaging).toMatchObject({
+      openingCount: null,
+      closingCount: null,
+      distributedCount: null,
+      soldCount: null,
+      differenceCount: null,
+      toGoCupUsedCount: 10,
+    });
+  });
+
+  it("does not turn an empty packaging collection into zero totals", () => {
+    const snapshot = buildManagerReconciliationSnapshot({
+      gelato: {
+        openingVolumeOunces: null,
+        closingVolumeOunces: null,
+        actualDistributedVolumeOunces: null,
+        soldVolumeOunces: null,
+        varianceVolumeOunces: null,
+        discrepancyLabel: "Awaiting opening inventory count",
+        flavors: [],
+      },
+      packaging: { varianceCount: null, discrepancyLabel: "Awaiting opening inventory count", items: [] },
+    });
+
+    expect(snapshot.packaging).toMatchObject({
+      openingCount: null,
+      soldCount: null,
+      closingCount: null,
+      distributedCount: null,
+      differenceCount: null,
+      toGoCupOpeningCount: null,
+      toGoCupUsedCount: null,
+    });
+  });
+
+  it("labels registered gross and legacy net weights by their original provenance", () => {
+    expect(formatManagerWeightLabel({ available: true, volumeAvailable: true, registeredGrossWeightKg: 1.5, registeredNetWeightKg: 1.2, combinedGrossWeightKg: 1.5 })).toBe("1.500 kg gross registered");
+    expect(formatManagerWeightLabel({ available: true, volumeAvailable: false, registeredGrossWeightKg: null, registeredNetWeightKg: 1.32, combinedGrossWeightKg: 0 })).toBe("1.320 kg net registered · volume unavailable");
+    expect(formatManagerWeightLabel({ available: false, volumeAvailable: false, registeredGrossWeightKg: null, registeredNetWeightKg: null, combinedGrossWeightKg: 0 })).toBe("Awaiting measurement");
   });
 });

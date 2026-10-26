@@ -12,6 +12,7 @@ type GelatoFlavorSnapshot = {
   opening: {
     totalVolumeOunces: number | null;
     combinedGrossWeightKg: number;
+    registeredGrossWeightKg?: number | null;
     registeredNetWeightKg?: number | null;
     volumeAvailable?: boolean;
     available?: boolean;
@@ -19,6 +20,7 @@ type GelatoFlavorSnapshot = {
   closing: {
     totalVolumeOunces: number | null;
     combinedGrossWeightKg: number;
+    registeredGrossWeightKg?: number | null;
     registeredNetWeightKg?: number | null;
     volumeAvailable?: boolean;
     available?: boolean;
@@ -37,7 +39,7 @@ type PackagingItemSnapshot = {
   discrepancyLabel: string;
 };
 
-function summarizePackagingCounts(items: PackagingItemSnapshot[], hasPendingCounts: boolean) {
+function summarizePackagingCounts(items: PackagingItemSnapshot[]) {
   return {
     openingCount: items.length > 0 && items.every(item => item.openingQuantity != null)
       ? roundTo(items.reduce((sum, item) => sum + (item.openingQuantity ?? 0), 0))
@@ -45,10 +47,37 @@ function summarizePackagingCounts(items: PackagingItemSnapshot[], hasPendingCoun
     soldCount: items.length > 0 && items.every(item => item.expectedUsed != null)
       ? roundTo(items.reduce((sum, item) => sum + (item.expectedUsed ?? 0), 0))
       : null,
-    closingCount: hasPendingCounts ? null : roundTo(items.reduce((sum, item) => sum + (item.closingQuantity ?? 0), 0)),
-    distributedCount: hasPendingCounts ? null : roundTo(items.reduce((sum, item) => sum + (item.actualUsed ?? 0), 0)),
-    differenceCount: hasPendingCounts ? null : roundTo(items.reduce((sum, item) => sum + (item.variance ?? 0), 0)),
+    closingCount: items.length > 0 && items.every(item => item.closingQuantity != null)
+      ? roundTo(items.reduce((sum, item) => sum + (item.closingQuantity ?? 0), 0))
+      : null,
+    distributedCount: items.length > 0 && items.every(item => item.actualUsed != null)
+      ? roundTo(items.reduce((sum, item) => sum + (item.actualUsed ?? 0), 0))
+      : null,
+    differenceCount: items.length > 0 && items.every(item => item.variance != null)
+      ? roundTo(items.reduce((sum, item) => sum + (item.variance ?? 0), 0))
+      : null,
   };
+}
+
+export function formatManagerWeightLabel(measurement: {
+  available?: boolean;
+  volumeAvailable?: boolean;
+  combinedGrossWeightKg?: number | null;
+  registeredGrossWeightKg?: number | null;
+  registeredNetWeightKg?: number | null;
+}) {
+  if (measurement.registeredGrossWeightKg != null) {
+    return `${measurement.registeredGrossWeightKg.toFixed(3)} kg gross registered`;
+  }
+  if (measurement.registeredNetWeightKg != null) {
+    return measurement.volumeAvailable
+      ? `${measurement.registeredNetWeightKg.toFixed(3)} kg net registered`
+      : `${measurement.registeredNetWeightKg.toFixed(3)} kg net registered · volume unavailable`;
+  }
+  if (measurement.available === false || measurement.combinedGrossWeightKg == null) return "Awaiting measurement";
+  return measurement.volumeAvailable
+    ? `${measurement.combinedGrossWeightKg.toFixed(3)} kg`
+    : "Volume unavailable";
 }
 
 type DailySnapshotLike = {
@@ -91,9 +120,9 @@ export function buildManagerReconciliationSnapshot(daily?: DailySnapshotLike | n
 
   const packagingItems = daily.packaging.items ?? [];
   const packagingHasPendingCounts = packagingItems.some(item => item.openingQuantity == null || item.expectedUsed == null || item.actualUsed == null || item.closingQuantity == null || item.variance == null);
-  const packagingCounts = summarizePackagingCounts(packagingItems, packagingHasPendingCounts);
+  const packagingCounts = summarizePackagingCounts(packagingItems);
   const cupPackagingItems = packagingItems.filter(item => item.key.startsWith("cups"));
-  const cupPackagingCounts = summarizePackagingCounts(cupPackagingItems, packagingHasPendingCounts);
+  const cupPackagingCounts = summarizePackagingCounts(cupPackagingItems);
 
   const availability = daily.dataAvailability;
   const completeGelato = availability ? availability.gelatoReconciliation === "complete" : true;
@@ -126,7 +155,7 @@ export function buildManagerReconciliationSnapshot(daily?: DailySnapshotLike | n
       toGoCupDifferenceCount: cupPackagingCounts.differenceCount,
       openingCount: completePackagingOpening ? packagingCounts.openingCount : null,
       closingCount: completePackagingClosing ? packagingCounts.closingCount : null,
-      distributedCount: completePackaging ? packagingCounts.distributedCount : null,
+      distributedCount: packagingCounts.distributedCount,
       soldCount: completeSales ? packagingCounts.soldCount : null,
       differenceCount: completePackaging ? packagingCounts.differenceCount : null,
       goalCount: 0,
