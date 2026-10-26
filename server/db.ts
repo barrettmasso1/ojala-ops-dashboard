@@ -209,6 +209,32 @@ type ReadyMadeMeasurementRow = {
   updatedAt?: Date | null;
 };
 
+export type DailyDataAvailability = {
+  openingForm: "missing" | "partial" | "complete";
+  closingForm: "missing" | "partial" | "complete";
+  salesReport: "missing" | "partial" | "complete";
+  gelatoOpening: "missing" | "partial" | "complete";
+  gelatoClosing: "missing" | "partial" | "complete";
+  gelatoReconciliation: "missing" | "partial" | "complete";
+  packagingOpening: "missing" | "partial" | "complete";
+  packagingClosing: "missing" | "partial" | "complete";
+  packagingReconciliation: "missing" | "partial" | "complete";
+  samplesWaste: "missing" | "partial" | "complete";
+};
+
+type SourceAvailability = DailyDataAvailability["openingForm"];
+
+function hasProvidedNumber(value: unknown) {
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value !== "string" || value.trim() === "") return false;
+  return Number.isFinite(Number(value.trim().replace(/,/g, ".")));
+}
+
+function classifyAvailability(hasAny: boolean, isComplete: boolean): SourceAvailability {
+  if (!hasAny) return "missing";
+  return isComplete ? "complete" : "partial";
+}
+
 type OpeningStockCountsSummary = {
   cups4oz: number;
   cups8oz: number;
@@ -338,9 +364,20 @@ export function hasImpossibleReadyMadeGrossWeights(row?: ReadyMadeMeasurementRow
 }
 
 function calculateReadyMadeMeasurement(row?: ReadyMadeMeasurementRow, defaultShiftType: ReadyMadeShiftType = "opening") {
+  const available = Boolean(row);
+  const registeredNetWeightKg = hasProvidedNumber(row?.weightKg) ? Math.max(0, toNumber(row?.weightKg)) : null;
+  const registeredCombinedGrossWeightKg = hasProvidedNumber(row?.combinedGrossWeightKg)
+    ? Math.max(0, toNumber(row?.combinedGrossWeightKg))
+    : null;
   const smallPanCount = Math.max(0, Math.trunc(toNumber(row?.smallPanCount)));
   const largePanCount = Math.max(0, Math.trunc(toNumber(row?.largePanCount)));
   const resolvedWeights = resolveReadyMadeGrossWeights(row);
+  const hasPositiveGrossInput =
+    Math.max(0, toNumber(row?.smallGrossWeightKg)) > 0 ||
+    Math.max(0, toNumber(row?.largeGrossWeightKg)) > 0 ||
+    (registeredCombinedGrossWeightKg ?? 0) > 0;
+  const netOnlyRecord = (registeredNetWeightKg ?? 0) > 0 && !hasPositiveGrossInput;
+  const volumeAvailable = available && !netOnlyRecord && (smallPanCount + largePanCount > 0 || !hasPositiveGrossInput);
   const toleranceKg = getReadyMadeGrossWeightToleranceKg(smallPanCount, largePanCount);
   const smallGrossWeightKg = clampGrossWeightToCapacity(resolvedWeights.smallGrossWeightKg, smallPanCount, SMALL_PAN_MAX_GROSS_KG, toleranceKg);
   const largeGrossWeightKg = clampGrossWeightToCapacity(resolvedWeights.largeGrossWeightKg, largePanCount, LARGE_PAN_MAX_GROSS_KG, toleranceKg);
@@ -350,13 +387,19 @@ function calculateReadyMadeMeasurement(row?: ReadyMadeMeasurementRow, defaultShi
   const totalNetWeightKg = roundTo(smallNetWeightKg + largeNetWeightKg);
   const smallWeightOunces = convertKgToWeightOunces(smallNetWeightKg);
   const largeWeightOunces = convertKgToWeightOunces(largeNetWeightKg);
-  const totalWeightOunces = roundTo(smallWeightOunces + largeWeightOunces);
-  const totalVolumeOunces = roundTo(
-    smallWeightOunces * (SMALL_PAN_FULL_VOLUME_OUNCES / SMALL_PAN_FULL_WEIGHT_OUNCES) +
-      largeWeightOunces * (LARGE_PAN_FULL_VOLUME_OUNCES / LARGE_PAN_FULL_WEIGHT_OUNCES)
-  );
+  const totalWeightOunces = volumeAvailable ? roundTo(smallWeightOunces + largeWeightOunces) : null;
+  const totalVolumeOunces = volumeAvailable
+    ? roundTo(
+        smallWeightOunces * (SMALL_PAN_FULL_VOLUME_OUNCES / SMALL_PAN_FULL_WEIGHT_OUNCES) +
+          largeWeightOunces * (LARGE_PAN_FULL_VOLUME_OUNCES / LARGE_PAN_FULL_WEIGHT_OUNCES)
+      )
+    : null;
 
   return {
+    available,
+    volumeAvailable,
+    registeredNetWeightKg,
+    registeredCombinedGrossWeightKg,
     id: row?.id ?? null,
     businessDate: row?.businessDate ?? normalizeDate(),
     flavor: row?.flavor ?? "",
@@ -368,7 +411,7 @@ function calculateReadyMadeMeasurement(row?: ReadyMadeMeasurementRow, defaultShi
     combinedGrossWeightKg,
     smallNetWeightKg: roundTo(smallNetWeightKg),
     largeNetWeightKg: roundTo(largeNetWeightKg),
-    netWeightKg: totalNetWeightKg,
+    netWeightKg: registeredNetWeightKg ?? totalNetWeightKg,
     totalWeightOunces,
     totalVolumeOunces,
     submittedByUserId: row?.submittedByUserId ?? null,
@@ -443,6 +486,18 @@ function readOpeningStockCounts(responseJson?: string | null): OpeningStockCount
   }
 }
 
+function hasCompleteOpeningStockCounts(responseJson?: string | null) {
+  if (!responseJson) return false;
+  try {
+    const parsed = JSON.parse(responseJson) as { stockCounts?: Partial<Record<keyof OpeningStockCountsSummary, unknown>> };
+    const stockCounts = parsed?.stockCounts;
+    return Boolean(stockCounts) && (Object.keys(emptyOpeningStockCounts()) as Array<keyof OpeningStockCountsSummary>)
+      .every(key => hasProvidedNumber(stockCounts?.[key]));
+  } catch {
+    return false;
+  }
+}
+
 function classifyServiceItemDiscrepancy(varianceCount: number) {
   const absoluteVariance = Math.abs(varianceCount);
   if (absoluteVariance < 0.5) {
@@ -456,25 +511,35 @@ function classifyServiceItemDiscrepancy(varianceCount: number) {
   return { status: "major" as const, label: "Major discrepancy" };
 }
 
-function buildReadyMadeGelatoReconciliation(rows: ReadyMadeMeasurementRow[], soldVolumeOunces: number, hasClosingSubmission = false, sampleOunces = 0, wasteOunces = 0) {
-const rowByFlavorShift = new Map(rows.map(row => [`${normalizeKey(row.flavor ?? "")}:${row.shiftType}`, row]));
-  const hasClosingMeasurements =
-    hasClosingSubmission &&
-    rows.some(
-      row =>
-        row.shiftType === "closing" &&
-        (toNumber(row.smallPanCount) > 0 ||
-          toNumber(row.largePanCount) > 0 ||
-          toNumber(row.smallGrossWeightKg) > 0 ||
-          toNumber(row.largeGrossWeightKg) > 0 ||
-          toNumber(row.combinedGrossWeightKg) > 0 ||
-          toNumber(row.weightKg) > 0)
-    );
+function buildReadyMadeGelatoReconciliation(
+  rows: ReadyMadeMeasurementRow[],
+  soldVolumeOunces: number,
+  hasClosingSubmission = false,
+  sampleOunces = 0,
+  wasteOunces = 0,
+  hasSalesReport = false,
+) {
+  const rowByFlavorShift = new Map(rows.map(row => [`${normalizeKey(row.flavor ?? "")}:${row.shiftType}`, row]));
+  const observedFlavorKeys = new Set(rows.map(row => normalizeKey(row.flavor ?? "")).filter(Boolean));
+  const openingFlavorKeys = new Set(rows.filter(row => row.shiftType === "opening").map(row => normalizeKey(row.flavor ?? "")).filter(Boolean));
+  const closingFlavorKeys = new Set(rows.filter(row => row.shiftType === "closing").map(row => normalizeKey(row.flavor ?? "")).filter(Boolean));
+  const hasObservedFlavors = observedFlavorKeys.size > 0;
+  const openingComplete = hasObservedFlavors && Array.from(observedFlavorKeys).every(flavor => openingFlavorKeys.has(flavor));
+  const closingComplete = hasObservedFlavors && Array.from(observedFlavorKeys).every(flavor => closingFlavorKeys.has(flavor));
+  const openingRows = rows.filter(row => row.shiftType === "opening");
+  const closingRows = rows.filter(row => row.shiftType === "closing");
+  const openingConvertible = openingRows.length > 0 && openingRows.every(row => calculateReadyMadeMeasurement(row, "opening").volumeAvailable);
+  const closingConvertible = closingRows.length > 0 && closingRows.every(row => calculateReadyMadeMeasurement(row, "closing").volumeAvailable);
+  const gelatoOpening = classifyAvailability(openingFlavorKeys.size > 0, openingComplete && openingConvertible);
+  const gelatoClosing = classifyAvailability(closingFlavorKeys.size > 0, closingComplete && closingConvertible);
+  const hasClosingMeasurements = gelatoOpening === "complete" && gelatoClosing === "complete";
   const flavors = getReadyMadeGelatoFlavorList(rows).map(flavor => {
     const flavorKey = normalizeKey(flavor);
     const opening = calculateReadyMadeMeasurement(rowByFlavorShift.get(`${flavorKey}:opening`), "opening");
     const closing = calculateReadyMadeMeasurement(rowByFlavorShift.get(`${flavorKey}:closing`), "closing");
-    const usedVolumeOunces = hasClosingMeasurements ? roundTo(opening.totalVolumeOunces - closing.totalVolumeOunces) : 0;
+    const usedVolumeOunces = opening.volumeAvailable && closing.volumeAvailable && opening.totalVolumeOunces != null && closing.totalVolumeOunces != null
+      ? roundTo(opening.totalVolumeOunces - closing.totalVolumeOunces)
+      : null;
 
     return {
       flavor,
@@ -483,24 +548,49 @@ const rowByFlavorShift = new Map(rows.map(row => [`${normalizeKey(row.flavor ?? 
       usedVolumeOunces,
     };
   });
+  const hasConvertibleMeasurements = hasClosingMeasurements && flavors
+    .filter(flavor => flavor.opening.available || flavor.closing.available)
+    .every(flavor => flavor.opening.volumeAvailable && flavor.closing.volumeAvailable);
 
-  const openingVolumeOunces = roundTo(flavors.reduce((sum, flavor) => sum + flavor.opening.totalVolumeOunces, 0));
-  const closingVolumeOunces = roundTo(flavors.reduce((sum, flavor) => sum + flavor.closing.totalVolumeOunces, 0));
-  const actualDistributedVolumeOunces = hasClosingMeasurements ? roundTo(openingVolumeOunces - closingVolumeOunces) : 0;
-  const accountedForOunces = soldVolumeOunces + sampleOunces + wasteOunces;
-  const varianceVolumeOunces = hasClosingMeasurements ? roundTo(actualDistributedVolumeOunces - accountedForOunces) : 0;
-  const discrepancy = hasClosingMeasurements ? classifyGelatoDiscrepancy(varianceVolumeOunces) : null;
+  const openingVolumeOunces = gelatoOpening === "complete" && hasConvertibleMeasurements
+    ? roundTo(flavors.reduce((sum, flavor) => sum + (flavor.opening.totalVolumeOunces ?? 0), 0))
+    : null;
+  const closingVolumeOunces = gelatoClosing === "complete" && hasConvertibleMeasurements
+    ? roundTo(flavors.reduce((sum, flavor) => sum + (flavor.closing.totalVolumeOunces ?? 0), 0))
+    : null;
+  const actualDistributedVolumeOunces = hasConvertibleMeasurements && openingVolumeOunces != null && closingVolumeOunces != null
+    ? roundTo(openingVolumeOunces - closingVolumeOunces)
+    : null;
+  const accountedForOunces = hasSalesReport ? soldVolumeOunces + sampleOunces + wasteOunces : null;
+  const varianceVolumeOunces = actualDistributedVolumeOunces != null && accountedForOunces != null
+    ? roundTo(actualDistributedVolumeOunces - accountedForOunces)
+    : null;
+  const discrepancy = varianceVolumeOunces == null ? null : classifyGelatoDiscrepancy(varianceVolumeOunces);
+  const pendingLabel = !hasObservedFlavors
+    ? AWAITING_CLOSING_FORM_LABEL
+    : gelatoOpening !== "complete"
+      ? "Awaiting opening gelato measurements"
+      : gelatoClosing !== "complete"
+        ? "Awaiting closing gelato measurements"
+        : !hasSalesReport
+          ? "Awaiting same-day sales report"
+          : "Awaiting complete gelato reconciliation";
 
   return {
     flavors,
-    hasClosingMeasurements,
+    availability: {
+      opening: gelatoOpening,
+      closing: gelatoClosing,
+      reconciliation: hasConvertibleMeasurements ? "complete" as const : hasObservedFlavors ? "partial" as const : "missing" as const,
+    },
+    hasClosingMeasurements: hasConvertibleMeasurements,
     openingVolumeOunces,
     closingVolumeOunces,
     actualDistributedVolumeOunces,
-    soldVolumeOunces: roundTo(soldVolumeOunces),
+    soldVolumeOunces: hasSalesReport ? roundTo(soldVolumeOunces) : null,
     varianceVolumeOunces,
     discrepancyStatus: discrepancy?.status ?? "pending",
-    discrepancyLabel: discrepancy?.label ?? AWAITING_CLOSING_FORM_LABEL,
+    discrepancyLabel: discrepancy?.label ?? pendingLabel,
     minorDiscrepancyThresholdOunces: MINOR_GELATO_DISCREPANCY_VOLUME_OUNCES,
   };
 }
@@ -514,6 +604,8 @@ function buildServicePackagingReconciliation(
 ) {
   const latestOpening = [...openingEntries].sort((a, b) => (b.createdAt?.getTime?.() ?? 0) - (a.createdAt?.getTime?.() ?? 0))[0];
   const openingStockCounts = readOpeningStockCounts(latestOpening?.responseJson ?? null);
+  const openingStockComplete = Boolean(latestOpening) && hasCompleteOpeningStockCounts(latestOpening?.responseJson ?? null);
+  const hasSalesReport = reports.length > 0;
   const soldToGo = reports.reduce(
     (acc, report) => {
       acc.cups4oz += toNumber(report.cups4ozToGo);
@@ -530,7 +622,7 @@ function buildServicePackagingReconciliation(
   const resolveClosingQuantity = (itemNames: string[]) => {
     if (!hasClosingSubmission) return null;
     const matched = itemNames.map(name => inventoryByName.get(normalizeKey(name))).filter(Boolean) as Array<{ currentQuantity: string | number; lastCountDate?: string | null }>;
-    if (matched.length === 0) return null;
+    if (matched.length === 0 || matched.some(item => !hasProvidedNumber(item.currentQuantity))) return null;
     if (matched.some(item => (item.lastCountDate ?? "") !== businessDate)) return null;
     return roundTo(matched.reduce((sum, item) => sum + toNumber(item.currentQuantity), 0));
   };
@@ -539,67 +631,73 @@ function buildServicePackagingReconciliation(
     {
       key: "cups4oz",
       label: "4oz To-Go Cups",
-      openingQuantity: openingStockCounts.cups4oz,
-      expectedUsed: soldToGo.cups4oz,
+      openingQuantity: openingStockComplete ? openingStockCounts.cups4oz : null,
+      expectedUsed: hasSalesReport ? soldToGo.cups4oz : null,
       closingQuantity: resolveClosingQuantity(["4oz To-Go Cups"]),
     },
     {
       key: "cups8oz",
       label: "8oz To-Go Cups",
-      openingQuantity: openingStockCounts.cups8oz,
-      expectedUsed: soldToGo.cups8oz,
+      openingQuantity: openingStockComplete ? openingStockCounts.cups8oz : null,
+      expectedUsed: hasSalesReport ? soldToGo.cups8oz : null,
       closingQuantity: resolveClosingQuantity(["8oz To-Go Cups"]),
     },
     {
       key: "lids8oz",
       label: "8oz To-Go Lids",
-      openingQuantity: openingStockCounts.lids8oz,
-      expectedUsed: soldToGo.cups8oz,
+      openingQuantity: openingStockComplete ? openingStockCounts.lids8oz : null,
+      expectedUsed: hasSalesReport ? soldToGo.cups8oz : null,
       closingQuantity: resolveClosingQuantity(["8oz To-Go Lids"]),
     },
     {
       key: "cupsPint",
       label: "16oz To-Go Cups",
-      openingQuantity: openingStockCounts.cupsPint,
-      expectedUsed: soldToGo.cupsPint,
+      openingQuantity: openingStockComplete ? openingStockCounts.cupsPint : null,
+      expectedUsed: hasSalesReport ? soldToGo.cupsPint : null,
       closingQuantity: resolveClosingQuantity(["16oz To-Go Cups"]),
     },
     {
       key: "lidsPint",
       label: "16oz To-Go Lids",
-      openingQuantity: openingStockCounts.lidsPint,
-      expectedUsed: soldToGo.cupsPint,
+      openingQuantity: openingStockComplete ? openingStockCounts.lidsPint : null,
+      expectedUsed: hasSalesReport ? soldToGo.cupsPint : null,
       closingQuantity: resolveClosingQuantity(["16oz To-Go Lids"]),
     },
     {
       key: "cupsLiter",
       label: "32oz To-Go Cups",
-      openingQuantity: openingStockCounts.cupsLiter,
-      expectedUsed: soldToGo.cupsLiter,
+      openingQuantity: openingStockComplete ? openingStockCounts.cupsLiter : null,
+      expectedUsed: hasSalesReport ? soldToGo.cupsLiter : null,
       closingQuantity: resolveClosingQuantity(["32oz To-Go Cups"]),
     },
     {
       key: "lidsLiter",
       label: "32oz To-Go Lids",
-      openingQuantity: openingStockCounts.lidsLiter,
-      expectedUsed: soldToGo.cupsLiter,
+      openingQuantity: openingStockComplete ? openingStockCounts.lidsLiter : null,
+      expectedUsed: hasSalesReport ? soldToGo.cupsLiter : null,
       closingQuantity: resolveClosingQuantity(["32oz To-Go Lids"]),
     },
     {
       key: "spoons",
       label: "To-Go Spoons",
-      openingQuantity: openingStockCounts.spoons,
-      expectedUsed: totalToGoServings,
+      openingQuantity: openingStockComplete ? openingStockCounts.spoons : null,
+      expectedUsed: hasSalesReport ? totalToGoServings : null,
       closingQuantity: resolveClosingQuantity(["Bamboo To-Go Spoons", "Edible Spoons"]),
     },
   ].map(item => {
-    if (item.closingQuantity === null) {
+    if (item.openingQuantity === null || item.closingQuantity === null || item.expectedUsed === null) {
       return {
         ...item,
         actualUsed: null,
         variance: null,
         discrepancyStatus: "pending" as const,
-        discrepancyLabel: hasClosingSubmission ? AWAITING_SAME_DAY_CLOSING_COUNT_LABEL : AWAITING_CLOSING_FORM_LABEL,
+        discrepancyLabel: !openingStockComplete
+          ? "Awaiting opening inventory count"
+          : !hasSalesReport
+            ? "Awaiting same-day sales report"
+            : hasClosingSubmission
+              ? AWAITING_SAME_DAY_CLOSING_COUNT_LABEL
+              : AWAITING_CLOSING_FORM_LABEL,
       };
     }
 
@@ -622,13 +720,18 @@ function buildServicePackagingReconciliation(
 
   return {
     openingRecorded: Boolean(latestOpening),
+    availability: {
+      opening: openingStockComplete ? "complete" as const : latestOpening ? "partial" as const : "missing" as const,
+      closing: items.some(item => item.closingQuantity != null) ? items.every(item => item.closingQuantity != null) ? "complete" as const : "partial" as const : "missing" as const,
+      reconciliation: items.every(item => item.variance != null) ? "complete" as const : items.some(item => item.openingQuantity != null || item.closingQuantity != null || item.expectedUsed != null) ? "partial" as const : "missing" as const,
+    },
     latestOpeningStaff: latestOpening?.staffName ?? null,
     soldToGo,
     totalToGoServings,
     items,
     varianceCount,
     discrepancyStatus: discrepancy?.status ?? "pending",
-    discrepancyLabel: discrepancy?.label ?? (hasClosingSubmission ? AWAITING_SAME_DAY_CLOSING_COUNT_LABEL : AWAITING_CLOSING_FORM_LABEL),
+    discrepancyLabel: discrepancy?.label ?? (!openingStockComplete ? "Awaiting opening inventory count" : !hasSalesReport ? "Awaiting same-day sales report" : hasClosingSubmission ? AWAITING_SAME_DAY_CLOSING_COUNT_LABEL : AWAITING_CLOSING_FORM_LABEL),
     minorDiscrepancyThresholdCount: MINOR_SERVICE_ITEM_DISCREPANCY_COUNT,
   };
 }
@@ -810,7 +913,7 @@ function calculateOpeningCompletion(entry: {
     Boolean(entry.equipmentStatus?.trim()),
     Boolean(entry.cleanlinessStatus?.trim()),
     Boolean(entry.setupStatus?.trim()),
-    toNumber(entry.startingCash) >= 0,
+    hasProvidedNumber(entry.startingCash),
     entry.cashMatchesSystem === "Yes",
     entry.storeReadyStatus === "Yes",
   ];
@@ -827,7 +930,7 @@ function calculateClosingCompletion(entry: {
 }) {
   const checks = [
     Boolean(entry.staffName?.trim()),
-    toNumber(entry.cashCounted) >= 0,
+    hasProvidedNumber(entry.cashCounted),
     entry.cashMatchesSystem === "Yes",
     Boolean(entry.cleaningStatus?.trim()),
     Boolean(entry.productStorageStatus?.trim()),
@@ -931,28 +1034,25 @@ export function buildDailySnapshot(
 
   const soldVolumeOunces = convertSalesToVolumeOunces(sales);
   const hasClosingSubmission = closingEntries.length > 0;
-  const hasClosingGelatoSubmission =
-    hasClosingSubmission ||
-    gelatoRows.some(
-      row =>
-        row.shiftType === "closing" &&
-        (toNumber(row.smallPanCount) > 0 ||
-          toNumber(row.largePanCount) > 0 ||
-          toNumber(row.smallGrossWeightKg) > 0 ||
-          toNumber(row.largeGrossWeightKg) > 0 ||
-          toNumber(row.combinedGrossWeightKg) > 0 ||
-          toNumber(row.weightKg) > 0)
-    );
+  const openingForm = classifyAvailability(
+    openingEntries.length > 0,
+    openingEntries.length > 0 && openingEntries.every(entry => calculateOpeningCompletion(entry) === 1)
+  );
+  const closingForm = classifyAvailability(
+    closingEntries.length > 0,
+    closingEntries.length > 0 && closingEntries.every(entry => calculateClosingCompletion(entry) === 1)
+  );
+  const salesReport = classifyAvailability(reports.length > 0, reports.length > 0);
   const sampleOuncesTotal = reports.reduce((sum, r) => sum + toNumber(r.sampleOunces ?? 0), 0);
   const wasteOuncesTotal = reports.reduce((sum, r) => sum + toNumber(r.wasteOunces ?? 0), 0);
-  const gelato = buildReadyMadeGelatoReconciliation(gelatoRows, soldVolumeOunces, hasClosingGelatoSubmission, sampleOuncesTotal, wasteOuncesTotal);  
+  const gelato = buildReadyMadeGelatoReconciliation(gelatoRows, soldVolumeOunces, hasClosingSubmission, sampleOuncesTotal, wasteOuncesTotal, reports.length > 0);
   const packaging = buildServicePackagingReconciliation(openingEntries, reports, inventoryRows, businessDate, hasClosingSubmission);
   const openingCompletionRate = openingEntries.length
     ? openingEntries.reduce((sum, entry) => sum + calculateOpeningCompletion(entry), 0) / openingEntries.length
-    : 0;
+    : null;
   const closingCompletionRate = closingEntries.length
     ? closingEntries.reduce((sum, entry) => sum + calculateClosingCompletion(entry), 0) / closingEntries.length
-    : 0;
+    : null;
 
   const latestReport = [...reports].sort((a, b) => (b.createdAt?.getTime?.() ?? 0) - (a.createdAt?.getTime?.() ?? 0))[0];
 
@@ -983,13 +1083,25 @@ export function buildDailySnapshot(
     },
     gelato,
     packaging,
-checklistCompletion: {
+	dataAvailability: {
+	  openingForm,
+	  closingForm,
+	  salesReport,
+	  gelatoOpening: gelato.availability.opening,
+	  gelatoClosing: gelato.availability.closing,
+	  gelatoReconciliation: gelato.availability.reconciliation,
+	  packagingOpening: packaging.availability.opening,
+	  packagingClosing: packaging.availability.closing,
+	  packagingReconciliation: packaging.availability.reconciliation,
+	  samplesWaste: reports.length > 0 ? "complete" as const : "missing" as const,
+	},
+	checklistCompletion: {
       opening: openingCompletionRate,
       closing: closingCompletionRate,
     },
     latestReportStaff: latestReport?.staffName ?? null,
-    sampleOuncesTotal: roundTo(sampleOuncesTotal),
-    wasteOuncesTotal: roundTo(wasteOuncesTotal),
+    sampleOuncesTotal: reports.length > 0 ? roundTo(sampleOuncesTotal) : null,
+    wasteOuncesTotal: reports.length > 0 ? roundTo(wasteOuncesTotal) : null,
   };
 }
 

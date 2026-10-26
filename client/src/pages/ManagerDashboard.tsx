@@ -59,7 +59,8 @@ function roundTo(value: number, decimals = 2) {
   return Number(value.toFixed(decimals));
 }
 
-function formatCurrency(value: number) {
+function formatCurrency(value: number | null | undefined) {
+  if (value == null) return "—";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
@@ -67,7 +68,8 @@ function formatCurrency(value: number) {
   }).format(value || 0);
 }
 
-function formatPercent(value: number) {
+function formatPercent(value: number | null | undefined) {
+  if (value == null) return "—";
   return `${Math.round((value || 0) * 100)}%`;
 }
 
@@ -1526,7 +1528,7 @@ export default function ManagerDashboard() {
   });
   const reconciliationSnapshot = buildManagerReconciliationSnapshot(daily);
   const shopifyVarianceSnapshot = useMemo(() => {
-    if (!reconciliationSnapshot.gelato || !shopifyImportSummary) return null;
+    if (!reconciliationSnapshot.gelato || !shopifyImportSummary || reconciliationSnapshot.gelato.distributedVolumeOunces == null) return null;
     return buildShopifyVarianceSnapshot(
       reconciliationSnapshot.gelato.distributedVolumeOunces,
       shopifyImportSummary.totalSoldVolumeOunces
@@ -1535,27 +1537,39 @@ export default function ManagerDashboard() {
   const flavorRows = useMemo(() => {
     if (!reconciliationSnapshot.gelato) return [];
 
-    const gelatoAwaitingClosing = reconciliationSnapshot.gelato.discrepancyLabel === AWAITING_CLOSING_FORM_LABEL;
-    const soldOunceAllocations = allocateEstimatedFlavorSoldOunces(
-      reconciliationSnapshot.gelato.flavors.map(item => item.usedVolumeOunces),
-      reconciliationSnapshot.gelato.soldVolumeOunces,
-      2
-    );
+    const hasComparableGelato = reconciliationSnapshot.gelato.distributedVolumeOunces != null
+      && reconciliationSnapshot.gelato.soldVolumeOunces != null
+      && reconciliationSnapshot.gelato.flavors.every(item => item.usedVolumeOunces != null);
+    const soldOunceAllocations = hasComparableGelato
+      ? allocateEstimatedFlavorSoldOunces(
+          reconciliationSnapshot.gelato.flavors.map(item => item.usedVolumeOunces ?? 0),
+          reconciliationSnapshot.gelato.soldVolumeOunces ?? 0,
+          2
+        )
+      : [];
 
     return reconciliationSnapshot.gelato.flavors.map((item, index) => {
       const normalizedFlavor = normalizeFlavorPreviewKey(item.flavor);
-      const openingOunces = roundTo(item.opening.totalVolumeOunces, 0);
-      const closingOunces = roundTo(item.closing.totalVolumeOunces, 0);
-      const openingWeightKg = roundTo(item.opening.combinedGrossWeightKg, 3);
-      const closingWeightKg = roundTo(item.closing.combinedGrossWeightKg, 3);
-      const distributedOunces = roundTo(item.usedVolumeOunces, 0);
-      const soldOunces = soldOunceAllocations[index] ?? 0;
-      const differenceOunces = roundTo(distributedOunces - soldOunces, 0);
+      const openingOunces = item.opening.totalVolumeOunces == null ? null : roundTo(item.opening.totalVolumeOunces, 0);
+      const closingOunces = item.closing.totalVolumeOunces == null ? null : roundTo(item.closing.totalVolumeOunces, 0);
+      const openingWeightKg = item.opening.available === false ? null : roundTo(item.opening.combinedGrossWeightKg, 3);
+      const closingWeightKg = item.closing.available === false ? null : roundTo(item.closing.combinedGrossWeightKg, 3);
+      const openingWeightLabel = openingWeightKg == null
+        ? item.opening.registeredNetWeightKg == null ? "Awaiting measurement" : `${item.opening.registeredNetWeightKg.toFixed(3)} kg registered · volume unavailable`
+        : `${openingWeightKg.toFixed(3)} kg`;
+      const closingWeightLabel = closingWeightKg == null
+        ? item.closing.registeredNetWeightKg == null ? "Awaiting measurement" : `${item.closing.registeredNetWeightKg.toFixed(3)} kg registered · volume unavailable`
+        : `${closingWeightKg.toFixed(3)} kg`;
+      const distributedOunces = item.usedVolumeOunces == null ? null : roundTo(item.usedVolumeOunces, 0);
+      const soldOunces = hasComparableGelato ? soldOunceAllocations[index] ?? 0 : null;
+      const differenceOunces = distributedOunces != null && soldOunces != null ? roundTo(distributedOunces - soldOunces, 0) : null;
+      const awaitingOpening = openingOunces == null;
+      const awaitingClosing = closingOunces == null;
 
       return {
         flavor: item.flavor,
-        openingWeightKg,
-        closingWeightKg,
+        openingWeightLabel,
+        closingWeightLabel,
         openingPhotoPreview: flavorPhotoPreviewMap.get(`opening:${normalizedFlavor}`),
         closingPhotoPreview: flavorPhotoPreviewMap.get(`closing:${normalizedFlavor}`),
         openingOunces,
@@ -1563,8 +1577,9 @@ export default function ManagerDashboard() {
         distributedOunces,
         soldOunces,
         differenceOunces,
-        awaitingClosing: gelatoAwaitingClosing,
-        status: gelatoAwaitingClosing ? AWAITING_CLOSING_TEXT : classifyDifference(differenceOunces),
+        awaitingOpening,
+        awaitingClosing,
+        status: awaitingOpening || awaitingClosing || differenceOunces == null ? AWAITING_CLOSING_TEXT : classifyDifference(differenceOunces),
       };
     });
   }, [flavorPhotoPreviewMap, reconciliationSnapshot]);
@@ -1579,6 +1594,10 @@ export default function ManagerDashboard() {
   const totalToGoCupsUsed = reconciliationSnapshot.packaging?.toGoCupUsedCount ?? null;
   const hasZelleSales = (daily?.sales.zelle ?? 0) > 0;
   const closingRecorded = hasClosingRecord(daily?.businessDate, selectedDate, daily?.reportCount);
+  const dataAvailability = daily?.dataAvailability;
+  const salesReportRecorded = dataAvailability ? dataAvailability.salesReport === "complete" : closingRecorded;
+  const gelatoReconciliationRecorded = dataAvailability ? dataAvailability.gelatoReconciliation === "complete" : Boolean(daily?.gelato?.hasClosingMeasurements);
+  const samplesWasteRecorded = dataAvailability ? dataAvailability.samplesWaste === "complete" : closingRecorded;
   const hasVenmoSales = (daily?.sales.venmo ?? 0) > 0;
   const trendData = trendQuery.data ?? [];
   const wowData = wowQuery.data ?? [];
@@ -1690,15 +1709,15 @@ export default function ManagerDashboard() {
                 { label: "Verified snapshots", value: handoffVisualEvents.length.toString(), helper: `Received for ${selectedDate} from the handoff sender.` },
               ]
             : [
-              { label: "Total sales", value: closingValue(formatCurrency(daily?.sales.total ?? 0), closingRecorded), helper: "What sold today." },
-              { label: "Cash sales", value: closingValue(formatCurrency(daily?.sales.cash ?? 0), closingRecorded), helper: "Cash collected for the selected day." },
-              { label: "Card sales", value: closingValue(formatCurrency(daily?.sales.card ?? 0), closingRecorded), helper: "Card collected for the selected day." },
+              { label: "Total sales", value: closingValue(formatCurrency(daily?.sales.total), salesReportRecorded), helper: "What sold today." },
+              { label: "Cash sales", value: closingValue(formatCurrency(daily?.sales.cash), salesReportRecorded), helper: "Cash collected for the selected day." },
+              { label: "Card sales", value: closingValue(formatCurrency(daily?.sales.card), salesReportRecorded), helper: "Card collected for the selected day." },
               ...(hasVenmoSales ? [{ label: "Venmo sales", value: formatCurrency(daily?.sales.venmo ?? 0), helper: "Only shown when Venmo sales were reported." }] : []),
               ...(hasZelleSales ? [{ label: "Zelle sales", value: formatCurrency(daily?.sales.zelle ?? 0), helper: "Only shown when Zelle sales were reported." }] : []),
-           { label: "Total ounces sold", value: closingValue(formatWholeOunces(reconciliationSnapshot.gelato?.soldVolumeOunces ?? daily?.soldVolumeOunces), closingRecorded), helper: "Cup sales converted into sold gelato ounces." },
-              { label: "Total ounces distributed", value: closingValue(formatWholeOunces(reconciliationSnapshot.gelato?.distributedVolumeOunces), Boolean(daily?.businessDate === selectedDate && daily?.closingSubmissionCount)), helper: "Morning gelato ounces minus closing gelato ounces." },
-              { label: "Samples given (oz)", value: closingValue(formatWholeOunces((daily as any)?.sampleOuncesTotal ?? 0), closingRecorded), helper: "Reported samples given to customers, factored into variance." },
-              { label: "Waste (oz)", value: closingValue(formatWholeOunces((daily as any)?.wasteOuncesTotal ?? 0), closingRecorded), helper: "Reported waste (spills, quality pulls), factored into variance." },
+              { label: "Total ounces sold", value: closingValue(formatWholeOunces(reconciliationSnapshot.gelato?.soldVolumeOunces ?? (salesReportRecorded ? daily?.soldVolumeOunces : null)), salesReportRecorded), helper: "Cup sales converted into sold gelato ounces." },
+              { label: "Total ounces distributed", value: closingValue(formatWholeOunces(reconciliationSnapshot.gelato?.distributedVolumeOunces), gelatoReconciliationRecorded), helper: "Morning gelato ounces minus closing gelato ounces." },
+              { label: "Samples given (oz)", value: closingValue(formatWholeOunces(daily?.sampleOuncesTotal), samplesWasteRecorded), helper: "Reported samples given to customers, factored into variance." },
+              { label: "Waste (oz)", value: closingValue(formatWholeOunces(daily?.wasteOuncesTotal), samplesWasteRecorded), helper: "Reported waste (spills, quality pulls), factored into variance." },
               {
                 label: "Conteo revisado del turno",
                 value: dailyOperations?.cameraValue ?? "—",
@@ -1706,8 +1725,8 @@ export default function ManagerDashboard() {
                   ? `${dailyOperations.cameraMessage} Cobertura del conteo: ${dailyOperations.cameraCoverage}. Revisión del conteo: ${dailyOperations.cameraReviewStatus}. Recepción del conteo: ${formatDateTime(dailyOperations.receivedAt, timeZone)} · ${timeZone}.`
                   : "Conteo diario de vasos pendiente. Cobertura del conteo: no disponible.",
               },
-              { label: "For-here cups sold", value: closingValue(formatCount(totalForHereCups), closingRecorded), helper: "All dine-in cups sold across sizes." },
-              { label: "To-go cups sold", value: closingValue(formatCount(totalToGoCups), closingRecorded), helper: "All to-go cups sold across sizes." },
+              { label: "For-here cups sold", value: closingValue(formatCount(totalForHereCups), salesReportRecorded), helper: "All dine-in cups sold across sizes." },
+              { label: "To-go cups sold", value: closingValue(formatCount(totalToGoCups), salesReportRecorded), helper: "All to-go cups sold across sizes." },
               { label: "Total to-go cups used", value: formatCount(totalToGoCupsUsed), helper: "Morning to-go cup count minus closing to-go cup count." },
             ];
 
@@ -1947,10 +1966,10 @@ export default function ManagerDashboard() {
                     <div className="space-y-4">
                       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                         {[
-                          { label: MANUAL_CUP_SIZE_LABELS["4oz"], value: closingValue(String(daily.cups["4oz"] ?? 0), closingRecorded) },
-                          { label: MANUAL_CUP_SIZE_LABELS["8oz"], value: closingValue(String(daily.cups["8oz"] ?? 0), closingRecorded) },
-                          { label: MANUAL_CUP_SIZE_LABELS["Pint"], value: closingValue(String(daily.cups.Pint ?? 0), closingRecorded) },
-                          { label: MANUAL_CUP_SIZE_LABELS["Liter"], value: closingValue(String(daily.cups.Liter ?? 0), closingRecorded) },
+                          { label: MANUAL_CUP_SIZE_LABELS["4oz"], value: closingValue(String(daily.cups["4oz"] ?? 0), salesReportRecorded) },
+                          { label: MANUAL_CUP_SIZE_LABELS["8oz"], value: closingValue(String(daily.cups["8oz"] ?? 0), salesReportRecorded) },
+                          { label: MANUAL_CUP_SIZE_LABELS["Pint"], value: closingValue(String(daily.cups.Pint ?? 0), salesReportRecorded) },
+                          { label: MANUAL_CUP_SIZE_LABELS["Liter"], value: closingValue(String(daily.cups.Liter ?? 0), salesReportRecorded) },
                         ].map(item => (
                           <div key={item.label} className="rounded-2xl border border-[#e5ddd0] bg-[#fbf7f0] p-5 shadow-sm">
                             <div className="flex items-center justify-between">
@@ -2107,12 +2126,12 @@ export default function ManagerDashboard() {
                       {flavorRows.map(item => (
                         <tr key={item.flavor}>
                           <td className="px-4 py-3 align-top break-words font-medium">{item.flavor}</td>
-                          <td className="px-4 py-3 align-top break-words">{renderFlavorWeightCell(`${item.openingWeightKg.toFixed(3)} kg`, item.openingPhotoPreview)}</td>
-                          <td className="px-4 py-3 align-top break-words">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : renderFlavorWeightCell(`${item.closingWeightKg.toFixed(3)} kg`, item.closingPhotoPreview)}</td>
-                          <td className="px-4 py-3 align-top break-words">{item.openingOunces.toFixed(2)}</td>
-                          <td className="px-4 py-3 align-top break-words">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : item.closingOunces.toFixed(2)}</td>
-                          <td className="px-4 py-3 align-top break-words">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : item.distributedOunces.toFixed(2)}</td>
-                          <td className="px-4 py-3 align-top break-words">{item.soldOunces.toFixed(2)}</td>
+                          <td className="px-4 py-3 align-top break-words">{renderFlavorWeightCell(item.openingWeightLabel, item.openingPhotoPreview)}</td>
+                          <td className="px-4 py-3 align-top break-words">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : renderFlavorWeightCell(item.closingWeightLabel, item.closingPhotoPreview)}</td>
+                          <td className="px-4 py-3 align-top break-words">{item.openingOunces == null ? "Awaiting measurement" : item.openingOunces.toFixed(2)}</td>
+                          <td className="px-4 py-3 align-top break-words">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : item.closingOunces == null ? "Awaiting measurement" : item.closingOunces.toFixed(2)}</td>
+                          <td className="px-4 py-3 align-top break-words">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : item.distributedOunces == null ? "Awaiting paired measurements" : item.distributedOunces.toFixed(2)}</td>
+                          <td className="px-4 py-3 align-top break-words">{item.soldOunces == null ? "Awaiting sales report" : item.soldOunces.toFixed(2)}</td>
                           <td className="px-4 py-3 align-top break-words">{item.awaitingClosing ? AWAITING_CLOSING_TEXT : formatSignedValue(item.differenceOunces)}</td>
                           <td className="px-4 py-3 align-top">
                             <span className={`rounded-full px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] ${
@@ -2169,10 +2188,10 @@ export default function ManagerDashboard() {
                       {reconciliationSnapshot.packaging.items.map(item => (
                         <tr key={item.key}>
                           <td className="px-4 py-3 font-medium">{item.label}</td>
-                          <td className="px-4 py-3">{item.openingQuantity.toFixed(2)}</td>
+                          <td className="px-4 py-3">{item.openingQuantity == null ? "Awaiting opening count" : item.openingQuantity.toFixed(2)}</td>
                           <td className="px-4 py-3">{item.closingQuantity == null ? (item.discrepancyLabel === AWAITING_CLOSING_FORM_LABEL ? AWAITING_CLOSING_TEXT : "Awaiting count") : item.closingQuantity.toFixed(2)}</td>
                           <td className="px-4 py-3">{item.actualUsed == null ? (item.discrepancyLabel === AWAITING_CLOSING_FORM_LABEL ? AWAITING_CLOSING_TEXT : "Awaiting count") : item.actualUsed.toFixed(2)}</td>
-                          <td className="px-4 py-3">{item.expectedUsed.toFixed(2)}</td>
+                          <td className="px-4 py-3">{item.expectedUsed == null ? "Awaiting sales report" : item.expectedUsed.toFixed(2)}</td>
                           <td className="px-4 py-3">{item.variance == null ? (item.discrepancyLabel === AWAITING_CLOSING_FORM_LABEL ? AWAITING_CLOSING_TEXT : "Awaiting count") : formatSignedValue(item.variance)}</td>
                           <td className="px-4 py-3">
                             <span className={`rounded-full px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] ${
@@ -2499,10 +2518,10 @@ export default function ManagerDashboard() {
                           <p className="mt-3 font-serif text-2xl text-[#1f2b27]">Opening oz − closing oz = distributed oz. Distributed oz − sold oz = difference.</p>
                           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
                             {[
-                              { label: "Opening", value: `${reconciliationSnapshot.gelato.openingVolumeOunces.toFixed(2)} oz` },
-                              { label: "Closing", value: `${reconciliationSnapshot.gelato.closingVolumeOunces.toFixed(2)} oz` },
-                              { label: "Distributed", value: `${reconciliationSnapshot.gelato.distributedVolumeOunces.toFixed(2)} oz` },
-                              { label: "Sold", value: `${reconciliationSnapshot.gelato.soldVolumeOunces.toFixed(2)} oz` },
+                              { label: "Opening", value: reconciliationSnapshot.gelato.openingVolumeOunces == null ? "Awaiting measurement" : `${reconciliationSnapshot.gelato.openingVolumeOunces.toFixed(2)} oz` },
+                              { label: "Closing", value: reconciliationSnapshot.gelato.closingVolumeOunces == null ? "Awaiting measurement" : `${reconciliationSnapshot.gelato.closingVolumeOunces.toFixed(2)} oz` },
+                              { label: "Distributed", value: reconciliationSnapshot.gelato.distributedVolumeOunces == null ? "Awaiting paired measurements" : `${reconciliationSnapshot.gelato.distributedVolumeOunces.toFixed(2)} oz` },
+                              { label: "Sold", value: reconciliationSnapshot.gelato.soldVolumeOunces == null ? "Awaiting sales report" : `${reconciliationSnapshot.gelato.soldVolumeOunces.toFixed(2)} oz` },
                               { label: "Difference", value: `${formatSignedValue(reconciliationSnapshot.gelato.differenceVolumeOunces)} oz` },
                             ].map(item => (
                               <div key={item.label} className="rounded-2xl border border-[#e5ddd0] bg-white/80 p-4">
@@ -2518,10 +2537,10 @@ export default function ManagerDashboard() {
                           <p className="mt-3 font-serif text-2xl text-[#1f2b27]">Opening units − closing units = distributed units. Distributed units − sold units = difference.</p>
                           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
                             {[
-                              { label: "Opening", value: `${reconciliationSnapshot.packaging.openingCount.toFixed(2)} units` },
+                              { label: "Opening", value: reconciliationSnapshot.packaging.openingCount == null ? "Awaiting opening count" : `${reconciliationSnapshot.packaging.openingCount.toFixed(2)} units` },
                               { label: "Closing", value: reconciliationSnapshot.packaging.closingCount == null ? "Awaiting counts" : `${reconciliationSnapshot.packaging.closingCount.toFixed(2)} units` },
                               { label: "Distributed", value: reconciliationSnapshot.packaging.distributedCount == null ? "Awaiting counts" : `${reconciliationSnapshot.packaging.distributedCount.toFixed(2)} units` },
-                              { label: "Sold", value: `${reconciliationSnapshot.packaging.soldCount.toFixed(2)} units` },
+                              { label: "Sold", value: reconciliationSnapshot.packaging.soldCount == null ? "Awaiting sales report" : `${reconciliationSnapshot.packaging.soldCount.toFixed(2)} units` },
                               { label: "Difference", value: reconciliationSnapshot.packaging.differenceCount == null ? "Awaiting counts" : `${formatSignedValue(reconciliationSnapshot.packaging.differenceCount)} units` },
                             ].map(item => (
                               <div key={item.label} className="rounded-2xl border border-[#e5ddd0] bg-white/80 p-4">
@@ -2655,9 +2674,9 @@ export default function ManagerDashboard() {
                               {reconciliationSnapshot.gelato.flavors.map(item => (
                                 <tr key={item.flavor}>
                                   <td className="px-4 py-3 font-medium">{item.flavor}</td>
-                                  <td className="px-4 py-3">{item.opening.totalVolumeOunces.toFixed(2)}</td>
-                                  <td className="px-4 py-3">{item.closing.totalVolumeOunces.toFixed(2)}</td>
-                                  <td className="px-4 py-3">{item.usedVolumeOunces.toFixed(2)}</td>
+                                  <td className="px-4 py-3">{item.opening.totalVolumeOunces == null ? "Awaiting measurement" : item.opening.totalVolumeOunces.toFixed(2)}</td>
+                                  <td className="px-4 py-3">{item.closing.totalVolumeOunces == null ? "Awaiting measurement" : item.closing.totalVolumeOunces.toFixed(2)}</td>
+                                  <td className="px-4 py-3">{item.usedVolumeOunces == null ? "Awaiting paired measurements" : item.usedVolumeOunces.toFixed(2)}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -2680,10 +2699,10 @@ export default function ManagerDashboard() {
                               {reconciliationSnapshot.packaging.items.map(item => (
                                 <tr key={item.key}>
                                   <td className="px-4 py-3 font-medium">{item.label}</td>
-                                  <td className="px-4 py-3">{item.openingQuantity.toFixed(2)}</td>
+                                  <td className="px-4 py-3">{item.openingQuantity == null ? "Awaiting opening count" : item.openingQuantity.toFixed(2)}</td>
                                   <td className="px-4 py-3">{item.closingQuantity == null ? "Awaiting count" : item.closingQuantity.toFixed(2)}</td>
                                   <td className="px-4 py-3">{item.actualUsed == null ? "Awaiting count" : item.actualUsed.toFixed(2)}</td>
-                                  <td className="px-4 py-3">{item.expectedUsed.toFixed(2)}</td>
+                                  <td className="px-4 py-3">{item.expectedUsed == null ? "Awaiting sales report" : item.expectedUsed.toFixed(2)}</td>
                                   <td className="px-4 py-3">{item.variance == null ? "Awaiting count" : formatSignedValue(item.variance)}</td>
                                   <td className="px-4 py-3">0.00</td>
                                 </tr>
@@ -2717,11 +2736,11 @@ export default function ManagerDashboard() {
                         {daily.gelato.flavors.map(item => (
                           <tr key={item.flavor}>
                             <td className="px-4 py-3 font-medium">{item.flavor}</td>
-                            <td className="px-4 py-3">{item.opening.smallPanCount + item.opening.largePanCount}</td>
-                            <td className="px-4 py-3">{(item.opening.smallGrossWeightKg + item.opening.largeGrossWeightKg).toFixed(2)}</td>
-                            <td className="px-4 py-3">{item.closing.smallPanCount + item.closing.largePanCount}</td>
-                            <td className="px-4 py-3">{(item.closing.smallGrossWeightKg + item.closing.largeGrossWeightKg).toFixed(2)}</td>
-                            <td className="px-4 py-3">{item.usedVolumeOunces.toFixed(2)}</td>
+                            <td className="px-4 py-3">{item.opening.available ? item.opening.smallPanCount + item.opening.largePanCount : "Awaiting measurement"}</td>
+                            <td className="px-4 py-3">{item.opening.volumeAvailable ? (item.opening.smallGrossWeightKg + item.opening.largeGrossWeightKg).toFixed(2) : item.opening.registeredNetWeightKg == null ? "Volume unavailable" : `${item.opening.registeredNetWeightKg.toFixed(2)} registered`}</td>
+                            <td className="px-4 py-3">{item.closing.available ? item.closing.smallPanCount + item.closing.largePanCount : "Awaiting measurement"}</td>
+                            <td className="px-4 py-3">{item.closing.volumeAvailable ? (item.closing.smallGrossWeightKg + item.closing.largeGrossWeightKg).toFixed(2) : item.closing.registeredNetWeightKg == null ? "Volume unavailable" : `${item.closing.registeredNetWeightKg.toFixed(2)} registered`}</td>
+                            <td className="px-4 py-3">{item.usedVolumeOunces == null ? "Awaiting paired measurements" : item.usedVolumeOunces.toFixed(2)}</td>
                           </tr>
                         ))}
                       </tbody>

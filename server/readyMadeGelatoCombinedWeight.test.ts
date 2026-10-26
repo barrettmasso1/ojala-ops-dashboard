@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasImpossibleReadyMadeGrossWeights, resolveReadyMadeGrossWeights } from "./db";
+import { buildDailySnapshot, hasImpossibleReadyMadeGrossWeights, resolveReadyMadeGrossWeights } from "./db";
 
 describe("resolveReadyMadeGrossWeights", () => {
   it("keeps a single small-pan combined weight as the small gross weight", () => {
@@ -136,5 +136,66 @@ describe("resolveReadyMadeGrossWeights", () => {
         combinedGrossWeightKg: 9.5,
       })
     ).toBe(true);
+  });
+
+  it("keeps a legacy net weight with no pan counts as registered weight without inventing gross volume", () => {
+    const snapshot = buildDailySnapshot(
+      [],
+      [],
+      [],
+      [
+        { flavor: "Legacy", shiftType: "opening", smallPanCount: 0, largePanCount: 0, smallGrossWeightKg: 0, largeGrossWeightKg: 0, weightKg: "2.21" },
+        { flavor: "Legacy", shiftType: "closing", smallPanCount: 0, largePanCount: 0, smallGrossWeightKg: 0, largeGrossWeightKg: 0, weightKg: "1.20" },
+      ],
+      [],
+      "2026-04-21"
+    );
+    const row = snapshot.gelato.flavors.find(item => item.flavor === "Legacy");
+    expect(row?.opening.registeredNetWeightKg).toBe(2.21);
+    expect(row?.opening.volumeAvailable).toBe(false);
+    expect(row?.opening.totalVolumeOunces).toBeNull();
+    expect(row?.usedVolumeOunces).toBeNull();
+    expect(snapshot.gelato.actualDistributedVolumeOunces).toBeNull();
+  });
+
+  it("does not turn combined gross weight with zero pan counts into a pan assignment", () => {
+    const snapshot = buildDailySnapshot(
+      [],
+      [],
+      [],
+      [
+        { flavor: "Combined only", shiftType: "opening", smallPanCount: 0, largePanCount: 0, smallGrossWeightKg: 0, largeGrossWeightKg: 0, combinedGrossWeightKg: "2.50" },
+        { flavor: "Combined only", shiftType: "closing", smallPanCount: 0, largePanCount: 0, smallGrossWeightKg: 0, largeGrossWeightKg: 0, combinedGrossWeightKg: "2.00" },
+      ],
+      [],
+      "2026-04-21"
+    );
+    const row = snapshot.gelato.flavors.find(item => item.flavor === "Combined only");
+    expect(row?.opening.registeredCombinedGrossWeightKg).toBe(2.5);
+    expect(row?.opening.smallGrossWeightKg).toBe(0);
+    expect(row?.opening.largeGrossWeightKg).toBe(0);
+    expect(row?.opening.volumeAvailable).toBe(false);
+    expect(row?.usedVolumeOunces).toBeNull();
+  });
+
+  it("preserves an explicit all-zero measurement as a real zero while keeping missing reports unavailable", () => {
+    const snapshot = buildDailySnapshot(
+      [],
+      [],
+      [],
+      [
+        { flavor: "Explicit zero", shiftType: "opening", smallPanCount: 0, largePanCount: 0, smallGrossWeightKg: 0, largeGrossWeightKg: 0, weightKg: 0 },
+        { flavor: "Explicit zero", shiftType: "closing", smallPanCount: 0, largePanCount: 0, smallGrossWeightKg: 0, largeGrossWeightKg: 0, weightKg: 0 },
+      ],
+      [],
+      "2026-04-21"
+    );
+    const row = snapshot.gelato.flavors.find(item => item.flavor === "Explicit zero");
+    expect(row?.opening.available).toBe(true);
+    expect(row?.opening.volumeAvailable).toBe(true);
+    expect(row?.opening.totalVolumeOunces).toBe(0);
+    expect(row?.usedVolumeOunces).toBe(0);
+    expect(snapshot.gelato.actualDistributedVolumeOunces).toBe(0);
+    expect(snapshot.gelato.varianceVolumeOunces).toBeNull();
   });
 });

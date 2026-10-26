@@ -259,10 +259,10 @@ describe("db aggregation helpers", () => {
     expect(snapshot.gelato.discrepancyLabel).toBe("Sample / minor discrepancy");
     expect(snapshot.packaging.items.find(item => item.key === "cups8oz")).toMatchObject({
       discrepancyStatus: "pending",
-      discrepancyLabel: "Awaiting same-day closing inventory count",
+      discrepancyLabel: "Awaiting opening inventory count",
     });
     expect(snapshot.packaging.discrepancyStatus).toBe("pending");
-    expect(snapshot.packaging.discrepancyLabel).toBe("Awaiting same-day closing inventory count");
+    expect(snapshot.packaging.discrepancyLabel).toBe("Awaiting opening inventory count");
   });
 
   it("keeps gelato distributed ounces at zero until closing gelato measurements exist", () => {
@@ -285,16 +285,48 @@ describe("db aggregation helpers", () => {
       "2026-04-21"
     );
 
-    expect(snapshot.gelato.openingVolumeOunces).toBeGreaterThan(0);
-    expect(snapshot.gelato.closingVolumeOunces).toBe(0);
-    expect(snapshot.gelato.actualDistributedVolumeOunces).toBe(0);
-    expect(snapshot.gelato.varianceVolumeOunces).toBe(0);
+    expect(snapshot.gelato.openingVolumeOunces).toBeNull();
+    expect(snapshot.gelato.closingVolumeOunces).toBeNull();
+    expect(snapshot.gelato.actualDistributedVolumeOunces).toBeNull();
+    expect(snapshot.gelato.varianceVolumeOunces).toBeNull();
     expect(snapshot.gelato.discrepancyStatus).toBe("pending");
-    expect(snapshot.gelato.discrepancyLabel).toBe("Awaiting closing form");
+    expect(snapshot.gelato.discrepancyLabel).toBe("Awaiting closing gelato measurements");
     expect(snapshot.gelato.flavors.find(item => item.flavor === "Cookies and Cream")).toMatchObject({
-      usedVolumeOunces: 0,
+      usedVolumeOunces: null,
     });
-    expect(snapshot.packaging.discrepancyLabel).toBe("Awaiting closing form");
+    expect(snapshot.packaging.discrepancyLabel).toBe("Awaiting opening inventory count");
+  });
+
+  it("does not treat a closing form as gelato measurements and keeps a closing-only flavor partial", () => {
+    const withClosingFormOnly = buildDailySnapshot(
+      [],
+      [{ staffName: "Marco", cashCounted: "100.00", cashMatchesSystem: "Yes", cleaningStatus: "Done", productStorageStatus: "Stored", storeClosedStatus: "Yes" }],
+      [],
+      [],
+      [],
+      "2026-04-21"
+    );
+    expect(withClosingFormOnly.dataAvailability.closingForm).toBe("complete");
+    expect(withClosingFormOnly.dataAvailability.gelatoReconciliation).toBe("missing");
+    expect(withClosingFormOnly.gelato.actualDistributedVolumeOunces).toBeNull();
+    expect(withClosingFormOnly.gelato.varianceVolumeOunces).toBeNull();
+
+    const closingOnly = buildDailySnapshot(
+      [],
+      [],
+      [],
+      [{ flavor: "New flavor", shiftType: "closing", smallPanCount: 1, smallGrossWeightKg: "1.90", largePanCount: 0, largeGrossWeightKg: "0.00" }],
+      [],
+      "2026-04-21"
+    );
+    const row = closingOnly.gelato.flavors.find(item => item.flavor === "New flavor");
+    expect(row?.opening.available).toBe(false);
+    expect(row?.closing.available).toBe(true);
+    expect(row?.closing.totalVolumeOunces).toBeGreaterThan(0);
+    expect(row?.usedVolumeOunces).toBeNull();
+    expect(closingOnly.dataAvailability.gelatoOpening).toBe("missing");
+    expect(closingOnly.dataAvailability.gelatoClosing).toBe("complete");
+    expect(closingOnly.dataAvailability.gelatoReconciliation).toBe("partial");
   });
 
   it("builds week-over-week sales series with previous week and delta values", () => {

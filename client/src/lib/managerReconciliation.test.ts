@@ -125,4 +125,41 @@ describe("manager reconciliation helper", () => {
       hasPendingCounts: true,
     });
   });
+
+  it("does not turn missing sources into zero while preserving an explicitly reported zero", () => {
+    const snapshot = buildManagerReconciliationSnapshot({
+      gelato: {
+        openingVolumeOunces: 0,
+        closingVolumeOunces: 0,
+        actualDistributedVolumeOunces: 0,
+        soldVolumeOunces: 0,
+        varianceVolumeOunces: 0,
+        discrepancyLabel: "Awaiting closing gelato measurements",
+        flavors: [],
+      },
+      packaging: {
+        varianceCount: null,
+        discrepancyLabel: "Awaiting opening inventory count",
+        items: [{ key: "cups4oz", label: "4oz Cups", openingQuantity: null, closingQuantity: null, expectedUsed: null, actualUsed: null, variance: null, discrepancyLabel: "Awaiting opening inventory count" }],
+      },
+      dataAvailability: {
+        salesReport: "missing",
+        gelatoOpening: "complete",
+        gelatoClosing: "partial",
+        gelatoReconciliation: "partial",
+        packagingOpening: "missing",
+        packagingClosing: "missing",
+        packagingReconciliation: "missing",
+      },
+    });
+
+    expect(snapshot.gelato).toMatchObject({
+      openingVolumeOunces: 0,
+      closingVolumeOunces: null,
+      distributedVolumeOunces: null,
+      soldVolumeOunces: null,
+      differenceVolumeOunces: null,
+    });
+    expect(snapshot.packaging).toMatchObject({ openingCount: null, soldCount: null, closingCount: null });
+  });
 });
