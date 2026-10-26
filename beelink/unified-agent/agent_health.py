@@ -66,6 +66,8 @@ def summarize(records,services,now,day,store,device):
             if (optical.get('transport') or {}).get('status')!='acknowledged':issues.append('optical_pickup_not_received')
             if optical.get('businessDate')!=day:issues.append('optical_pickup_wrong_day')
             if (optical.get('jobs') or {}).get('blocked',0):issues.append('optical_pickup_candidates_blocked')
+            if optical.get('countAvailability')=='no_conclusive_route' or (optical.get('unresolved',0)>0 and optical.get('estimatedPickups') in (None,0)):issues.append('optical_pickup_no_conclusive_route')
+            elif optical.get('unresolved',0)>0:issues.append('optical_pickup_incomplete_estimate')
     calibration=records.get('calibration') or {};supported=[s for s in calibration.get('supportedCategories',[]) if s in ('chico','mediano','pint','litro')]
     missing=[s for s in ('chico','mediano','pint','litro') if s not in supported]
     return {'protocol':VERSION,'checkedAt':datetime.fromtimestamp(now,timezone.utc).isoformat(),'businessDate':day,'storeId':store,'deviceId':device,
@@ -73,7 +75,7 @@ def summarize(records,services,now,day,store,device):
         'cameraScheduledActive':operating,'processFps':camera.get('process_fps'),'temperatureC':temp,
         'todayLedgerAcknowledged':bool(today) and all(r.get('status')=='acknowledged' for r in today),'photoQueue':counts,'photoBacklog':backlog,'photoAutomaticValidation':validation_counts,
         'locallySupportedSizes':supported,'sizesNotYetValidated':missing,'uniquePhysicalCountValidated':False,'commercialAcceptanceComplete':False,
-        'opticalPickup':{k:optical.get(k) for k in ['status','businessDate','jobs','estimatedPickups','sizeBreakdown','unresolved','transport','coversWholeBusinessDay']} if isinstance(optical,dict) else None,
+        'opticalPickup':{k:optical.get(k) for k in ['status','businessDate','jobs','estimatedPickups','acceptedAlgorithmCandidates','countAvailability','sizeBreakdown','unresolved','transport','coversWholeBusinessDay']} if isinstance(optical,dict) else None,
         'cameraObservationsAreSales':False,'generativeAiRequired':False,'browserRequired':False,'externalMessagesSent':False,
         'note':'Technical reception health is separate from counting accuracy, manual tally, POS and billing activation.'}
 

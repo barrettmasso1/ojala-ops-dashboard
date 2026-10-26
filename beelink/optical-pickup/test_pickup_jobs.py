@@ -38,8 +38,8 @@ class JobTests(unittest.TestCase):
  def test_no_records_have_partial_not_whole_day_scope(self):
   d=self.jobs.document('2026-10-24',P);self.assertEqual(d['records'],[]);self.assertFalse(d['coversWholeBusinessDay']);self.assertFalse(d['physicalUniqueCountCertified'])
  def test_empty_worker_does_not_report_zero_estimate(self):
-  import inspect,run_pickups
-  source=inspect.getsource(run_pickups.main)
-  self.assertIn("local['estimatedPickups'] if document['records'] else None",source)
+  from run_pickups import observed_count_availability
+  result=observed_count_availability({'estimatedPickups':0,'unresolved':0,'sizeBreakdown':{}},[])
+  self.assertIsNone(result['estimatedPickups']);self.assertEqual(result['countAvailability'],'no_analyzed_windows')
 
 if __name__=='__main__':unittest.main()
