@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 import argparse,fcntl,hashlib,json,os,signal,sqlite3,subprocess,sys,time
 from pickup_core import PROTOCOL,canonical,digest,identify,assess,summarize,validate_policy,require,epoch
 from pickup_sync import Sync
+from video_reader import coherent_prefix
 
 
 def atomic(path,value):
@@ -33,10 +34,11 @@ def source_segments(base,at):
   rel=Path(path).relative_to('/media/frigate/recordings');require('..' not in rel.parts and len(rel.parts)==4 and rel.parts[2]=='handoff' and rel.suffix=='.mp4','recording_path')
   source=root/rel;require(not source.is_symlink() and source.resolve().is_relative_to(root.resolve()) and source.is_file(),'recording_missing')
   require(0<source.stat().st_size<32*1024*1024,'recording_size')
-  if result:require(start>result[-1]['start'] and start>=result[-1]['end']-.5,'recording_ranges_invalid')
   with source.open('rb') as f:sha=hashlib.file_digest(f,'sha256').hexdigest()
   result.append({'path':path,'start':start,'end':end,'sha256':sha})
- return result
+ prefix=coherent_prefix(result,at)
+ require(bool(prefix),'recording_seed_in_gap')
+ return prefix
 
 def thermal_state(path,now):
  try:
