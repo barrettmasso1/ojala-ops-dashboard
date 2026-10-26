@@ -5,6 +5,7 @@ No network, model inference, frame approvals, camera mutation, or filesystem wri
 import hashlib,json,math,re,sys
 from pathlib import PurePosixPath,Path
 from datetime import datetime,timezone
+from video_reader import SequentialReader
 import cv2
 import numpy as np
 
@@ -26,22 +27,19 @@ def main(data):
   require(isinstance(item['sha256'],str) and re.fullmatch('[a-f0-9]{64}',item['sha256']),'segment_hash')
   with open(real_path(str(path)),'rb') as f:actual=hashlib.file_digest(f,'sha256').hexdigest()
   require(actual==item['sha256'],'segment_integrity')
- previous=None;points=None;initial=None;rect=None;trace=[];reason='window_completed';cap=None;current_path=None;previous_at=None
+ previous=None;points=None;initial=None;rect=None;trace=[];reason='window_completed';cap=None;current_path=None;previous_at=None;reader=SequentialReader(cv2.VideoCapture,cv2.CAP_PROP_POS_MSEC)
  try:
   for n in range(121):
    desired=seed+n*.2;matches=[x for x in segments if x['start']<=desired<x['end']]
    if not matches:reason='recording_gap';break
    segment=matches[0];path=segment['path'];begin=segment['start']
-   if path!=current_path:
-    if cap is not None:cap.release()
-    cap=cv2.VideoCapture(real_path(path));current_path=path
-   cap.set(cv2.CAP_PROP_POS_MSEC,(desired-begin)*1000);ok,frame=cap.read()
-   if not ok:
+   frame,offset=reader.read(real_path(path),max(0,desired-begin))
+   if frame is None:
     following=[x for x in segments if x['start']>desired and x['start']-desired<=.35]
     if not following:reason='frame_decode_failed';break
-    segment=following[0];begin=segment['start'];cap.release();cap=cv2.VideoCapture(real_path(segment['path']));current_path=segment['path'];ok,frame=cap.read()
-    if not ok:reason='frame_decode_failed';break
-   at=begin+cap.get(cv2.CAP_PROP_POS_MSEC)/1000
+    segment=following[0];begin=segment['start'];frame,offset=reader.read(real_path(segment['path']),0)
+    if frame is None:reason='frame_decode_failed';break
+   at=begin+offset
    if previous_at is not None and at<=previous_at:continue
    if previous_at is not None and at-previous_at>.45:reason='decoded_frame_gap';break
    if previous_at is None and abs(at-seed)>.4:reason='seed_frame_not_near_capture';break
@@ -73,6 +71,6 @@ def main(data):
    previous=gray;previous_at=at
   return {'source':'recorded_video_optical_flow','algorithm':'sparse_lk_forward_backward_v1','samples':trace,'stopReason':reason,'newInference':False,'generativeAiUsed':False}
  finally:
-  if cap is not None:cap.release()
+  reader.close()
 if __name__=='__main__':
  raw=sys.stdin.read(65537);require(len(raw)<=65536,'input_limit');print(json.dumps(main(json.loads(raw)),separators=(',',':'),allow_nan=False))
