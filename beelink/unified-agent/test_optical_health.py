@@ -23,4 +23,14 @@ class OpticalHealth(unittest.TestCase):
  def test_running_not_commercial_certification(self):self.assertFalse(self.report()['commercialAcceptanceComplete']);self.assertFalse(self.report()['uniquePhysicalCountValidated'])
  def test_records_unchanged(self):
   before=copy.deepcopy(self.r);self.report();self.assertEqual(self.r,before)
+ def test_active_transport_does_not_hide_inconclusive_count(self):
+  self.r['opticalPickup'].update(estimatedPickups=None,acceptedAlgorithmCandidates=0,unresolved=18,countAvailability='no_conclusive_route')
+  self.assertIn('optical_pickup_no_conclusive_route',self.report()['issues']);self.assertEqual(self.report()['status'],'attention_required')
+ def test_legacy_zero_with_unresolved_is_not_green(self):
+  self.r['opticalPickup'].update(estimatedPickups=0,unresolved=18)
+  self.assertIn('optical_pickup_no_conclusive_route',self.report()['issues'])
+ def test_positive_incomplete_estimate_is_visible(self):
+  self.r['opticalPickup'].update(estimatedPickups=2,unresolved=3)
+  self.assertIn('optical_pickup_incomplete_estimate',self.report()['issues'])
+
 if __name__=='__main__':unittest.main()

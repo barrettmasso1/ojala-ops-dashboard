@@ -97,6 +97,13 @@ class Jobs:
   require(len(records)<=2000,'pickup_record_limit_no_truncation')
   return {'protocol':PROTOCOL,'deviceId':policy['deviceId'],'cameraName':'handoff','businessDate':day,'policyJson':canonical(policy),'policySha256':digest(canonical(policy)),'records':records,'scope':'recording_optical_pickup_estimates_not_sales','coverage':'candidate_recording_windows_not_continuous_day','requiresPerImageApproval':False,'generativeAiUsed':False,'coversWholeBusinessDay':False,'physicalUniqueCountCertified':False}
 
+def observed_count_availability(summary,records):
+ raw=summary['estimatedPickups'];unresolved=summary['unresolved']
+ has_accepted=type(raw) is int and raw>0 and bool(records)
+ return {'acceptedAlgorithmCandidates':raw,'estimatedPickups':raw if has_accepted else None,
+         'sizeBreakdown':summary['sizeBreakdown'] if has_accepted else None,
+         'countAvailability':'partial_unresolved' if has_accepted and unresolved else 'partial_estimate' if has_accepted else 'no_conclusive_route' if records else 'no_analyzed_windows'}
+
 def main():
  p=argparse.ArgumentParser();p.add_argument('--config',type=Path,required=True);p.add_argument('--once',action='store_true');a=p.parse_args();os.umask(0o077)
  c=json.loads(a.config.read_text());base=Path(c['basePath']);root=Path(c['stateRoot']);sys.path.insert(0,str(base/'manus-bridge'));sys.path.insert(0,c['nativeCodePath'])
@@ -119,7 +126,7 @@ def main():
     local=summarize(document['records'],[o for o in rows if o['businessDate']==day],policy)
     transport={'status':'authorization_hold','networkAttempted':False} if (root/'authorization-hold.json').exists() else sync.cycle(document)
     if transport.get('reason') in ('http_401','http_403'):atomic(root/'authorization-hold.json',{'reason':transport['reason'],'createdAt':datetime.now(timezone.utc).isoformat()})
-    report={'checkedAt':datetime.now(timezone.utc).isoformat(),'businessDate':day,'status':pause or 'running','latestJob':result,'jobs':dict(jobs.db.execute('SELECT status,count(*) FROM jobs GROUP BY status')),'estimatedPickups':local['estimatedPickups'] if document['records'] else None,'sizeBreakdown':local['sizeBreakdown'] if document['records'] else None,'unresolved':local['unresolved'],'transport':transport,'browserRequired':False,'generativeAiRequired':False,'createsSales':False,'coversWholeBusinessDay':False,'requiresPerImageApproval':False,'physicalUniqueCountCertified':False}
+    report={'checkedAt':datetime.now(timezone.utc).isoformat(),'businessDate':day,'status':pause or 'running','latestJob':result,'jobs':dict(jobs.db.execute('SELECT status,count(*) FROM jobs GROUP BY status')),**observed_count_availability(local,document['records']),'unresolved':local['unresolved'],'transport':transport,'browserRequired':False,'generativeAiRequired':False,'createsSales':False,'coversWholeBusinessDay':False,'requiresPerImageApproval':False,'physicalUniqueCountCertified':False}
     atomic(root/'health.json',report)
     if a.once:print(canonical(report),flush=True);break
     for _ in range(20):
