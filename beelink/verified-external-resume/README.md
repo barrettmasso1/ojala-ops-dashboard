@@ -29,3 +29,8 @@ No tested source file or README contains machine credentials or customer photos.
 Rollback: stop these services before any path change; reconcile the latest
 revisions and exact server receipts before selecting any earlier queue. Do not
 blindly restore the retained pre-migration queue or restart historical workers.
+
+The deployment preflight was updated to the reconciled queue root and now
+reports internal/external space separately. Twelve preflight tests, including
+1,000 microsecond timestamp round trips, pass. Timestamp rounding cannot cause a
+false future/stale classification; genuinely future data remains rejected.
