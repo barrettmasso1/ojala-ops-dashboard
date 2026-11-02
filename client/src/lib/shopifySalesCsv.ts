@@ -5,6 +5,7 @@ export type ShopifySalesImportRow = {
   variantTitle: string;
   sku: string;
   netItemsSold: number;
+  netItemsSoldStatus: "integer" | "fractional" | "negative" | "missing" | "invalid";
   grossSales: number;
   discounts: number;
   returns: number;
@@ -72,8 +73,11 @@ function normalizeProductKey(value: string) {
 }
 
 function inferServiceMode(normalizedKey: string): ShopifyGelatoSoldRow["serviceMode"] {
-  if (normalizedKey.includes("for here")) return "for-here";
-  if (normalizedKey.includes("to go")) return "to-go";
+  if (/\b(?:not|no)\s+(?:for here|to go)\b/.test(normalizedKey)) return "unknown";
+  const hereMatches = normalizedKey.match(/\bfor here\b/g)?.length ?? 0;
+  const toGoMatches = normalizedKey.match(/\bto go\b/g)?.length ?? 0;
+  if (hereMatches > 0 && toGoMatches === 0) return "for-here";
+  if (toGoMatches > 0 && hereMatches === 0) return "to-go";
   return "unknown";
 }
 
@@ -83,6 +87,17 @@ function parseNumber(value: string | undefined) {
   if (!cleaned) return 0;
   const parsed = Number(cleaned);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getNetItemsSoldStatus(value: string | undefined): ShopifySalesImportRow["netItemsSoldStatus"] {
+  if (value == null || !value.trim()) return "missing";
+  const cleaned = value.replace(/[$,\s]/g, "").trim();
+  if (!cleaned) return "missing";
+  const parsed = Number(cleaned);
+  if (!Number.isFinite(parsed)) return "invalid";
+  if (!Number.isSafeInteger(parsed)) return Number.isInteger(parsed) ? "invalid" : "fractional";
+  if (parsed < 0) return "negative";
+  return "integer";
 }
 
 export function parseCsvLine(line: string) {
@@ -119,6 +134,7 @@ export function parseCsvLine(line: string) {
 }
 
 export function parseShopifySalesCsv(csvText: string) {
+  if (new TextEncoder().encode(csvText).byteLength > 1_000_000) throw new Error("Shopify CSV exceeds the 1 MB import limit.");
   const lines = csvText
     .split(/\r?\n/)
     .map(line => line.trim())
@@ -127,8 +143,12 @@ export function parseShopifySalesCsv(csvText: string) {
   if (lines.length < 2) {
     throw new Error("Upload a Shopify CSV with a header row and at least one sales row.");
   }
+  if (lines.length > 10_001 || lines.some(line => line.length > 64_000)) throw new Error("Shopify CSV exceeds the row or field size limit.");
 
   const header = parseCsvLine(lines[0]);
+  if (!header.includes("Product title") || !header.includes("Net items sold")) {
+    throw new Error("Shopify CSV is missing required Product title or Net items sold columns.");
+  }
   const records = lines.slice(1).map(line => {
     const values = parseCsvLine(line);
     return header.reduce<ShopifyCsvRecord>((record, key, index) => {
@@ -142,6 +162,7 @@ export function parseShopifySalesCsv(csvText: string) {
     variantTitle: record["Product variant title"] ?? "",
     sku: record["Product variant SKU"] ?? "",
     netItemsSold: parseNumber(record["Net items sold"]),
+    netItemsSoldStatus: getNetItemsSoldStatus(record["Net items sold"]),
     grossSales: parseNumber(record["Gross sales"]),
     discounts: parseNumber(record["Discounts"]),
     returns: parseNumber(record["Returns"]),

@@ -16,6 +16,7 @@ export const LOCAL_LEDGER_READ_HOST="d36hbw14aib5lz.cloudfront.net";
 const safeKey=(key:string)=>/^local-cup-ledger\/v1\/store-[1-9]\d*\/[a-f0-9-]{36}\/\d{4}-\d{2}-\d{2}\.json$/.test(key);
 const safeDirectionalKey=(key:string)=>/^directional-handoffs\/v1\/store-[1-9]\d*\/[a-f0-9-]{36}\/\d{4}-\d{2}-\d{2}\.json$/.test(key);
 const safeCounterPickupKey=(key:string)=>/^counter-pickups\/v1\/store-[1-9]\d*\/[a-f0-9-]{36}\/\d{4}-\d{2}-\d{2}\.json$/.test(key);
+const safeComparisonSourcesKey=(key:string)=>/^comparison-sources\/v1\/store-[1-9]\d*\/\d{4}-\d{2}-\d{2}\.json$/.test(key);
 const strongEtag=(value:string|null)=>Boolean(value&&/^"[\x21\x23-\x7e\x80-\xff]+"$/.test(value));
 const validateUrl=(raw:string,allowLedgerReadHost:boolean)=>{
   const u=new URL(raw);
@@ -119,6 +120,41 @@ export class PlatformCounterPickupStore implements LocalLedgerBlobStore {
     const r=await fetch(safePutUrl(data.url),{method:"PUT",headers:conditional,body:text,redirect:"error",signal:AbortSignal.timeout(20000)});
     if(r.status===412||r.status===409)throw new LedgerConflict("concurrent_counter_pickup_update");
     if(!r.ok)throw new LedgerStorageError(`counter_pickup_storage_write_failed_${r.status}`,"object_put",r.status);
+  }
+}
+
+/** Persisted comparison sources are private aggregate documents, separate from ledgers and media. */
+export class PlatformComparisonSourcesStore implements LocalLedgerBlobStore {
+  constructor(private readonly tenantStoreId:number) {
+    if(!Number.isSafeInteger(tenantStoreId)||tenantStoreId<1)throw Error("invalid_comparison_sources_tenant");
+  }
+  private acceptsTenantKey(key:string) {
+    return safeComparisonSourcesKey(key)&&key.startsWith(`comparison-sources/v1/store-${this.tenantStoreId}/`);
+  }
+  async read(key:string) {
+    if(!this.acceptsTenantKey(key))throw Error("invalid_comparison_sources_storage_key");
+    const signed=await storageGetSignedUrl(key);
+    const r=await fetch(safeReadUrl(signed),{method:"GET",headers:{"Accept-Encoding":"identity","Cache-Control":"no-cache, no-store, max-age=0"},redirect:"error",cache:"no-store",signal:AbortSignal.timeout(15000)});
+    if(r.status===404)return null;
+    if(!r.ok)throw new LedgerStorageError(`comparison_sources_storage_read_failed_${r.status}`,"object_get",r.status);
+    const etag=r.headers.get("etag");if(!etag)throw new LedgerStorageError("comparison_sources_storage_etag_missing","object_get",r.status);
+    if(!strongEtag(etag))throw new LedgerStorageError("comparison_sources_storage_etag_not_strong","object_get",r.status);
+    if(r.headers.get("content-encoding"))throw new LedgerStorageError("comparison_sources_storage_content_encoding_present","object_get",r.status);
+    return {text:await limitedText(r,128*1024),etag};
+  }
+  async compareAndPut(key:string,text:string,expectedEtag:string|null) {
+    if(!this.acceptsTenantKey(key)||Buffer.byteLength(text)>128*1024)throw Error("invalid_comparison_sources_storage_write");
+    if(expectedEtag!==null&&!strongEtag(expectedEtag))throw Error("invalid_comparison_sources_etag");
+    if(!ENV.forgeApiUrl||!ENV.forgeApiKey)throw Error("comparison_sources_storage_not_configured");
+    const presign=new URL("v1/storage/presign/put",ENV.forgeApiUrl.replace(/\/+$/,"")+"/");presign.searchParams.set("path",key);
+    const p=await fetch(presign,{headers:{Authorization:`Bearer ${ENV.forgeApiKey}`},redirect:"error",cache:"no-store",signal:AbortSignal.timeout(15000)});
+    if(!p.ok)throw new LedgerStorageError(`comparison_sources_storage_presign_failed_${p.status}`,"presign_put",p.status);
+    const data=await p.json() as {url?:string};if(!data.url)throw Error("comparison_sources_storage_presign_missing");
+    const conditional:Record<string,string>={"Content-Type":"application/json"};
+    conditional[expectedEtag?"If-Match":"If-None-Match"]=expectedEtag??"*";
+    const r=await fetch(safePutUrl(data.url),{method:"PUT",headers:conditional,body:text,redirect:"error",signal:AbortSignal.timeout(20000)});
+    if(r.status===412||r.status===409)throw new LedgerConflict("concurrent_comparison_sources_update");
+    if(!r.ok)throw new LedgerStorageError(`comparison_sources_storage_write_failed_${r.status}`,"object_put",r.status);
   }
 }
 

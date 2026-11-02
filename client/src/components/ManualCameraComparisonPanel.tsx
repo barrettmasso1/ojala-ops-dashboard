@@ -22,12 +22,12 @@ export function ManualCameraComparisonPanel({ businessDate }: { businessDate: st
   const preserved = Boolean(query.error && data);
 
   return (
-    <section aria-label="Comparativa de cierre manual y cámara" className="rounded-[2rem] border border-[#d8e2da] bg-white/90 p-6 shadow-sm md:p-8">
+      <section aria-label="Comparativa de cierre declarado por personal y cámara" className="rounded-[2rem] border border-[#d8e2da] bg-white/90 p-6 shadow-sm md:p-8">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-[#52665f]">Comparativa operativa · {businessDate}</p>
-          <h2 className="mt-3 font-serif text-3xl text-[#1f2b27]">Cierre manual y cámara, lado a lado</h2>
-          <p className="mt-3 max-w-4xl text-sm leading-6 text-[#65716b]">El cierre manual conserva sus unidades y modos de servicio. La cámara nativa conserva observaciones; no son ventas, entregas ni vasos físicos deduplicados. La actualización es automática cada 5 segundos y no modifica registros.</p>
+          <h2 className="mt-3 font-serif text-3xl text-[#1f2b27]">Cierre declarado por personal y cámara</h2>
+          <p className="mt-3 max-w-4xl text-sm leading-6 text-[#65716b]">El EOD conserva unidades declaradas por personal y no es tally manual independiente. La cámara nativa conserva observaciones; no son ventas, entregas ni vasos físicos deduplicados. La actualización es automática cada 5 segundos y no modifica registros.</p>
         </div>
         {preserved && <span role="status" className="w-fit rounded-full border border-[#e5d3a8] bg-[#fff7e5] px-4 py-2 text-sm text-[#735825]">Datos conservados; la consulta actual no se confirmó.</span>}
       </div>
@@ -37,7 +37,7 @@ export function ManualCameraComparisonPanel({ businessDate }: { businessDate: st
           data ? <>
             <div className="mt-6 grid gap-4 xl:grid-cols-3">
               <article className="rounded-2xl border border-[#e5ddd0] bg-[#fbf7f0] p-5">
-                <p className="text-xs uppercase tracking-[0.16em] text-[#8b9088]">Cierre manual</p>
+                <p className="text-xs uppercase tracking-[0.16em] text-[#8b9088]">Cierre declarado EOD</p>
                 <p className="mt-3 text-2xl font-semibold text-[#24332f]">{display(data.manual.total)}</p>
                 <p className="mt-2 text-sm leading-6 text-[#65716b]">Unidades registradas en el cierre manual. No se afirma conexión a POS o Shopify.</p>
               </article>
@@ -54,7 +54,7 @@ export function ManualCameraComparisonPanel({ businessDate }: { businessDate: st
             </div>
 
             <div className="mt-6 rounded-2xl border border-[#d8e2da] bg-[#f7fbf7] p-5">
-              <h3 className="font-medium text-[#24332f]">Seis categorías del cierre manual</h3>
+              <h3 className="font-medium text-[#24332f]">Seis categorías declaradas en EOD</h3>
               <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {data.manual.rows.map(row => <div key={row.key} className="rounded-xl border border-[#d8e2da] bg-white px-4 py-3"><p className="text-xs text-[#65716b]">{row.label}</p><p className="mt-1 text-xl font-semibold">{display(row.value)}</p></div>)}
               </div>
@@ -63,7 +63,7 @@ export function ManualCameraComparisonPanel({ businessDate }: { businessDate: st
 
             <div className="mt-6 overflow-x-auto rounded-2xl border border-[#e5ddd0]">
               <table className="w-full min-w-[720px] text-left text-sm">
-                <thead className="bg-[#fbf7f0] text-[#52665f]"><tr><th className="p-4">Tamaño</th><th className="p-4">Cierre manual</th><th className="p-4">Observaciones nativas</th><th className="p-4">Diferencia / %</th><th className="p-4">Estado</th></tr></thead>
+                <thead className="bg-[#fbf7f0] text-[#52665f]"><tr><th className="p-4">Tamaño</th><th className="p-4">EOD declarado</th><th className="p-4">Observaciones nativas</th><th className="p-4">Diferencia / %</th><th className="p-4">Estado</th></tr></thead>
                 <tbody>
                   {data.sizeRows.map(row => <tr key={row.key} className="border-t border-[#e5ddd0]"><td className="p-4 font-medium text-[#24332f]">{row.label}</td><td className="p-4">{display(row.manual)}</td><td className="p-4">{display(row.nativeObservations)}</td><td className="p-4">No disponible</td><td className="p-4 text-[#65716b]">{row.reason}</td></tr>)}
                   <tr className="border-t border-[#e5ddd0]"><td className="p-4 font-medium text-[#24332f]">Sin clasificar</td><td className="p-4">No aplica</td><td className="p-4">{data.native.received && data.native.sizes ? data.native.sizes.unknown : "No disponible"}</td><td className="p-4">No disponible</td><td className="p-4 text-[#65716b]">Capacidad no confirmada; no se reparte entre tamaños.</td></tr>

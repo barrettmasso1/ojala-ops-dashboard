@@ -83,9 +83,11 @@ const storageMocks = vi.hoisted(() => ({
 const localLedgerMocks=vi.hoisted(()=>({saveLocalLedger:vi.fn(),readLocalLedger:vi.fn(),readLocalLedgerReceipt:vi.fn(),readLocalEvidenceObservation:vi.fn()}));
 const directionalMocks=vi.hoisted(()=>({saveDirectionalHandoffs:vi.fn(),readDirectionalHandoffReceipt:vi.fn(),readDirectionalHandoffs:vi.fn()}));
 const counterPickupMocks=vi.hoisted(()=>({saveCounterPickups:vi.fn(),readCounterPickupReceipt:vi.fn(),readCounterPickups:vi.fn()}));
-vi.mock("./localCupLedgerStorage",()=>({PlatformLocalLedgerStore:class {},PlatformDirectionalHandoffStore:class {},PlatformCounterPickupStore:class {},...localLedgerMocks}));
+const comparisonMocks=vi.hoisted(()=>({readComparisonSources:vi.fn(),saveIndependentManualComparison:vi.fn(),saveShopifyComparison:vi.fn()}));
+vi.mock("./localCupLedgerStorage",()=>({PlatformLocalLedgerStore:class {},PlatformDirectionalHandoffStore:class {},PlatformCounterPickupStore:class {},PlatformComparisonSourcesStore:class {},...localLedgerMocks}));
 vi.mock("./directionalHandoff",async()=>{const actual=await vi.importActual<typeof import("./directionalHandoff")>("./directionalHandoff");return {...actual,...directionalMocks};});
 vi.mock("./counterPickups",async()=>{const actual=await vi.importActual<typeof import("./counterPickups")>("./counterPickups");return {...actual,...counterPickupMocks};});
+vi.mock("./comparisonSources",async()=>{const actual=await vi.importActual<typeof import("./comparisonSources")>("./comparisonSources");return {...actual,...comparisonMocks};});
 vi.mock("./db", () => dbMocks);
 vi.mock("./_core/notification", () => notificationMocks);
 vi.mock("./_core/sdk", () => sdkMocks);
@@ -230,6 +232,9 @@ describe("operations router", () => {
     directionalMocks.saveDirectionalHandoffs.mockResolvedValue({ success: true, disposition: "create", receipt: { persisted: true, estimatedHandoffs: null } });
     directionalMocks.readDirectionalHandoffReceipt.mockResolvedValue(null);
     directionalMocks.readDirectionalHandoffs.mockResolvedValue(null);
+    comparisonMocks.readComparisonSources.mockResolvedValue({ availability: "absent", revision: null, document: null });
+    comparisonMocks.saveIndependentManualComparison.mockResolvedValue({ disposition: "saved", revision: "a".repeat(64), document: { storeId: 1 } });
+    comparisonMocks.saveShopifyComparison.mockResolvedValue({ disposition: "saved", revision: "b".repeat(64), document: { storeId: 1 } });
     dbMocks.getActiveHandoffCameraZone.mockResolvedValue(visualZone);
     dbMocks.reserveHandoffVisualEvent.mockResolvedValue({
       event: {
@@ -264,6 +269,70 @@ describe("operations router", () => {
       status: "approved_by_ai",
       reason: "fixture",
     });
+  });
+
+  const sourceInterval = { startedAt: "2026-10-31T10:00:00-07:00", endedAt: "2026-10-31T11:00:00-07:00" };
+  const manualComparisonInput = {
+    businessDate: "2026-10-31",
+    expectedRevision: null,
+    sourceName: "libreta independiente",
+    interval: sourceInterval,
+    categories: { chico_here: 0, chico_togo: null, mediano_here: null, mediano_togo: 2, pint_togo: null, litro_togo: null },
+  };
+
+  it("lets an admin read the tenant/date comparison and preserves explicit absence", async () => {
+    const result = await appRouter.createCaller(createContext("admin")).dashboard.comparisonSources({ businessDate: "2026-10-31" });
+    expect(result).toMatchObject({ availability: "absent", revision: null, document: null });
+    expect(comparisonMocks.readComparisonSources).toHaveBeenCalledWith(expect.any(Object), 1, "2026-10-31", "America/Mazatlan");
+  });
+
+  it("does not expose comparison sources to ordinary viewers", async () => {
+    const caller = appRouter.createCaller(createContext("user"));
+    await expect(caller.dashboard.comparisonSources({ businessDate: "2026-10-31" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.dashboard.saveIndependentManualComparison(manualComparisonInput)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.dashboard.saveShopifyComparison({ ...manualComparisonInput, csvText: "header\nrow" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(comparisonMocks.readComparisonSources).not.toHaveBeenCalled();
+    expect(comparisonMocks.saveIndependentManualComparison).not.toHaveBeenCalled();
+    expect(comparisonMocks.saveShopifyComparison).not.toHaveBeenCalled();
+  });
+
+  it("binds reads and manual writes to the session store and rejects browser-supplied tenancy", async () => {
+    dbMocks.getActiveStoreById.mockResolvedValueOnce(storeTwo).mockResolvedValueOnce(storeTwo);
+    const caller = appRouter.createCaller(createContext("admin", 2));
+    await caller.dashboard.comparisonSources({ businessDate: "2026-10-31" });
+    expect(comparisonMocks.readComparisonSources).toHaveBeenCalledWith(expect.any(Object), 2, "2026-10-31", "America/Los_Angeles");
+    await caller.dashboard.saveIndependentManualComparison(manualComparisonInput);
+    expect(comparisonMocks.saveIndependentManualComparison).toHaveBeenCalledWith(expect.any(Object), 2, "America/Los_Angeles", manualComparisonInput);
+    await expect(caller.dashboard.saveIndependentManualComparison({ ...manualComparisonInput, storeId: 1 } as never)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("passes Shopify CSV to the server aggregate path but does not invoke sales, closing, or inventory writes", async () => {
+    const payload = { businessDate: manualComparisonInput.businessDate, expectedRevision: null, sourceName: manualComparisonInput.sourceName, interval: sourceInterval, csvText: "Product title,Net items sold\nSmall (to go),2" };
+    await appRouter.createCaller(createContext("admin")).dashboard.saveShopifyComparison(payload);
+    expect(comparisonMocks.saveShopifyComparison).toHaveBeenCalledWith(expect.any(Object), 1, "America/Mazatlan", payload);
+    expect(dbMocks.createEndOfDayReport).not.toHaveBeenCalled();
+    expect(dbMocks.createClosingChecklist).not.toHaveBeenCalled();
+    expect(dbMocks.updateInventoryCount).not.toHaveBeenCalled();
+  });
+
+  it("keeps revision conflicts explicit and maps invalid intervals to BAD_REQUEST", async () => {
+    const { ComparisonSourcesConflict } = await import("./comparisonSources");
+    comparisonMocks.saveIndependentManualComparison.mockRejectedValueOnce(new ComparisonSourcesConflict());
+    await expect(appRouter.createCaller(createContext("admin")).dashboard.saveIndependentManualComparison(manualComparisonInput)).rejects.toMatchObject({ code: "CONFLICT" });
+    comparisonMocks.saveIndependentManualComparison.mockRejectedValueOnce(new Error("comparison_interval_in_future"));
+    await expect(appRouter.createCaller(createContext("admin")).dashboard.saveIndependentManualComparison(manualComparisonInput)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("reports failed source reads as unavailable rather than absent or zero", async () => {
+    comparisonMocks.readComparisonSources.mockRejectedValueOnce(new Error("storage 403"));
+    await expect(appRouter.createCaller(createContext("admin")).dashboard.comparisonSources({ businessDate: "2026-10-31" })).resolves.toMatchObject({ storeId: 1, businessDate: "2026-10-31", availability: "unavailable", revision: null, document: null });
+  });
+
+  it("does not map invalid/future selected dates to an unavailable storage state", async () => {
+    comparisonMocks.readComparisonSources.mockRejectedValueOnce(new Error("invalid_comparison_business_date"));
+    await expect(appRouter.createCaller(createContext("admin")).dashboard.comparisonSources({ businessDate: "2026-10-31" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    comparisonMocks.readComparisonSources.mockRejectedValueOnce(new Error("future_comparison_business_date"));
+    await expect(appRouter.createCaller(createContext("admin")).dashboard.comparisonSources({ businessDate: "2026-10-31" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
   it("accepts the configured shared staff portal password and sets a staff session cookie", async () => {

@@ -1,8 +1,9 @@
 import {NATIVE_EVIDENCE_PROTOCOL,NATIVE_AUTOMATIC_VALIDATION_PROTOCOL,NATIVE_LOCAL_PROOF_MODEL,nativeEvidenceIdentity,nativeEvidenceUpload,requireEvidenceObservation,validateNativeEvidence,localEvidenceSource,nativeEvidenceReceipt,isNativeLocalEvidenceSource,buildNativeAutomaticValidationProof} from "./nativeLocalEvidence";
 import { LOCAL_LEDGER_PROTOCOL, localLedgerInputSchema, parseLocalLedger } from "./localCupLedger";
-import { PlatformCounterPickupStore, PlatformDirectionalHandoffStore, PlatformLocalLedgerStore, saveLocalLedger, readLocalLedger, readLocalLedgerReceipt, readLocalEvidenceObservation } from "./localCupLedgerStorage";
+import { PlatformComparisonSourcesStore, PlatformCounterPickupStore, PlatformDirectionalHandoffStore, PlatformLocalLedgerStore, saveLocalLedger, readLocalLedger, readLocalLedgerReceipt, readLocalEvidenceObservation } from "./localCupLedgerStorage";
 import { DIRECTIONAL_HANDOFF_PROTOCOL, DIRECTIONAL_HANDOFF_RECEIPT_PROTOCOL, directionalHandoffInputSchema, readDirectionalHandoffReceipt, readDirectionalHandoffs, saveDirectionalHandoffs } from "./directionalHandoff";
 import { COUNTER_PICKUP_PROTOCOL, COUNTER_PICKUP_RECEIPT_PROTOCOL, counterPickupInputSchema, readCounterPickupReceipt, readCounterPickups, saveCounterPickups, type CounterPickupPhotoReader } from "./counterPickups";
+import { ComparisonSourcesConflict, comparisonBusinessDateSchema, independentManualComparisonInputSchema, readComparisonSources, saveIndependentManualComparison, saveShopifyComparison, shopifyComparisonInputSchema } from "./comparisonSources";
 import { classifyHandoffCupSizes } from "./autoCupSizes";
 import { CUP_SIZE_KEYS } from "../shared/cupDescriptions";
 import { HANDOFF_RECEIPT_PROTOCOL, deferredHandoffSource, persistedHandoffReceipt } from "./handoffDurableReceipt";
@@ -1504,7 +1505,10 @@ export const appRouter = router({
       .query(async ({ctx,input}) => {
         const store=await getActiveStoreById(ctx.user.storeId);
         if(!store)throw new TRPCError({code:"FORBIDDEN",message:"Store unavailable"});
-        try{return await readLocalLedger(new PlatformLocalLedgerStore(),store.id,input.deviceId,input.businessDate,store.timezone);}
+        try{
+          const ledger=await readLocalLedger(new PlatformLocalLedgerStore(),store.id,input.deviceId,input.businessDate,store.timezone);
+          return ledger?{...ledger,storeId:store.id}:null;
+        }
         catch{throw new TRPCError({code:"INTERNAL_SERVER_ERROR",message:"Local detection registry is temporarily unavailable"});}
       }),
     directionalHandoffs: adminProcedure
@@ -1560,6 +1564,47 @@ export const appRouter = router({
             cupsDetected:daily.frigateCounts.cupsDetected,sourceDetail:daily.frigateCounts.sourceDetail,
           }:null,
         };
+      }),
+    comparisonSources: adminProcedure
+      .input(z.object({ businessDate: comparisonBusinessDateSchema }).strict())
+      .query(async ({ ctx, input }) => {
+        const store = await getActiveStoreById(ctx.user.storeId);
+        if (!store) throw new TRPCError({ code: "FORBIDDEN", message: "Store unavailable" });
+        try {
+          return await readComparisonSources(new PlatformComparisonSourcesStore(store.id), store.id, input.businessDate, store.timezone);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "";
+          if (message.includes("future_") || message.includes("invalid_comparison_business_date")) throw new TRPCError({ code: "BAD_REQUEST", message: "The selected business date is invalid or in the future." });
+          return { storeId: store.id, businessDate: input.businessDate, availability: "unavailable" as const, revision: null, document: null };
+        }
+      }),
+    saveIndependentManualComparison: adminProcedure
+      .input(independentManualComparisonInputSchema)
+      .mutation(async ({ ctx, input }) => {
+        const store = await getActiveStoreById(ctx.user.storeId);
+        if (!store) throw new TRPCError({ code: "FORBIDDEN", message: "Store unavailable" });
+        try {
+          return await saveIndependentManualComparison(new PlatformComparisonSourcesStore(store.id), store.id, store.timezone, input);
+        } catch (error) {
+          if (error instanceof ComparisonSourcesConflict) throw new TRPCError({ code: "CONFLICT", message: "Comparison source changed; reload before saving." });
+          const message = error instanceof Error ? error.message : "Comparison source could not be saved";
+          if (message.includes("future_") || message.includes("interval") || message.includes("invalid_") || message.includes("no_explicit_categories")) throw new TRPCError({ code: "BAD_REQUEST", message: "The date, interval, or manual tally is invalid." });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Comparison storage is temporarily unavailable; no source was confirmed." });
+        }
+      }),
+    saveShopifyComparison: adminProcedure
+      .input(shopifyComparisonInputSchema)
+      .mutation(async ({ ctx, input }) => {
+        const store = await getActiveStoreById(ctx.user.storeId);
+        if (!store) throw new TRPCError({ code: "FORBIDDEN", message: "Store unavailable" });
+        try {
+          return await saveShopifyComparison(new PlatformComparisonSourcesStore(store.id), store.id, store.timezone, input);
+        } catch (error) {
+          if (error instanceof ComparisonSourcesConflict) throw new TRPCError({ code: "CONFLICT", message: "Comparison source changed; reload before saving." });
+          const message = error instanceof Error ? error.message : "Shopify source could not be saved";
+          if (message.includes("future_") || message.includes("interval") || message.includes("invalid_") || message.includes("Shopify CSV") || message.includes("Upload a Shopify")) throw new TRPCError({ code: "BAD_REQUEST", message: "The Shopify source, date, interval, or CSV format is invalid." });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Comparison storage is temporarily unavailable; no source was confirmed." });
+        }
       }),
     cameraSizeBreakdown: adminProcedure.input(z.object({businessDate:requiredBusinessDateSchema})).query(async ({ctx,input}) => getHandoffCameraSizeBreakdown({storeId:ctx.user.storeId,businessDate:input.businessDate})),
     classifyHandoffCupSizes: adminProcedure.input(z.object({id:z.number().int().positive()}).strict()).mutation(async ({ctx,input}) => {

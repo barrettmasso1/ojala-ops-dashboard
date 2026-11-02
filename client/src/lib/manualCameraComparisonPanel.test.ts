@@ -49,6 +49,7 @@ describe("ManualCameraComparisonPanel", () => {
   it("renders a genuine manual zero distinctly when a closing record exists", () => {
     Object.assign(state.query.data.manual, { cups: { "4oz": 0, "8oz": 0, Pint: 0, Liter: 0 }, cupsHere: { "4oz": 0, "8oz": 0, Pint: 0, Liter: 0 }, cupsToGo: { "4oz": 0, "8oz": 0, Pint: 0, Liter: 0 } });
     const html = render();
-    expect(html).toContain("Cierre manual</p><p class=\"mt-3 text-2xl font-semibold text-[#24332f]\">0</p>");
+    expect(html).toContain("Cierre declarado EOD</p><p class=\"mt-3 text-2xl font-semibold text-[#24332f]\">0</p>");
+    expect(html).toContain("no es tally manual independiente");
   });
 });

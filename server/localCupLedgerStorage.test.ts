@@ -4,6 +4,7 @@ import {
   LedgerConflict,
   LedgerStorageError,
   LOCAL_LEDGER_READ_HOST,
+  PlatformComparisonSourcesStore,
   PlatformCounterPickupStore,
   PlatformDirectionalHandoffStore,
   PlatformLocalLedgerStore,
@@ -25,6 +26,7 @@ const DAY = "2026-01-20";
 const KEY = `local-cup-ledger/v1/store-1/${DEVICE}/${DAY}.json`;
 const DIRECTIONAL_KEY = `directional-handoffs/v1/store-1/${DEVICE}/${DAY}.json`;
 const COUNTER_PICKUP_KEY = `counter-pickups/v1/store-1/${DEVICE}/${DAY}.json`;
+const COMPARISON_KEY = `comparison-sources/v1/store-1/${DAY}.json`;
 const signedReadUrl = `https://${LOCAL_LEDGER_READ_HOST}/bucket/object.json?X-Amz-Algorithm=fixture&X-Amz-Signature=fixture`;
 
 function observation(index = 1) {
@@ -448,5 +450,103 @@ describe("saveLocalLedger create-only and readback protocol", () => {
     store.readError = new LedgerStorageError("ledger_storage_read_failed_403", "object_get", 403);
     await expect(saveLocalLedger(store, parsed(), 1, "America/Mazatlan")).rejects.toMatchObject({ status: 403 });
     expect(store.calls.map((call) => call.type)).toEqual(["put", "read"]);
+  });
+});
+
+describe("PlatformComparisonSourcesStore private adapter", () => {
+  beforeEach(() => {
+    storageMocks.storageGetSignedUrl.mockReset();
+    storageMocks.storageGetSignedUrl.mockResolvedValue(signedReadUrl);
+    vi.stubGlobal("fetch", vi.fn());
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("reads the exact tenant/date key using identity, strong ETag and no-store", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(response(200, "{}", { etag: '"v1"' }));
+    await expect(new PlatformComparisonSourcesStore(1).read(COMPARISON_KEY)).resolves.toEqual({ text: "{}", etag: '"v1"' });
+    expect(storageMocks.storageGetSignedUrl).toHaveBeenCalledWith(COMPARISON_KEY);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(signedReadUrl);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "GET", redirect: "error", cache: "no-store" });
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({ "Accept-Encoding": "identity" });
+  });
+
+  it.each([KEY, DIRECTIONAL_KEY, COUNTER_PICKUP_KEY, "comparison-sources/v1/store-2/2026-01-20.json", "comparison-sources/v1/store-1/../../other.json"])("rejects any other prefix, tenant, or unsafe key before signing: %s", async key => {
+    await expect(new PlatformComparisonSourcesStore(1).read(key)).rejects.toThrow("invalid_comparison_sources_storage_key");
+    await expect(new PlatformComparisonSourcesStore(1).compareAndPut(key, "{}", null)).rejects.toThrow();
+    expect(storageMocks.storageGetSignedUrl).not.toHaveBeenCalled();
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it.each([401, 403, 500])("keeps GET %s as an error, not absence", async status => {
+    vi.mocked(fetch).mockResolvedValue(response(status));
+    await expect(new PlatformComparisonSourcesStore(1).read(COMPARISON_KEY)).rejects.toMatchObject({ status, stage: "object_get" });
+  });
+
+  it("returns absence only for an actual GET 404", async () => {
+    vi.mocked(fetch).mockResolvedValue(response(404));
+    await expect(new PlatformComparisonSourcesStore(1).read(COMPARISON_KEY)).resolves.toBeNull();
+  });
+
+  it("rejects redirects and untrusted signed read destinations", async () => {
+    vi.mocked(fetch).mockResolvedValue(response(302, "", { location: signedReadUrl }));
+    await expect(new PlatformComparisonSourcesStore(1).read(COMPARISON_KEY)).rejects.toMatchObject({ status: 302 });
+    expect(vi.mocked(fetch).mock.calls[0]?.[1]).toMatchObject({ redirect: "error" });
+    vi.mocked(fetch).mockReset();
+    storageMocks.storageGetSignedUrl.mockResolvedValueOnce("https://other.cloudfront.net/object?signature=fixture");
+    await expect(new PlatformComparisonSourcesStore(1).read(COMPARISON_KEY)).rejects.toThrow("untrusted_storage_url");
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, 'W/"weak"', "malformed"])("rejects missing, weak or malformed ETags", async etag => {
+    vi.mocked(fetch).mockResolvedValue(response(200, "{}", etag ? { etag } : {}));
+    await expect(new PlatformComparisonSourcesStore(1).read(COMPARISON_KEY)).rejects.toMatchObject({ stage: "object_get", status: 200 });
+  });
+
+  it("rejects transformed readback", async () => {
+    vi.mocked(fetch).mockResolvedValue(response(200, "{}", { etag: '"v1"', "content-encoding": "br" }));
+    await expect(new PlatformComparisonSourcesStore(1).read(COMPARISON_KEY)).rejects.toThrow("comparison_sources_storage_content_encoding_present");
+  });
+
+  it("enforces the 128 KiB limit for object reads and writes", async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: { get: (name: string) => name === "content-length" ? String(128 * 1024 + 1) : name === "etag" ? '"v1"' : null },
+      body: { getReader: () => ({ read: vi.fn(), cancel: vi.fn().mockResolvedValue(undefined) }) },
+    } as unknown as Response);
+    await expect(new PlatformComparisonSourcesStore(1).read(COMPARISON_KEY)).rejects.toThrow("storage_object_too_large");
+    vi.mocked(fetch).mockReset();
+    await expect(new PlatformComparisonSourcesStore(1).compareAndPut(COMPARISON_KEY, "x".repeat(128 * 1024 + 1), null)).rejects.toThrow("invalid_comparison_sources_storage_write");
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it("uses create-only or If-Match with the exact signed PUT URL", async () => {
+    const putUrl = "https://bucket.s3.amazonaws.com/comparison.json?X-Amz-Signature=fixture";
+    vi.mocked(fetch).mockResolvedValueOnce(response(200, JSON.stringify({ url: putUrl }))).mockResolvedValueOnce(response(200));
+    await new PlatformComparisonSourcesStore(1).compareAndPut(COMPARISON_KEY, "{}", null);
+    expect(String(vi.mocked(fetch).mock.calls[1]?.[0])).toBe(putUrl);
+    expect(vi.mocked(fetch).mock.calls[1]?.[1]?.headers).toMatchObject({ "If-None-Match": "*" });
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch).mockResolvedValueOnce(response(200, JSON.stringify({ url: putUrl }))).mockResolvedValueOnce(response(200));
+    await new PlatformComparisonSourcesStore(1).compareAndPut(COMPARISON_KEY, "{}", '"old"');
+    expect(vi.mocked(fetch).mock.calls[1]?.[1]?.headers).toMatchObject({ "If-Match": '"old"' });
+  });
+
+  it("rejects a weak/malformed update ETag before asking the platform to sign a PUT", async () => {
+    await expect(new PlatformComparisonSourcesStore(1).compareAndPut(COMPARISON_KEY, "{}", 'W/"weak"')).rejects.toThrow("invalid_comparison_sources_etag");
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it.each([409, 412])("surfaces conditional PUT conflict %s", async status => {
+    const putUrl = "https://bucket.s3.amazonaws.com/comparison.json?X-Amz-Signature=fixture";
+    vi.mocked(fetch).mockResolvedValueOnce(response(200, JSON.stringify({ url: putUrl }))).mockResolvedValueOnce(response(status));
+    await expect(new PlatformComparisonSourcesStore(1).compareAndPut(COMPARISON_KEY, "{}", null)).rejects.toBeInstanceOf(LedgerConflict);
+  });
+
+  it("does not interpret a failed PUT as a saved comparison source", async () => {
+    const putUrl = "https://bucket.s3.amazonaws.com/comparison.json?X-Amz-Signature=fixture";
+    vi.mocked(fetch).mockResolvedValueOnce(response(200, JSON.stringify({ url: putUrl }))).mockResolvedValueOnce(response(403));
+    await expect(new PlatformComparisonSourcesStore(1).compareAndPut(COMPARISON_KEY, "{}", null)).rejects.toMatchObject({ stage: "object_put", status: 403 });
   });
 });

@@ -55,6 +55,16 @@ describe("shopify sales csv helper", () => {
     });
   });
 
+  it("exposes item-count validity without turning missing, fractional or negative quantities into trusted integer totals", () => {
+    const summary = summarizeShopifySalesCsv(`Product title,Net items sold\nSmall (to go),0\nSmall (to go),1.5\nSmall (to go),-2\nSmall (to go),\nSmall (to go),3`);
+    expect(summary.soldRows.map(row => row.netItemsSoldStatus)).toEqual(["integer", "fractional", "negative", "missing", "integer"]);
+    expect(summary.soldRows[0]?.netItemsSold).toBe(0);
+  });
+
+  it("rejects a file without the required Shopify product/count headers", () => {
+    expect(() => summarizeShopifySalesCsv("Name,Quantity\nSmall (to go),2")).toThrow("missing required Product title or Net items sold columns");
+  });
+
   it("keeps normal sample loss within tolerance when the gap is small", () => {
     expect(buildShopifyVarianceSnapshot(500, 470).status).toBe("within-tolerance");
     expect(buildShopifyVarianceSnapshot(500, 420).status).toBe("review");
