@@ -29,6 +29,21 @@ def validate(packet,now):
     if type(packet.get('droppedSincePrevious')) is not int or packet['droppedSincePrevious']<0:raise ValueError('invalid_dropped_count')
     return t
 
+def latest_saved_frame(db):
+    row=db.execute('SELECT MAX(frame_at) FROM frames').fetchone()
+    value=row[0] if row else None
+    if value is None:return None
+    if type(value) not in (int,float) or not math.isfinite(value) or value<=0:raise ValueError('stored_frame_timestamp_invalid')
+    return float(value)
+
+def frame_health(last_saved,last_live,now):
+    recent=last_live is not None and -0.001<=now-last_live<5
+    return {'status':'receiving' if recent else 'waiting_for_live_frames',
+            'lastFrameAt':stamp(last_saved) if last_saved is not None else None,
+            'lastFrameSource':'live_session' if last_live is not None else 'persisted_history' if last_saved is not None else 'not_available',
+            'liveFrameSeenThisRun':last_live is not None,
+            'lastFrameAgeSeconds':round(now-last_saved,3) if last_saved is not None else None}
+
 def main():
     p=argparse.ArgumentParser();p.add_argument('--config',type=Path,required=True);p.add_argument('--seconds',type=float,default=0);a=p.parse_args()
     os.umask(0o077);c=json.loads(a.config.read_text());base=Path(c['basePath']);root=Path(c['stateRoot']);sys.path.insert(0,str(base/'manus-bridge'))
@@ -43,7 +58,7 @@ def main():
         db.executescript('''CREATE TABLE IF NOT EXISTS frames(frame_at REAL PRIMARY KEY,day TEXT NOT NULL,received_at REAL NOT NULL,payload TEXT NOT NULL,sha256 TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS frames_day ON frames(day);
         CREATE TABLE IF NOT EXISTS sessions(id INTEGER PRIMARY KEY,started_at REAL,ended_at REAL,reason TEXT);''');db.commit()
-        count=0;invalid=0;dropped=0;last=None;last_write=0;child=None;last_empty=-float("inf");empty_omitted=0
+        count=0;invalid=0;dropped=0;last=latest_saved_frame(db);last_live=None;last_write=0;child=None;last_empty=-float("inf");empty_omitted=0
         try:
             while not stop[0] and (a.seconds<=0 or time.monotonic()-started<a.seconds):
                 verify_external(base,root,writable=True,required_bytes=32*1024*1024)
@@ -65,7 +80,7 @@ def main():
                             line,buffer=buffer.split(b'\n',1)
                             try:
                                 packet=json.loads(line);at=validate(packet,time.time());text=canonical(packet);day=datetime.fromtimestamp(at,ZoneInfo(c['timezone'])).date().isoformat()
-                                last=max(last or at,at);dropped+=packet['droppedSincePrevious']
+                                last=max(last or at,at);last_live=max(last_live or at,at);dropped+=packet['droppedSincePrevious']
                                 if not packet['objects'] and not packet['droppedSincePrevious'] and at-last_empty<1:
                                     empty_omitted+=1;continue
                                 if not packet['objects']:last_empty=at
@@ -74,8 +89,8 @@ def main():
                             except (ValueError,TypeError,KeyError):invalid+=1
                     if time.monotonic()-last_write>=2:
                         db.commit();verify_external(base,root,writable=True,required_bytes=32*1024*1024)
-                        status='receiving' if last and time.time()-last<5 else 'waiting_for_live_frames'
-                        atomic(root/'health.json',{'checkedAt':stamp(time.time()),'status':status,'lastFrameAt':stamp(last) if last else None,'newFramesThisRun':count,'emptyFramesIntentionallyOmitted':empty_omitted,'emptySamplingSeconds':1,'nonEmptyFramesSubsampled':False,'rejectedPackets':invalid,'reportedDroppedFrames':dropped,'source':'existing_frigate_video_subscriber','newInference':False,'sourceDatabaseWritten':False,'browserRequired':False,'generativeAiUsed':False})
+                        frame_status=frame_health(last,last_live,time.time())
+                        atomic(root/'health.json',{'checkedAt':stamp(time.time()),**frame_status,'newFramesThisRun':count,'emptyFramesIntentionallyOmitted':empty_omitted,'emptySamplingSeconds':1,'nonEmptyFramesSubsampled':False,'rejectedPackets':invalid,'reportedDroppedFrames':dropped,'source':'existing_frigate_video_subscriber','newInference':False,'sourceDatabaseWritten':False,'browserRequired':False,'generativeAiUsed':False})
                         last_write=time.monotonic()
                         if sum(x.stat().st_size for x in root.glob('frames.sqlite3*'))>=int(c.get('maxDatabaseBytes',256*1024*1024)):stop[0]=True
                 selector.close()
